@@ -1,0 +1,47 @@
+# Dev image for vLLM integration work on V100.
+#
+# Mirrors aiagent's verified production stack EXACTLY (see AIAGENT_ENV.md).
+# Same vllm 0.18.0 + torch 2.10.0+cu128 + transformers 4.57.6 combination
+# that aiagent already proved works on this driver/hardware.
+#
+# Two images exist in this directory:
+#   - Dockerfile      (vllm-v100-fp8-test:cu124) — older, used by Phase 1-5 kernel tests
+#   - Dockerfile.dev  (vllm-v100-dev:cu128)      — this file, for vLLM integration
+#
+# The .cu kernel source is portable between both images.
+FROM nvidia/cuda:12.4.0-devel-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# System tools needed for torch JIT extension build (ninja) and general Python.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 python3-pip python3-dev \
+        build-essential ninja-build git curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Modern pip + setuptools — older versions can't resolve some cu128 wheel deps.
+RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel
+
+# Torch 2.10.0 + cu128 (matches aiagent baremetal exactly).
+# The cu128 wheels bundle their own CUDA 12.8 runtime libs in nvidia_*_cu12
+# packages; they forward-compat run on host driver 535 the same way they do
+# baremetal in aiagent's setup.
+RUN pip3 install --no-cache-dir --index-url https://download.pytorch.org/whl/cu128 \
+        torch==2.10.0 \
+        torchvision==0.25.0 \
+        torchaudio==2.10.0
+
+# vLLM + the deps aiagent has, pinned to the same versions.
+# numpy is explicitly installed to avoid the "Failed to initialize NumPy"
+# warning that plagued the cu124 image.
+RUN pip3 install --no-cache-dir \
+        vllm==0.18.0 \
+        transformers==4.57.6 \
+        triton==3.6.0 \
+        flashinfer-python==0.6.6 \
+        safetensors==0.7.0 \
+        numpy==2.2.6
+
+WORKDIR /work
