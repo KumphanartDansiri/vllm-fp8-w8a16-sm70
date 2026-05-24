@@ -11,23 +11,12 @@ Run:
 import os
 import sys
 import torch
-from torch.utils.cpp_extension import load
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+from fp8_w8a16_sm70.ext_loader import load_kernel
 
 # JIT-compile the CUDA extension targeting sm_70 (V100).
 print("Compiling fp8_dequant.cu for sm_70 ...")
-ext = load(
-    name="fp8_dequant_ext",
-    sources=[os.path.join(HERE, "fp8_dequant.cu")],
-    extra_cuda_cflags=[
-        "-O3",
-        "-gencode=arch=compute_70,code=sm_70",
-        "--use_fast_math",
-    ],
-    extra_cflags=["-O3"],
-    verbose=True,
-)
+ext = load_kernel(name="fp8_dequant_ext", verbose=True)
 print("Compiled OK.\n")
 
 

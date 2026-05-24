@@ -21,7 +21,9 @@ import sys
 from pathlib import Path
 
 import torch
-from torch.utils.cpp_extension import load
+
+from fp8_w8a16_sm70 import FP8W8A16Linear
+from fp8_w8a16_sm70.ext_loader import load_kernel
 
 try:
     from safetensors import safe_open
@@ -32,8 +34,6 @@ except ImportError:
 
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
-from fp8_w8a16_module import FP8W8A16Linear  # noqa: E402
 
 MODEL_DIR = Path(os.environ.get("MODEL_DIR", "/mnt/models/Qwen3.6-27B-FP8"))
 TP_SIZE = int(os.environ.get("TP_SIZE", "4"))
@@ -47,13 +47,7 @@ def main():
     dev = torch.device("cuda:0")
 
     print("Compiling kernel ...", flush=True)
-    ext = load(
-        name="fp8_dequant_ext_wmma_test",
-        sources=[str(HERE / "fp8_dequant.cu")],
-        extra_cuda_cflags=["-O3", "-gencode=arch=compute_70,code=sm_70", "--use_fast_math"],
-        extra_cflags=["-O3"],
-        verbose=False,
-    )
+    ext = load_kernel(name="fp8_dequant_ext_wmma_test")
     print("Compiled.\n", flush=True)
     assert hasattr(ext, "fp8_w8a16_gemm_wmma_poc"), "WMMA POC binding missing!"
 

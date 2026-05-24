@@ -27,7 +27,8 @@ except ImportError:
     from safetensors import safe_open
 
 import torch
-from torch.utils.cpp_extension import load
+
+from fp8_w8a16_sm70.ext_loader import load_kernel as _load_kernel
 
 
 HERE = Path(__file__).resolve().parent
@@ -179,15 +180,7 @@ def describe_scale_layout(weight_shape, scale_shape):
 
 def load_kernel():
     print("\nCompiling our kernel...")
-    return load(
-        name="fp8_dequant_ext",
-        sources=[str(HERE / "fp8_dequant.cu")],
-        extra_cuda_cflags=[
-            "-O3", "-gencode=arch=compute_70,code=sm_70", "--use_fast_math",
-        ],
-        extra_cflags=["-O3"],
-        verbose=False,
-    )
+    return _load_kernel(name="fp8_dequant_ext")
 
 
 def validate_one_weight(st_file, weight_key, scale_key):

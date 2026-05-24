@@ -35,7 +35,8 @@ except ImportError:
     from safetensors import safe_open
 
 import torch
-from torch.utils.cpp_extension import load
+
+from fp8_w8a16_sm70.ext_loader import load_kernel as _load_kernel
 
 
 HERE = Path(__file__).resolve().parent
@@ -62,13 +63,7 @@ DISPATCH_M_A2 = 64
 
 def load_kernel():
     print("Compiling kernel ...", flush=True)
-    ext = load(
-        name="fp8_dequant_ext_bench",
-        sources=[str(HERE / "fp8_dequant.cu")],
-        extra_cuda_cflags=["-O3", "-gencode=arch=compute_70,code=sm_70", "--use_fast_math"],
-        extra_cflags=["-O3"],
-        verbose=False,
-    )
+    ext = _load_kernel(name="fp8_dequant_ext_bench")
     print("Compiled.\n", flush=True)
     return ext
 

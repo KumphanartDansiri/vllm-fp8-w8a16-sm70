@@ -29,9 +29,9 @@ except ImportError:
 
 import torch
 import torch.nn as nn
-from torch.utils.cpp_extension import load
+from fp8_w8a16_sm70.ext_loader import load_kernel as _load_kernel
 
-from fp8_w8a16_module import FP8W8A16Linear
+from fp8_w8a16_sm70 import FP8W8A16Linear
 
 
 HERE = Path(__file__).resolve().parent
@@ -40,15 +40,7 @@ MODEL_DIR = Path(sys.argv[1] if len(sys.argv) > 1 else "/mnt/models/Qwen3.5-4B-F
 
 def load_kernel():
     print("Compiling kernel for sm_70 ...")
-    ext = load(
-        name="fp8_dequant_ext",
-        sources=[str(HERE / "fp8_dequant.cu")],
-        extra_cuda_cflags=[
-            "-O3", "-gencode=arch=compute_70,code=sm_70", "--use_fast_math",
-        ],
-        extra_cflags=["-O3"],
-        verbose=False,
-    )
+    ext = _load_kernel(name="fp8_dequant_ext")
     print("Compiled OK.\n")
     return ext
 

@@ -12,7 +12,7 @@ Run:
 """
 import sys
 import torch
-from torch.utils.cpp_extension import load
+from fp8_w8a16_sm70.ext_loader import load_kernel as _load_kernel
 
 
 def section(s):
@@ -76,15 +76,7 @@ def main():
     section("3. JIT-compile fp8_dequant.cu under cu128 / torch 2.10")
     print("  Compiling (may take ~30s on first run, cached after)...")
     try:
-        ext = load(
-            name="fp8_dequant_ext_dev",
-            sources=["/work/fp8_dequant.cu"],
-            extra_cuda_cflags=[
-                "-O3", "-gencode=arch=compute_70,code=sm_70", "--use_fast_math",
-            ],
-            extra_cflags=["-O3"],
-            verbose=False,
-        )
+        ext = _load_kernel(name="fp8_dequant_ext_dev")
         print("  Compile: OK")
     except Exception as e:
         print(f"  FAIL: compile error: {e}")

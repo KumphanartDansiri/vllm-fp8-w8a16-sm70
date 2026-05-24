@@ -18,7 +18,8 @@ import sys
 from pathlib import Path
 
 import torch
-from torch.utils.cpp_extension import load
+
+from fp8_w8a16_sm70.ext_loader import load_kernel
 
 try:
     from safetensors import safe_open
@@ -42,13 +43,7 @@ def main():
     print(f"Profiling shape: M={M}, gate_up_proj per-rank at TP={TP_SIZE}", flush=True)
 
     print("Compiling kernel ...", flush=True)
-    ext = load(
-        name="fp8_dequant_ext_profile",
-        sources=[str(HERE / "fp8_dequant.cu")],
-        extra_cuda_cflags=["-O3", "-gencode=arch=compute_70,code=sm_70", "--use_fast_math"],
-        extra_cflags=["-O3"],
-        verbose=False,
-    )
+    ext = load_kernel(name="fp8_dequant_ext_profile")
     print("Compiled.", flush=True)
 
     # Load gate_up_proj from layer 0 (col-parallel, large N+K)

@@ -39,7 +39,8 @@ except ImportError:
 
 import json
 import torch
-from torch.utils.cpp_extension import load
+
+from fp8_w8a16_sm70.ext_loader import load_kernel as _load_kernel
 
 
 HERE = Path(__file__).resolve().parent
@@ -53,13 +54,7 @@ TOL_ABS = float(os.environ.get("TOL_ABS", "5e-2"))   # FP16 + FP8-dequant noise
 # ─── kernel ────────────────────────────────────────────────────────────────
 def load_kernel():
     print("Compiling kernel for sm_70 ...", flush=True)
-    ext = load(
-        name="fp8_dequant_ext_attn_test",
-        sources=[str(HERE / "fp8_dequant.cu")],
-        extra_cuda_cflags=["-O3", "-gencode=arch=compute_70,code=sm_70", "--use_fast_math"],
-        extra_cflags=["-O3"],
-        verbose=False,
-    )
+    ext = _load_kernel(name="fp8_dequant_ext_attn_test")
     print("Compiled OK.\n", flush=True)
     return ext
 
