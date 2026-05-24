@@ -472,6 +472,77 @@ __global__ void fp8_w8a16_gemm_a3_kernel(
     atomicAdd(&C_fp32[m * N + n], acc);
 }
 
+// ─── Stage 2B: grouped routed A.3 GEMM for MoE decode ─────────────────────
+//
+// Same low-M math as A.3, but each output row can read from a different expert
+// weight matrix. This turns the Python MoE fallback's per-active-expert GEMM
+// launches into one launch for all routed rows.
+//
+// Layouts:
+//   A:          [R, K] FP16 routed activations
+//   expert_ids: [R]    local expert id for each routed row
+//   W:          [E, N, K] FP8 bytes, contiguous
+//   scales:     [E, ceil(N/block_h), ceil(K/block_w)] FP16
+//   C:          [R, N]
+
+__global__ void fp8_w8a16_grouped_routed_gemm_a3_kernel(
+        const __half*  __restrict__ A,
+        const int64_t* __restrict__ expert_ids,
+        const uint8_t* __restrict__ W,
+        const __half*  __restrict__ scales,
+        float*         __restrict__ C_fp32,
+        int R, int E, int N, int K,
+        int block_h, int block_w,
+        int Nb, int Kb,
+        int k_slice_size) {
+    const int n_base   = blockIdx.x * BLOCK_N_A3;
+    const int r        = blockIdx.y;
+    const int slice_id = blockIdx.z;
+    const int tid      = threadIdx.x;
+    const int n        = n_base + tid;
+    if (r >= R || n >= N) return;
+
+    const int64_t expert64 = expert_ids[r];
+    if (expert64 < 0 || expert64 >= E) return;
+    const int expert = (int)expert64;
+
+    const int scale_row = n / block_h;
+    const int k_start   = slice_id * k_slice_size;
+    const int k_end     = min(k_start + k_slice_size, K);
+    const int64_t w_base = ((int64_t)expert * N + n) * K;
+    const int64_t s_base = ((int64_t)expert * Nb + scale_row) * Kb;
+
+    __shared__ __half a_shared[BLOCK_K_A3];
+    float acc = 0.0f;
+
+    for (int k_base = k_start; k_base < k_end; k_base += BLOCK_K_A3) {
+        const int k_load = k_base + tid;
+        a_shared[tid] = (k_load < K) ? A[r * K + k_load] : __float2half(0.f);
+        __syncthreads();
+
+        const int scale_col = k_base / block_w;
+        const float scale_f = __half2float(scales[s_base + scale_col]);
+
+        #pragma unroll
+        for (int kk_outer = 0; kk_outer < BLOCK_K_A3 / K_VEC_A3; ++kk_outer) {
+            const int k_off = k_base + kk_outer * K_VEC_A3;
+            const uint4 wv  = *reinterpret_cast<const uint4*>(&W[w_base + k_off]);
+            const uint8_t* wbytes = reinterpret_cast<const uint8_t*>(&wv);
+
+            #pragma unroll
+            for (int kv = 0; kv < K_VEC_A3; ++kv) {
+                const int kk = kk_outer * K_VEC_A3 + kv;
+                const float w_f = __half2float(__ushort_as_half(
+                    fp8_e4m3_to_fp16_bits(wbytes[kv])));
+                acc += __half2float(a_shared[kk]) * w_f * scale_f;
+            }
+        }
+        __syncthreads();
+    }
+
+    atomicAdd(&C_fp32[r * N + n], acc);
+}
+
 // ─── Phase A.4 POC: WMMA (V100 HMMA.884) FP8 W8A16 GEMM ──────────────────
 //
 // Goal: prove naive WMMA beats the CUDA-core A.1/A.2 kernels by 2-5× at
@@ -785,6 +856,71 @@ torch::Tensor fp8_w8a16_gemm_a3(torch::Tensor input,
     return C_fp32.to(torch::kFloat16);
 }
 
+torch::Tensor fp8_w8a16_grouped_routed_gemm_a3(
+                                 torch::Tensor input,
+                                 torch::Tensor expert_ids,
+                                 torch::Tensor weight,
+                                 torch::Tensor scales,
+                                 int64_t       N,
+                                 int64_t       K,
+                                 int64_t       block_h,
+                                 int64_t       block_w,
+                                 int64_t       k_split) {
+    TORCH_CHECK(input.is_cuda() && expert_ids.is_cuda() &&
+                weight.is_cuda() && scales.is_cuda(),
+                "inputs must be CUDA");
+    TORCH_CHECK(input.dtype()  == torch::kFloat16, "input must be float16");
+    TORCH_CHECK(expert_ids.dtype() == torch::kInt64, "expert_ids must be int64");
+    TORCH_CHECK(weight.dtype() == torch::kUInt8,   "weight must be uint8 (raw FP8 bytes)");
+    TORCH_CHECK(scales.dtype() == torch::kFloat16, "scales must be float16");
+    TORCH_CHECK(input.is_contiguous() && expert_ids.is_contiguous() &&
+                weight.is_contiguous() && scales.is_contiguous(),
+                "inputs must be contiguous");
+    TORCH_CHECK(input.dim() == 2 && input.size(1) == K,
+                "input must be [R, K] with K matching");
+    TORCH_CHECK(expert_ids.dim() == 1 && expert_ids.size(0) == input.size(0),
+                "expert_ids must be [R]");
+    TORCH_CHECK(weight.dim() == 3 && weight.size(1) == N && weight.size(2) == K,
+                "weight must be [E, N, K]");
+    TORCH_CHECK(scales.dim() == 3, "scales must be [E, Nb, Kb]");
+    TORCH_CHECK(scales.size(0) == weight.size(0), "scales E must match weight E");
+    TORCH_CHECK(k_split >= 1, "k_split must be >= 1");
+    TORCH_CHECK(K % (k_split * block_w) == 0,
+                "K must be divisible by k_split * block_w for scale alignment");
+    TORCH_CHECK(K % K_VEC_A3 == 0,
+                "K must be divisible by 16 for vectorized W loads");
+
+    const int R  = (int)input.size(0);
+    const int E  = (int)weight.size(0);
+    const int Nb = (int)((N + block_h - 1) / block_h);
+    const int Kb = (int)((K + block_w - 1) / block_w);
+    TORCH_CHECK(scales.size(1) == Nb && scales.size(2) == Kb,
+                "scales must be [E, ceil(N/block_h), ceil(K/block_w)]");
+
+    const int k_slice_size = (int)K / (int)k_split;
+    auto C_fp32 = torch::zeros({(int64_t)R, (int64_t)N},
+                                torch::TensorOptions().dtype(torch::kFloat32).device(input.device()));
+
+    if (R == 0) {
+        return C_fp32.to(torch::kFloat16);
+    }
+
+    dim3 block(BLOCK_N_A3);
+    dim3 grid(((int)N + BLOCK_N_A3 - 1) / BLOCK_N_A3, R, (int)k_split);
+
+    fp8_w8a16_grouped_routed_gemm_a3_kernel<<<grid, block, 0, V100_FP8_STREAM>>>(
+        reinterpret_cast<__half*>(input.data_ptr<at::Half>()),
+        expert_ids.data_ptr<int64_t>(),
+        weight.data_ptr<uint8_t>(),
+        reinterpret_cast<__half*>(scales.data_ptr<at::Half>()),
+        C_fp32.data_ptr<float>(),
+        R, E, (int)N, (int)K, (int)block_h, (int)block_w, Nb, Kb,
+        k_slice_size);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+    return C_fp32.to(torch::kFloat16);
+}
+
 torch::Tensor fp8_w8a16_gemm_a2(torch::Tensor input,
                                  torch::Tensor weight,
                                  torch::Tensor scales,
@@ -970,6 +1106,11 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Phase A.3 GEMM: A.1 + K-axis CTA splitting via atomic-add. "
           "K_SPLIT extra CTAs share each output cell. Targets low-M decode "
           "where naive/A.1/A.2 grids under-utilize SMs.");
+    m.def("fp8_w8a16_grouped_routed_gemm_a3",
+          &fp8_w8a16_grouped_routed_gemm_a3,
+          "Stage 2B grouped routed A.3 GEMM for MoE decode. Each routed row "
+          "selects its local expert via expert_ids[R], reducing per-expert "
+          "Python launch fanout.");
     m.def("fp8_w8a16_gemm_wmma_poc",       &fp8_w8a16_gemm_wmma_poc,
           "Phase A.4 POC: WMMA-based GEMM on V100 HMMA.884 tensor cores. "
           "Naive 64×64 tile, 4 warps, no double-buffering. POC to gauge "

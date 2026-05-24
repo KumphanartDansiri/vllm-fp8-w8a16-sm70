@@ -1,6 +1,172 @@
-# V100 FP8 W8A16 — Session Wrap-up (2026-05-23, **session 2**)
+# V100 FP8 W8A16 — Session Log
 
 Cold-start summary for picking up in a new session. Read top to bottom.
+
+---
+
+## Session 4 handoff (2026-05-24) — installable package + memory migration
+
+### Project scope
+
+Make DeepSeek-style block-FP8 W8A16 quantized models run on NVIDIA Tesla V100
+(`sm_70`) under vLLM, which upstream rejects for FP8
+(`Fp8Config.get_min_capability = 89`). The immediate target is Qwen3-Next
+hybrid self-attention + linear-attention models served on a 4x V100 box.
+
+Why not GPTQ:
+- FP8 gives roughly 3x larger KV-cache budget than FP16 on this hardware.
+- The real workload hits prefill `M >= 16` and batched serving.
+
+Project root:
+- `/home/kumphanartd/vllm-fp8-w8a16-sm70`
+- Standalone pip-installable package: `fp8-w8a16-sm70`
+- GitLab remote: `tl-group/opensource/vllm-fp8-w8a16-sm70`
+- Branch: `main`
+
+Cold-start ritual: read this file first. It is the source of truth.
+
+### Current package layout
+
+```text
+src/fp8_w8a16_sm70/
+├── fp8_dequant.cu     # all kernels: Phase 1,2,4,5,A.1,A.2,A.3,A.4 WMMA
+├── vllm_serve.py      # monkey-patch wrapper
+├── module.py          # FP8W8A16Linear nn.Module
+└── ext_loader.py      # centralized JIT compile
+```
+
+Entry point:
+
+```bash
+python -m fp8_w8a16_sm70.vllm_serve
+```
+
+### Related folders and external projects
+
+| Path | Role |
+|---|---|
+| `/home/kumphanartd/vllm` | Read-only reference for vLLM internals. Old `customize-v100` branch is historical; do not treat it as canonical. |
+| `/home/you/workspace/flash-attention-v100` | Third-party `sm_70` FlashAttention-2 fork. Wants cu129. Not currently wired into serve path; current deployment uses `TRITON_ATTN`. |
+| `/home/you/workspace/1catai-vllm` | Separate workspace; not detailed in memory. |
+| `/home/aiagent/vllm-env` | Production baseline stack mirrored in `docs/AIAGENT_ENV.md`. |
+| `/mnt/models/Qwen3.5-4B-FP8` | Small dense Qwen3-Next, TP=1 verified. |
+| `/mnt/models/Qwen3.6-27B-FP8` | 27B hybrid: 17 self-attn + 47 linear-attn, TP=4 verified. |
+| `/mnt/models/Qwen3.6-27B-GPTQ-Int4` | aiagent production baseline: same architecture, INT4. |
+| `/mnt/models/Qwen3.5-122B-A10B-FP8` | 122B-A10B MoE FP8, TP=8 verified on 8x V100. |
+| `/home/kumphanartd/vllm/docs/v100reference` | NVIDIA Volta whitepaper / tuning guide PDFs, not in this repo. |
+
+### Dependency envelope
+
+See `REQUIREMENTS.md`.
+
+Hard anchor:
+- vLLM 0.18.x, the last version known here to tolerate `sm_70`.
+- vLLM 0.20 dropped `sm_70`.
+- torch 2.10.0.
+- flashinfer 0.6.6.
+- Python 3.10-3.13.
+- CUDA 12.x only. CUDA 13 drops `sm_70`.
+
+Required serve flags:
+
+```bash
+--enforce-eager \
+--attention-backend TRITON_ATTN \
+--no-enable-chunked-prefill \
+--disable-custom-all-reduce \
+--quantization fp8
+```
+
+Deployment choice:
+- `+cu128` wheels in a `vllm-v100-dev:cu128` docker image.
+
+### Chronology
+
+Session 1: get it working at all.
+- Wrote the monkey-patch wrapper to replace `Fp8LinearMethod` with
+  `FP8W8A16Linear`.
+- Built `sm_70` FP8 dequant + GEMM kernels: Phase 1-5 and A.1-A.3.
+- Verified coherent end-to-end generation at TP=1 on the 4B model.
+- Wrote diagnostic toolkit: offline attention-shape test, byte-hash dump,
+  microbenchmarks.
+
+Session 2: fix TP>1 garbage tokens and characterize performance.
+- Symptom: TP=4 inference produced repeated `"!!!!!"`.
+- Root cause: every custom kernel launch used default stream 0 and raced with
+  NCCL on non-default streams, consuming half-written output and cascading to
+  NaNs/token 0.
+- Fix: all launches pass `at::cuda::getCurrentCUDAStream()` via the
+  `V100_FP8_STREAM` macro.
+- Steady-state performance reached GPTQ-Int4 parity: decode 6.025 vs 6.114
+  tok/s, prefill roughly +15%, wall roughly +1.5%.
+- Found `/tmp/torchinductor_root` was ephemeral; persistent mount reduced
+  cold restart from roughly 14 minutes to roughly 40 seconds after cache warmup.
+
+Session 3: WMMA / Tensor Cores for prefill.
+- Extended microbenchmarks with an M sweep (`BENCH_SWEEP=1`).
+- Found A.2 CUDA-core kernel was 10-15x behind cuBLAS at M=64, and 30-50x
+  behind at M=512+.
+- End-to-end parity was partly because the GPTQ baseline on `sm_70` also falls
+  back to CUDA cores; Marlin needs `sm_75+`.
+- Wrote `fp8_w8a16_gemm_wmma_poc`: 64x64 tile, 4 warps, double-buffered A/B,
+  per-warp 16x16 FP32 staging.
+- Result: 9-13x over A.2 at M=64-4096, with 22-25 TFLOP/s peak.
+- Dispatch threshold: `FP8_WMMA_MIN_M=64`, with A.2 tail fallback.
+
+WMMA end-to-end A/B:
+
+| M | WMMA off | WMMA on | Speedup |
+|---|---:|---:|---:|
+| 128 | 747 ms | 283 ms | 2.64x |
+| 512 | 2768 ms | 479 ms | 5.77x |
+| 1024 | 5472 ms | 869 ms | 6.30x |
+
+Other WMMA findings:
+- Init engine improved from 61 s to 40 s.
+- 95% of Linear calls hit WMMA during serving.
+- Shared-memory padding did not help; bank conflicts were not the bottleneck.
+- Dropping `C_smem` helped by 12-16%, occupancy 25% -> 37%.
+- Double-buffering A/B helped by only about 1%; `stall_wait` dominated.
+
+Session 4:
+- Landed WMMA path: commit `9c773d1`.
+- Restructured to `src/fp8_w8a16_sm70` package layout: commit `695cc90`.
+- Updated imports and docker paths: commit `17790ef`.
+- Project directory moved from `/home/kumphanartd/vllm/experiments/v100_fp8_test`
+  to `/home/kumphanartd/vllm-fp8-w8a16-sm70`.
+
+### Open and deferred
+
+- Further WMMA optimization is deferred. Closing the remaining 3-4x gap to
+  cuBLAS likely needs larger tiles or breaking the `c_frag` dependency chain.
+  Current speedup is already transformative and prefill is no longer the
+  bottleneck at typical M.
+- FP8 MoE is now verified. `/mnt/models/Qwen3.5-122B-A10B-FP8` loads and
+  serves coherently on 8x V100 with the Volta block-FP8 MoE fallback plus the
+  active-expert-list optimization. Steady 32k-context agent decode is roughly
+  2.5-2.7 tok/s. Stage 2B is the next work item: optimize MoE, which accounts
+  for ~71-74% of decode time.
+- A.3 `atomicAdd` is not bit-deterministic across runs. This is acceptable for
+  serving; document only.
+- `--enforce-eager` cannot be dropped because vLLM compiled paths assume
+  `sm_80+`.
+- `flash-attention-v100` integration is not done and would require a cu129
+  toolchain decision.
+
+### Working-style notes
+
+- Relay GPT/Claude peer review carefully. Validate claims and do not defer or
+  argue without evidence.
+- Measure before recommending optimization; architectural intuition is not
+  sufficient evidence.
+- Custom CUDA kernels in PyTorch extensions must use
+  `at::cuda::getCurrentCUDAStream()`.
+
+---
+
+## V100 FP8 W8A16 — Session Wrap-up (2026-05-23, session 2)
+
+Historical session-2 summary preserved below.
 
 > **History note:** session 1 (earlier on 2026-05-23) brought 4B+TP=1 working and
 > initially loaded 27B+TP=4 but inference produced `"!!!!!"`. Session 2 (this one)
@@ -365,7 +531,10 @@ So we are competitive at decode, behind at prefill. Closing the prefill gap = WM
 
 6. **First-inference Triton compile is per-shape.** Any new prompt shape vllm hasn't seen triggers up to 5-15 min of recompilation. Server-side this is bounded by `VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS=1800` (set by `run_docker.sh`). Client-side curl needs `--max-time 1200+`.
 
-7. **MoE FP8 models untested.** Qwen3.5-122B-A10B-FP8 was downloaded but never loaded; it's MoE which we haven't validated.
+7. **Historical note, superseded 2026-05-24:** this section originally said
+   MoE FP8 models were untested. That is no longer true:
+   Qwen3.5-122B-A10B-FP8 now loads and serves on 8x V100. See the Stage 2A
+   record at the end of this log.
 
 ---
 
@@ -444,5 +613,254 @@ At prefill (M≥32), our CUDA-core kernel runs at ~3 tok/s vs cuBLAS FP16 at ~10
 - Verified env: see `AIAGENT_ENV.md`
 - Models: `/mnt/models/Qwen3.5-4B-FP8`, `/mnt/models/Qwen3.6-27B-FP8`
 - aiagent's prod baseline: `/home/aiagent/vllm-env/bin/python -m vllm.entrypoints.openai.api_server ...` (see AIAGENT_ENV.md for full command)
+
+## 2026-05-24: Qwen3.5-122B-A10B-FP8 on 8x V100, Stage 2A complete
+
+`/mnt/models/Qwen3.5-122B-A10B-FP8` now loads and serves coherently on 8x V100
+with vLLM 0.18.0 through `src/fp8_w8a16_sm70/vllm_serve.py`.
+
+Implemented MoE support:
+- Bypass stock `Fp8MoEMethod` backend selection on Volta. Stock vLLM raises
+  `No FP8 MoE backend supports deployment configuration` on `sm_70`.
+- Keep block-FP8 MoE weights in model-loaded layouts and cast scales to FP16.
+- Route MoE expert GEMMs through existing V100 FP8 W8A16 dense kernels.
+- Preserve legacy path with `VLLM_V100_FP8_MOE_ACTIVE_LIST=0`.
+- Default-on Stage 2A optimization:
+  `VLLM_V100_FP8_MOE_ACTIVE_LIST=1`.
+
+Stage 2A optimization details:
+- Before active-list, the MoE fallback scanned all 256 local experts per layer
+  call with `mask.any().item()`.
+- Profile showed `mask_sync` around 12-18 ms per MoE call, roughly 45% of MoE
+  layer wall time.
+- Active-list fix uses:
+
+```python
+expert_iter = torch.unique(local_topk[local_topk >= 0]).tolist()
+for local_expert in expert_iter:
+    ...
+```
+
+- This intentionally does one CPU/GPU sync per MoE call, not one `.item()` per
+  active expert.
+- Profile after fix: `empty_iters=0`, `skipped_experts≈245`, MoE wall dropped
+  from roughly 28-34 ms/layer-call to roughly 9-12 ms/layer-call in diagnostic
+  mode.
+
+Validation:
+- Coherent deterministic completions:
+  - `"The capital of France is Paris..."`
+  - V100 paragraph prompt with `temperature=0`.
+- Stage 2A warmed profile-off 32-token prompt:
+  - `real 0m12.87s` for 32 output tokens, roughly 2.5 tok/s.
+- Legacy scan with `VLLM_V100_FP8_MOE_ACTIVE_LIST=0` returns to roughly
+  0.7-0.9 tok/s.
+- 32k context server starts and serves the local AI agent:
+  - `--max-model-len 32768`
+  - `--max-num-batched-tokens 32768`
+  - `--max-num-seqs 1`
+  - KV cache memory around 4.66 GiB per GPU.
+  - GPU KV cache size around 101,904 tokens.
+  - Maximum concurrency for 32,768 tokens/request reported as 11.70x.
+  - Prompt throughput around 750-836 tok/s on the agent request.
+  - Decode throughput around 2.5-2.7 tok/s.
+
+Useful serve command for real agent use:
+
+```bash
+cd ~/vllm-fp8-w8a16-sm70
+GPUS=all PORT=8001 \
+./docker/run_docker.sh serve \
+    --model /mnt/models/Qwen3.5-122B-A10B-FP8 \
+    --served-model-name qwen-v100 \
+    --quantization fp8 --dtype float16 --enforce-eager \
+    --attention-backend TRITON_ATTN --tensor-parallel-size 8 \
+    --max-num-seqs 1 --max-num-batched-tokens 32768 \
+    --gpu-memory-utilization 0.80 --max-model-len 32768 \
+    --no-enable-chunked-prefill --disable-custom-all-reduce \
+    --host 0.0.0.0 --port 8000 \
+    --enable-auto-tool-choice --tool-call-parser qwen3_coder
+```
+
+Use `--served-model-name qwen-v100` or configure the client to send the exact
+model path. A local client request with `model=gemini-2.5-flash` correctly
+returned 404 because that served model name does not exist.
+
+Diagnostic env vars:
+- `VLLM_V100_FP8_MOE_PROFILE=1`
+- `VLLM_V100_FP8_MOE_PROFILE_EVERY=64`
+- `VLLM_V100_FP8_MOE_GROUPED_ROUTED_GEMM=1` (Stage 2B experimental)
+- `VLLM_V100_FP8_DECODE_BREAKDOWN=1`
+- `VLLM_V100_FP8_DECODE_BREAKDOWN_EVERY=32`
+
+Do not leave decode breakdown enabled for production; it records hundreds of
+CUDA events per token and spams logs. It is for measurement only.
+
+Full decode breakdown instrumentation:
+- Hooked only coarse Qwen3-Next/Qwen3.5 modules to avoid double-counting:
+  - `Qwen3NextSparseMoeBlock`
+  - `Qwen3NextGatedDeltaNet`
+  - `Qwen3_5GatedDeltaNet` mapped as GDN
+  - `Qwen3NextAttention`
+  - `LogitsProcessor`
+- Explicitly does not hook decoder-layer parents.
+- Uses `register_forward_pre_hook(..., with_kwargs=True)` and
+  `register_forward_hook(..., with_kwargs=True)` because GDN/attention are
+  called with keyword args (`hidden_states=...`).
+- Counts actual decode tokens at `LogitsProcessor`.
+
+Steady 32k-context breakdown from the local AI-agent run:
+
+| Section | ms/token | Share |
+|---|---:|---:|
+| Qwen3NextSparseMoeBlock | ~268-278 | ~71-74% |
+| Qwen3NextGatedDeltaNet | ~59-66 | ~16-17% |
+| Qwen3NextAttention | ~27-30 | ~7-8% |
+| LogitsProcessor | ~0.6-0.9 | ~0.2% |
+| Other residual | ~5-22 | ~1-6% |
+| Total | ~377-382 | ~100% |
+
+Interpretation:
+- MoE is the dominant decode cost by a wide margin.
+- FlashAttention-V100 is not the next large lever; full attention is only
+  around 7-8% of decode.
+- GDN/linear-attention is second but still much smaller than MoE.
+- Stage 2B MoE optimization is technically justified.
+
+Expected Stage 2B upside math:
+- Current: ~378 ms/token, roughly 2.6 tok/s.
+- If MoE drops from ~270 ms/token to ~160 ms/token:
+  total becomes ~268 ms/token, roughly 3.7 tok/s.
+- If MoE drops to ~100 ms/token:
+  total becomes ~208 ms/token, roughly 4.8 tok/s.
+- Realistic target range for a good Stage 2B: 4-5 tok/s.
+
+Stage 2B starting point:
+- Optimize `_our_moe_apply` / expert dispatch, not attention.
+- Current path is expert-major Python looping:
+  `index_select -> w13 GEMM -> activation -> w2 GEMM -> index_add_`.
+- Active-list removed empty expert scans, but remaining cost is per-active-
+  expert work, tiny GEMM launch overhead, `nonzero`, `index_select`, and
+  `index_add_`.
+- Reasonable Stage 2B options:
+  1. Sort/permutation grouping by expert id, then contiguous slices. This can
+     reduce `nonzero`/indexing overhead and make launch patterns cleaner.
+  2. Batched/grouped MoE CUDA kernel for all active experts. Best upside, more
+     work.
+  3. Keep current FP8 dense GEMM kernels as inner kernels initially; only fuse
+     routing/scatter after measurement proves it is worth it.
+
+Stage 2B first implementation attempt:
+- Added an experimental grouped-routed A.3 CUDA kernel:
+  `fp8_w8a16_grouped_routed_gemm_a3`.
+- Purpose: reduce MoE decode GEMM launch fanout from two launches per active
+  expert to one grouped `w13` launch plus one grouped `w2` launch per MoE layer
+  call.
+- Python path is guarded by:
+  `VLLM_V100_FP8_MOE_GROUPED_ROUTED_GEMM=1`.
+- Default remains off until V100 validation. The Stage 2A active-list path is
+  still the production default.
+- Added bench controls for the first measurement session:
+  - `VLLM_V100_FP8_MOE_GROUPED_MAX_ROUTE_SLOTS=32` keeps grouped GEMM scoped
+    to decode/small-batch routes and avoids long-prefill WMMA regressions.
+  - `VLLM_V100_FP8_MOE_GROUPED_K_SPLIT=auto|1|2|4|8` supports hard-pinned
+    maximum `k_split` sweeps instead of guessing whether the natural dispatcher
+    chose 8 or 4. The per-GEMM selector falls back to a lower valid split when
+    a small K cannot satisfy the requested split; on Qwen3.5-122B-A10B-FP8 the
+    first grouped log showed `hidden=3072`, `intermediate=128`, so natural
+    dispatch is `w13_k_split=8`, `w2_k_split=1`.
+  - `VLLM_V100_FP8_MOE_GROUPED_LOG_ONCE=1` prints the first grouped dispatch:
+    hidden size, intermediate size, route slots/count, selected `k_split`s,
+    and whether `view(torch.uint8).contiguous()` was zero-copy.
+- Local static checks passed (`py_compile`, `git diff --check`). JIT compile
+  could not be run in the current shell because `torch` is not installed there;
+  validate inside the Docker/vLLM environment before enabling in production.
+
+Stage 2B first V100 measurement (2026-05-24):
+- Environment: 8x V100, `/mnt/models/Qwen3.5-122B-A10B-FP8`, TP=8,
+  `max_model_len=32768`, `max_num_seqs=1`, profile off unless noted.
+- Coherence gate passed with `VLLM_V100_FP8_MOE_GROUPED_ROUTED_GEMM=1`:
+  prompt `"The capital of France is"` produced coherent greedy Paris text.
+- JIT compile passed inside Docker/vLLM.
+- First grouped dispatch log for Qwen3.5-122B-A10B-FP8:
+  `M=1`, `route_slots=8`, `route_count=8`, `hidden=3072`,
+  `intermediate=128`, `block=(128,128)`, uint8 views were zero-copy.
+- Important sweep detail: `intermediate=128` means `w2` can only use
+  `k_split=1`. The env sweep pins a maximum split per GEMM, so rows below are
+  `w13_k_split=N`, `w2_k_split=1`.
+
+Profile-off short sweep, same prompt, one warmup, then 32/64 output tokens:
+
+| Variant | w13 split | w2 split | 32 tok wall | 64 tok wall | Fit decode |
+|---|---:|---:|---:|---:|---:|
+| Stage 2A active-list baseline | per expert | per expert | 13.30 s | 25.40 s | 2.646 tok/s |
+| Grouped routed | 8 | 1 | 7.91 s | 14.03 s | 5.225 tok/s |
+| Grouped routed | 4 | 1 | 7.93 s | 14.12 s | 5.169 tok/s |
+| Grouped routed | 2 | 1 | 7.84 s | 14.00 s | 5.197 tok/s |
+| Grouped routed | 1 | 1 | 7.93 s | 14.06 s | 5.219 tok/s |
+
+Interpretation:
+- Grouped routed GEMM is a real Stage 2B win: roughly 1.98x decode throughput
+  versus Stage 2A on the short sweep.
+- `k_split` is not very sensitive for this shape; 8 was nominally fastest, but
+  1/2/4 are within measurement noise. Natural `auto` chooses 8 for `w13` and 1
+  for `w2`, which is a reasonable default.
+- The "atomics are waste" hypothesis did not show a clear win; `k_split=1`
+  was near-tied, not clearly better.
+
+Profile-on grouped `w13=8,w2=1` notes:
+- Profile-on wall is much slower and should not be used for throughput
+  decisions (`32` tokens took 24.06 s, 1.33 tok/s).
+- Cumulative profile logs are polluted by model warmup/prefill at the beginning;
+  read later lines where `active_hist` is dominated by `8:*` decode calls.
+- Late cumulative grouped MoE profile around `calls=1600`:
+  `avg_wall=5.647ms` per MoE call, `routing=0.036ms`, `mask_sync=0.469ms`,
+  `index_select=0.317ms`, `w13_gemm=0.981ms`, `activation=0.269ms`,
+  `w2_gemm=0.577ms`, `scatter=0.904ms`.
+- Remaining grouped-MoE hotspots are now scatter and `w13` GEMM, not empty
+  expert scans.
+- Profile output currently reports nonsensical cumulative `routed_items` during
+  warmup because prefill/warmup calls enter the same aggregate; fix/segment the
+  profile accounting before using those counters as facts.
+
+Long profile-off confirmation:
+- Same prompt, one warmup, `max_tokens=200`; the model stopped naturally before
+  200 tokens in both cases, so compare actual completion-token throughput.
+- Stage 2A active-list baseline: `151` completion tokens in `57.66 s`,
+  `2.619 tok/s`.
+- Grouped routed `auto` (`w13_k_split=8`, `w2_k_split=1`): `148` completion
+  tokens in `30.41 s`, `4.866 tok/s`.
+- Long-run result confirms the short-sweep conclusion: grouped routed decode is
+  about `1.86x` faster than Stage 2A on this prompt and server envelope.
+
+Stage 2C plan (after v0.2.0):
+1. Default-on grouped routed GEMM with
+   `VLLM_V100_FP8_MOE_GROUPED_MAX_ROUTE_SLOTS=32` safety guard.
+   **DONE in v0.2.0.**
+2. Fix grouped profile accounting. Cumulative `routed_items` and per-section
+   totals currently mix warmup/prefill/decode; segment by phase or shape
+   before trusting further optimization signals.
+3. Optimize scatter/indexing. Profile shows `index_add_` (~0.9ms) and
+   `nonzero`/`index_select` materialization are the remaining grouped-MoE
+   hotspots. Candidates: fuse scatter into the `w2` epilogue (write directly
+   to `out[token_idx]` via atomicAdd), FP32 accumulator on `out`, fold
+   `route_w` into the `w2` epilogue. Not CUDA graphs and not grouped-WMMA
+   yet -- both are larger and farther from the measured signal.
+4. Cache small per-layer constants. `expert_map.to(device=...)` is cheap per
+   call but accumulates over 48 MoE calls x every decode token; cache once at
+   PWAL. Keep the zero-copy uint8 view assumption documented.
+5. Harden grouped CUDA kernel. The partial-CTA `__syncthreads()` pattern is
+   inherited from A.3 and safe for current Qwen shapes (`N` is
+   `BLOCK_N_A3`-aligned), but should be guarded before broadening model
+   support.
+
+Target: push grouped long-run decode from ~4.9 tok/s toward 5.5+ tok/s
+without touching attention.
+
+DeepSeek V4 note:
+- DeepSeek-V4-Flash is not a small extension of this work. Official Flash uses
+  FP4 expert weights plus FP8 other weights and likely vLLM 0.20+ DeepSeek-V4
+  code. Current repo supports block-FP8 W8A16, not FP4/W4A16 experts.
+- Treat DeepSeek V4 as a separate project, not Stage 2B.
 
 End of log.
