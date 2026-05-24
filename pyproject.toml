@@ -1,0 +1,35 @@
+[project]
+name = "fp8-w8a16-sm70"
+version = "0.1.0"
+description = "FP8 W8A16 (block-quantized) kernel and vLLM integration for NVIDIA V100 (sm_70). Includes a Volta WMMA tensor-core prefill path."
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Kumphanart Dansiri" }]
+
+# Runtime deps. vLLM 0.18 anchors the rest of the stack; see REQUIREMENTS.md
+# for the layered rationale (vllm hard pins vs deployment choices).
+dependencies = [
+    "torch==2.10.0",
+    "vllm==0.18.0",
+    "safetensors>=0.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "tblib",
+]
+
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# Ensure the .cu kernel source ships with the package so `load_kernel()` can
+# find it both in dev (editable install) and in any future wheel build.
+[tool.setuptools.package-data]
+"fp8_w8a16_sm70" = ["*.cu"]
