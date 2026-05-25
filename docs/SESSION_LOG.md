@@ -863,4 +863,119 @@ DeepSeek V4 note:
   code. Current repo supports block-FP8 W8A16, not FP4/W4A16 experts.
 - Treat DeepSeek V4 as a separate project, not Stage 2B.
 
+## Stage 2C (2026-05-25): profile-mode hygiene + layer caches
+
+Result: +5-7% production decode on Qwen3.5-122B-A10B-FP8 TP=8 vs v0.2.0
+(4.866 -> 5.093 tok/s warmed-mean of 4 curls, profile-off, default config).
+Attribution: layer caches, not the route-prep fast path.
+
+Done over two Claude/GPT review rounds:
+
+Step A -- profile segmentation. Stats keyed by
+`(phase, M, route_slots, grouped, fast)`. Phase tag derived as
+`decode if M <= MOE_DECODE_M_MAX and route_slots <= MOE_GROUPED_MAX_ROUTE_SLOTS
+else prefill`. Per-rank warmup-skip (200 calls default) before recording.
+Reports distinguish `cuda_event_sections_ms` from `wall_sections_ms` and
+compute `unattributed = call_wall - both`. Top-6 buckets and top-3 layers
+per cycle.
+
+Step B -- profile-mode hygiene. `active_experts_stat` (torch.unique on
+local_expert_ids) gated behind `VLLM_V100_FP8_MOE_PROFILE_ACTIVE_STAT=1`,
+default off (was ~6% of the MoE call when measured). Finer wall timers
+`py_inner_loop`, `py_dispatch_w13`, `py_dispatch_w2` added inside the
+grouped path so the unattributed bucket can be further split.
+
+Step C -- route-prep fast path. When `expert_map is None` (TP-replicated
+experts, no EP filtering -- the Qwen3.5-122B-A10B-FP8 case), replace
+`nonzero(local_topk >= 0)` + `local_topk[token_idx, route_idx].to(int64)`
++ `topk_weights[token_idx, route_idx].to(float16)` with
+`local_topk.reshape(-1).to(int64).contiguous()` +
+`topk_weights.reshape(-1).to(float16)` + a process-cached `token_idx`
+keyed by `(M, K, device)`. Removed ~0.286 ms/call of GPU-stream work.
+
+Step D -- free caches. `_get_layer_uint8_weights(layer)` caches
+`layer.w13_weight.view(torch.uint8).contiguous()` and same for w2 as
+`layer._v100_w13_u8` / `layer._v100_w2_u8`. `_get_layer_expert_map_dev`
+caches `expert_map.to(device=...)` (dormant for this model where
+`expert_map is None`). These caches run regardless of fast-path setting.
+
+Decode-only profile bucket (`phase=decode, M=1, route_slots=8, grouped=1`)
+on Qwen3.5-122B-A10B-FP8, `VLLM_V100_FP8_MOE_PROFILE=1`, steady state:
+
+| Config | avg_wall | cuda_sections | wall_sections | unattributed |
+|---|---:|---:|---:|---:|
+| Step A (fast=0) | 1.802 ms | 0.810 | 0.207 | 0.785 |
+| Step C+D (fast=1) | 1.740 ms | 0.210 | 1.381 | 0.149 |
+
+Step C+D cuda-event delta -0.6 ms/call is real but the `wall_sections`
+growth is mostly accounting (`py_inner_loop` double-counts the inner wall
+timers it wraps). True `avg_wall` saving: 0.062 ms/call x 48 layers = 3
+ms/token under profile-on.
+
+Profile-off warmed A/B (4 curls per leg, `max_tokens=200`, mean):
+
+| Config | warmed tok/s |
+|---|---:|
+| v0.2.0 baseline | 4.866 |
+| Step C+D, fast_route_prep=1 | 5.027 |
+| Step C+D, fast_route_prep=0 | 5.093 |
+
+fast_route_prep=1 is ~1.3% slower than fast=0 in production despite the
+CUDA-stream savings. Hypothesis: the cached `token_idx` tensor has a
+long-lived GPU address that competes with other tensors' L2 footprint, or
+the reshape + identity-cast + contiguous chain has slightly more Python
+overhead than the gather it replaces at this decode shape, or Triton
+autotune state diverged. Either way the data is clear.
+
+Decision: ship default `fast_route_prep=0`. Keep Step C code behind env
+flag (`VLLM_V100_FP8_MOE_FAST_ROUTE_PREP=1` opts in) for future models
+where the pipeline may not absorb the saved GPU work. Keep all Step D
+caches on (they deliver the actual +5-7% lift).
+
+Decode-breakdown cross-check (profile-on, 32-token window):
+- `Qwen3NextSparseMoeBlock` 145.8 ms/token (54.5%, calls=1440 -> 45/tok;
+  later window 48/tok = 1 per layer)
+- `Qwen3NextGatedDeltaNet` 69.2 ms/token (25.9%)
+- `Qwen3NextAttention` 43.9 ms/token (16.4%)
+- `LogitsProcessor` 17.2 ms/token (6.4%)
+- Total: 267.5 ms/token = 3.74 tok/s under profile-on (consistent with
+  per-call sync overhead).
+
+The 145.8 ms `SparseMoeBlock` includes ~84 ms of `_our_moe_apply`
+(48 x 1.74) plus ~62 ms of router/topk/combine/shared-expert wrapping
+**outside** our profile coverage. That gap is now the largest single
+target for Stage 2D.
+
+Lessons:
+
+- CUDA-event savings do not imply wall savings under per-call-sync profile
+  mode. The CPU/GPU pipeline already overlaps Python launch with prior GPU
+  work; removing kernels from the stream can leave wall unchanged if the
+  sync still has to wait for downstream queued work. Profile-off A/B is
+  the only trustworthy throughput proxy.
+- Prior "5.65 ms/MoE call, scatter dominates" reading was warmup/prefill
+  contamination. Segmented profile gave 1.74 ms/MoE call decode-only with
+  scatter at 0.054 ms (3% of call). The plan was rewritten mid-Stage 2C
+  on the corrected data; the original "fused scatter" lever was
+  deprioritized.
+- Two-round Claude/GPT peer review (in [[feedback-gpt-review-pattern]])
+  caught a label-swap in GPT's first A/B analysis and a stream-overlap
+  framing error in Claude's. Both were corrected before code landed.
+
+Stage 2D candidates (deferred, not opened yet):
+
+1. Instrument `Qwen3NextSparseMoeBlock` directly to break out router/topk
+   vs `_our_moe_apply` vs combine/shared-experts. Target the ~60 ms/token
+   wrapper gap.
+2. GDN/FLA Mamba kernel work (60+ ms/token, 17-25% of decode).
+3. Fused MoE kernel (subsumes w13 + activation + w2 + scatter into one
+   launch). Only if (1) and (2) are exhausted.
+
+Not Stage 2D:
+- FlashAttention-V100 (self-attn 16% in profile-on, ~7-8% in profile-off;
+  cu128 -> cu129 toolchain bump still not justified).
+- CUDA graphs (`--enforce-eager` requirement).
+- Deferred-sync profile mode (not needed once `py_inner_loop` separates
+  wall from sync wait).
+
 End of log.

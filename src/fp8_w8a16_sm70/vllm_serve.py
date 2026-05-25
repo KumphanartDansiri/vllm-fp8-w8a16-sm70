@@ -123,15 +123,74 @@ _MOE_GROUPED_LOGGED = False
 _MOE_PROFILE = os.environ.get(
     "VLLM_V100_FP8_MOE_PROFILE", "0").lower() not in ("0", "off", "false", "")
 _MOE_PROFILE_EVERY = int(os.environ.get("VLLM_V100_FP8_MOE_PROFILE_EVERY", "64"))
-_MOE_PROFILE_STATS = {}
-_MOE_PROFILE_TOTAL_CALLS = 0
-_MOE_PROFILE_SECTIONS = (
+# Stage 2C, Step A: per-rank warmup-skip + phase tagging. Each rank tracks
+# its own MoE-call counter; the first N calls are discarded before stats
+# recording begins, so late-decode signals are not polluted by warmup/profile-
+# run or model prefill. Reporting is still rank-gated to rank 0 / -1.
+_MOE_PROFILE_WARMUP_CALLS = int(os.environ.get(
+    "VLLM_V100_FP8_MOE_PROFILE_WARMUP_CALLS", "200"))
+# Phase tag is M-driven so we don't need to plumb max_num_seqs through the
+# monkey-patch. A call counts as 'decode' iff M <= MOE_DECODE_M_MAX AND
+# route_slots <= MOE_GROUPED_MAX_ROUTE_SLOTS. Anything else is 'prefill'.
+# The phase label is best-effort; bucket keying below also carries M and
+# route_slots so even an imperfect label keeps the shape bucket honest.
+_MOE_DECODE_M_MAX = int(os.environ.get(
+    "VLLM_V100_FP8_MOE_DECODE_M_MAX", "8"))
+# Stage 2C, Step B: instrumentation-only torch.unique(local_expert_ids) is
+# ~6% of the MoE call when enabled. Off by default; turn on only when
+# debugging active-expert distribution.
+_MOE_PROFILE_ACTIVE_STAT = os.environ.get(
+    "VLLM_V100_FP8_MOE_PROFILE_ACTIVE_STAT", "0").lower() not in (
+        "0", "off", "false", "")
+# Stage 2C, Step C: reshape-based route-prep when expert_map is None.
+# Replaces nonzero + local_expert_ids gather + route_w gather with
+# topk_ids.reshape(-1) + a cached token_idx. The CUDA-event savings were
+# real (~14 ms/token of stream work) but did NOT translate to production
+# wall time on Qwen3.5-122B-A10B-FP8 TP=8 -- the CPU/GPU pipeline already
+# overlapped that work, and the fast path measured ~1.3% slower in a
+# warmed profile-off A/B (4 curls per leg). Default-off; keep code behind
+# env flag for experimentation on different shapes / models.
+_MOE_FAST_ROUTE_PREP = os.environ.get(
+    "VLLM_V100_FP8_MOE_FAST_ROUTE_PREP", "0").lower() not in (
+        "0", "off", "false", "")
+# Process-local cache for the synthetic token_idx tensor. Keyed by
+# (M, K, device-str). Allocated once on first need; reused for the rest
+# of the process lifetime.
+_MOE_TOKEN_IDX_CACHE = {}
+_MOE_PROFILE_STATS = {}        # bucket_key: (phase, M, route_slots, grouped, fast) -> stats
+_MOE_LAYER_STATS = {}          # prefix -> stats (kept across buckets for offender ranking)
+_MOE_PROFILE_TOTAL_CALLS = 0   # per-rank
+_MOE_PROFILE_RECORDED = 0      # per-rank: calls actually recorded into stats
+# CUDA-event-timed sections (measure GPU elapsed time accurately):
+_MOE_CUDA_EVENT_SECTIONS = (
+    "nonzero",
+    "local_expert_ids",
+    "route_w_build",
     "index_select",
+    "route_weight_apply",
+    "hidden_contig",
     "w13_gemm",
     "activation",
     "w2_gemm",
     "scatter",
 )
+# Wall-timed sections (perf_counter; measures launch + Python overhead, not
+# GPU elapsed; useful for residual hunting but must not be conflated with
+# cuda_event_sections_ms in reporting):
+_MOE_WALL_SECTIONS = (
+    "out_zeros",
+    "view_uint8_contig",
+    "routing",
+    "active_experts_stat",
+    # Stage 2C, Step B: finer wall timers to attribute the unattributed
+    # bucket. py_inner_loop covers the full _our_moe_apply_grouped body;
+    # py_dispatch_w13/w2 cover the Python+C++ dispatch around the grouped
+    # GEMM calls (CUDA-event w13_gemm/w2_gemm separately captures GPU time).
+    "py_inner_loop",
+    "py_dispatch_w13",
+    "py_dispatch_w2",
+)
+_MOE_PROFILE_SECTIONS = _MOE_CUDA_EVENT_SECTIONS + _MOE_WALL_SECTIONS
 
 # Coarse decode-time module breakdown. This is deliberately separate from the
 # MoE micro-profile above: hooks are cheap and only record CUDA events; we sync
@@ -756,6 +815,66 @@ def _moe_grouped_routed_k_splits(
     return w13_k_split, w2_k_split
 
 
+def _get_token_idx_cached(M, topk, device):
+    """Stage 2C, Step C: return the synthetic token-row index for the
+    grouped fast path. Length is M*topk. For M==1 this is all zeros;
+    for M>1 it is [0,0,...,0,1,1,...,1,M-1,M-1,...] (each token id
+    repeated topk times).
+
+    Cached per (M, topk, device-str) so we never allocate at decode.
+    """
+    key = (M, topk, str(device))
+    t = _MOE_TOKEN_IDX_CACHE.get(key)
+    if t is not None:
+        return t
+    if M == 1:
+        t = torch.zeros(topk, dtype=torch.int64, device=device)
+    else:
+        t = (torch.arange(M, dtype=torch.int64, device=device)
+             .repeat_interleave(topk))
+    _MOE_TOKEN_IDX_CACHE[key] = t
+    return t
+
+
+def _get_layer_uint8_weights(layer):
+    """Stage 2C, Step D: cache the uint8 contiguous view of w13/w2 weights
+    on the layer. Today these are zero-copy aliases (confirmed by the
+    grouped log line); the cost we eliminate is the Python `view` +
+    `.contiguous()` call chain on every MoE invocation.
+
+    Stored on the layer object itself (which lives for the serve lifetime).
+    """
+    w13 = getattr(layer, "_v100_w13_u8", None)
+    if w13 is None:
+        w13 = layer.w13_weight.view(torch.uint8).contiguous()
+        layer._v100_w13_u8 = w13
+    w2 = getattr(layer, "_v100_w2_u8", None)
+    if w2 is None:
+        w2 = layer.w2_weight.view(torch.uint8).contiguous()
+        layer._v100_w2_u8 = w2
+    return w13, w2
+
+
+def _get_layer_expert_map_dev(layer, device):
+    """Stage 2C, Step D: cache `expert_map.to(device=...)` on the layer.
+
+    Returns the cached device-resident expert_map, or None if the layer
+    has no expert_map (TP-replicated experts; current Qwen3.5-122B-A10B-FP8
+    behavior). Cache is invalidated only if the device of the cached
+    tensor differs from the request, which should never happen in steady
+    state.
+    """
+    cached = getattr(layer, "_v100_expert_map_dev", None)
+    em = getattr(layer, "expert_map", None)
+    if em is None:
+        return None
+    if cached is not None and cached.device == device:
+        return cached
+    cached = em.to(device=device)
+    layer._v100_expert_map_dev = cached
+    return cached
+
+
 def _our_moe_apply_grouped(
     self,
     layer,
@@ -770,28 +889,106 @@ def _our_moe_apply_grouped(
     profile,
     call_stats,
     timed_cuda,
+    timed_wall,
     w13_k_split,
     w2_k_split,
 ):
-    """Grouped-routed MoE path: one w13 GEMM and one w2 GEMM per layer call."""
+    """Grouped-routed MoE path: one w13 GEMM and one w2 GEMM per layer call.
+
+    Two route-prep paths:
+      - Fast path (`_MOE_FAST_ROUTE_PREP=1` and `expert_map is None`):
+        reshape topk_ids/topk_weights directly. No `nonzero`, no
+        `valid_mask`, no per-call `token_idx` allocation. Dense top-k is
+        the invariant.
+      - Fallback: existing `valid_mask -> nonzero -> gather` path, used
+        when expert_map filters routes (EP-partitioned models) or when
+        FAST_ROUTE_PREP is explicitly disabled.
+    """
     global _MOE_GROUPED_LOGGED
 
-    valid_mask = local_topk >= 0
-    token_idx, route_idx = torch.nonzero(valid_mask, as_tuple=True)
-    route_count = int(token_idx.numel())
-    out = torch.zeros((x_work.size(0), hidden_size),
-                      dtype=torch.float16, device=x.device)
-    if route_count == 0:
-        return out
+    if profile:
+        inner_t0 = time.perf_counter()
 
-    local_expert_ids = local_topk[token_idx, route_idx].to(torch.int64).contiguous()
-    route_w = topk_weights[token_idx, route_idx].to(torch.float16)
+    M = x_work.size(0)
+    expert_map_present = getattr(layer, "expert_map", None) is not None
+    use_fast = (_MOE_FAST_ROUTE_PREP and not expert_map_present)
+    if call_stats is not None:
+        call_stats["used_fast_path"] = use_fast
+
+    if use_fast:
+        # local_topk == topk_ids.to(long) (caller skipped expert_map remap).
+        if local_topk.dim() >= 2:
+            topk = local_topk.size(-1)
+        else:
+            topk = 1
+        route_count = M * topk
+        if profile:
+            local_expert_ids = timed_cuda(
+                "local_expert_ids",
+                lambda: local_topk.reshape(-1).to(torch.int64).contiguous())
+            route_w = timed_cuda(
+                "route_w_build",
+                lambda: topk_weights.reshape(-1).to(torch.float16))
+        else:
+            local_expert_ids = (
+                local_topk.reshape(-1).to(torch.int64).contiguous())
+            route_w = topk_weights.reshape(-1).to(torch.float16)
+        token_idx = _get_token_idx_cached(M, topk, x_work.device)
+    else:
+        valid_mask = local_topk >= 0
+        if profile:
+            token_idx, route_idx = timed_cuda(
+                "nonzero", lambda: torch.nonzero(valid_mask, as_tuple=True))
+        else:
+            token_idx, route_idx = torch.nonzero(valid_mask, as_tuple=True)
+        route_count = int(token_idx.numel())
+        if route_count == 0:
+            if profile:
+                out = timed_wall(
+                    "out_zeros",
+                    lambda: torch.zeros(
+                        (M, hidden_size),
+                        dtype=torch.float16, device=x.device))
+                call_stats["sections"]["py_inner_loop"] += (
+                    time.perf_counter() - inner_t0) * 1000.0
+                return out
+            return torch.zeros((M, hidden_size),
+                               dtype=torch.float16, device=x.device)
+        if profile:
+            local_expert_ids = timed_cuda(
+                "local_expert_ids",
+                lambda: local_topk[token_idx, route_idx]
+                    .to(torch.int64).contiguous())
+            route_w = timed_cuda(
+                "route_w_build",
+                lambda: topk_weights[token_idx, route_idx].to(torch.float16))
+        else:
+            local_expert_ids = (
+                local_topk[token_idx, route_idx]
+                .to(torch.int64).contiguous())
+            route_w = topk_weights[token_idx, route_idx].to(torch.float16)
 
     if profile:
-        call_stats["active_experts"] += int(torch.unique(local_expert_ids).numel())
-        call_stats["routed_items"] += route_count
+        out = timed_wall(
+            "out_zeros",
+            lambda: torch.zeros(
+                (M, hidden_size), dtype=torch.float16, device=x.device))
+    else:
+        out = torch.zeros(
+            (M, hidden_size), dtype=torch.float16, device=x.device)
+
+    if profile and _MOE_PROFILE_ACTIVE_STAT:
+        # Instrumentation-only: torch.unique implies a CUDA sync. Gated
+        # off by default in Stage 2C, Step B.
+        t0 = time.perf_counter()
+        call_stats["active_experts"] += int(
+            torch.unique(local_expert_ids).numel())
+        call_stats["sections"]["active_experts_stat"] += (
+            time.perf_counter() - t0) * 1000.0
         call_stats["skipped_experts"] += (
             int(layer.local_num_experts) - call_stats["active_experts"])
+    if profile:
+        call_stats["routed_items"] += route_count
 
     if profile:
         route_x = timed_cuda(
@@ -806,10 +1003,11 @@ def _our_moe_apply_grouped(
 
     w13_scale = getattr(layer, f"w13_{self.weight_scale_name}")
     w2_scale = getattr(layer, f"w2_{self.weight_scale_name}")
-    w13_weight_view = layer.w13_weight.view(torch.uint8)
-    w2_weight_view = layer.w2_weight.view(torch.uint8)
-    w13_weight = w13_weight_view.contiguous()
-    w2_weight = w2_weight_view.contiguous()
+    if profile:
+        w13_weight, w2_weight = timed_wall(
+            "view_uint8_contig", lambda: _get_layer_uint8_weights(layer))
+    else:
+        w13_weight, w2_weight = _get_layer_uint8_weights(layer)
 
     if _MOE_GROUPED_LOG_ONCE and not _MOE_GROUPED_LOGGED:
         _MOE_GROUPED_LOGGED = True
@@ -817,25 +1015,29 @@ def _our_moe_apply_grouped(
             rank = _moe_profile_rank()
         except Exception:
             rank = -1
+        # The view_uint8 cache returns the same tensor every call after
+        # first; we still verify zero-copy invariant against the original.
         w13_zero_copy = (
-            w13_weight.data_ptr() == w13_weight_view.data_ptr()
+            w13_weight.data_ptr() == layer.w13_weight.data_ptr()
             and w13_weight.is_contiguous()
         )
         w2_zero_copy = (
-            w2_weight.data_ptr() == w2_weight_view.data_ptr()
+            w2_weight.data_ptr() == layer.w2_weight.data_ptr()
             and w2_weight.is_contiguous()
         )
         print(
             f"[V100-FP8-MOE-GROUPED rank={rank} pid={os.getpid()}] "
             f"enabled prefix={getattr(layer, 'prefix', '<unknown>')} "
-            f"M={x_work.size(0)} route_slots={local_topk.numel()} "
+            f"M={M} route_slots={local_topk.numel()} "
             f"route_count={route_count} hidden={hidden_size} "
             f"intermediate={intermediate} block=({block_h},{block_w}) "
             f"w13_k_split={w13_k_split} w2_k_split={w2_k_split} "
             f"k_split_env={_MOE_GROUPED_K_SPLIT} "
             f"max_route_slots={_MOE_GROUPED_MAX_ROUTE_SLOTS} "
             f"w13_u8_zero_copy={w13_zero_copy} "
-            f"w2_u8_zero_copy={w2_zero_copy}",
+            f"w2_u8_zero_copy={w2_zero_copy} "
+            f"fast_route_prep={use_fast} "
+            f"expert_map={'present' if expert_map_present else 'none'}",
             flush=True,
         )
 
@@ -853,7 +1055,9 @@ def _our_moe_apply_grouped(
         )
 
     if profile:
-        w13 = timed_cuda("w13_gemm", run_w13_grouped)
+        w13 = timed_wall(
+            "py_dispatch_w13",
+            lambda: timed_cuda("w13_gemm", run_w13_grouped))
     else:
         w13 = run_w13_grouped()
     gate = w13[:, :intermediate]
@@ -864,7 +1068,10 @@ def _our_moe_apply_grouped(
             "activation", lambda: _moe_activation(layer, gate) * up)
     else:
         hidden = _moe_activation(layer, gate) * up
-    hidden = hidden.contiguous()
+    if profile:
+        hidden = timed_cuda("hidden_contig", lambda: hidden.contiguous())
+    else:
+        hidden = hidden.contiguous()
 
     def run_w2_grouped():
         return _ext.fp8_w8a16_grouped_routed_gemm_a3(
@@ -880,15 +1087,26 @@ def _our_moe_apply_grouped(
         )
 
     if profile:
-        expert_out = timed_cuda("w2_gemm", run_w2_grouped)
+        expert_out = timed_wall(
+            "py_dispatch_w2",
+            lambda: timed_cuda("w2_gemm", run_w2_grouped))
     else:
         expert_out = run_w2_grouped()
     if not apply_weight_on_input:
-        expert_out = expert_out * route_w.unsqueeze(-1)
+        if profile:
+            expert_out = timed_cuda(
+                "route_weight_apply",
+                lambda: expert_out * route_w.unsqueeze(-1))
+        else:
+            expert_out = expert_out * route_w.unsqueeze(-1)
     if profile:
         timed_cuda("scatter", lambda: out.index_add_(0, token_idx, expert_out))
     else:
         out.index_add_(0, token_idx, expert_out)
+
+    if profile:
+        call_stats["sections"]["py_inner_loop"] += (
+            time.perf_counter() - inner_t0) * 1000.0
     return out
 
 
@@ -900,12 +1118,23 @@ def _moe_profile_rank():
         return -1
 
 
+def _new_moe_call_stats():
+    """Per-call stats accumulator. Reset at the top of each _our_moe_apply call."""
+    return {
+        "wall_ms": 0.0,
+        "active_experts": 0,
+        "routed_items": 0,
+        "empty_expert_iters": 0,
+        "skipped_experts": 0,
+        "sections": {name: 0.0 for name in _MOE_PROFILE_SECTIONS},
+    }
+
+
 def _new_moe_profile_stats():
+    """Aggregate stats bucket. Used for both per-bucket and per-layer rollups."""
     return {
         "calls": 0,
         "wall_ms": 0.0,
-        "routing_wall_ms": 0.0,
-        "mask_sync_wall_ms": 0.0,
         "active_experts": 0,
         "routed_items": 0,
         "empty_expert_iters": 0,
@@ -915,79 +1144,140 @@ def _new_moe_profile_stats():
     }
 
 
-def _moe_profile_update(prefix, call_stats):
-    global _MOE_PROFILE_TOTAL_CALLS
+def _moe_phase_tag(M, route_slots):
+    """Best-effort phase categorization. See STAGE_2C_PLAN.md, Step A."""
+    if M <= _MOE_DECODE_M_MAX and route_slots <= _MOE_GROUPED_MAX_ROUTE_SLOTS:
+        return "decode"
+    return "prefill"
 
-    stats = _MOE_PROFILE_STATS.setdefault(prefix, _new_moe_profile_stats())
-    stats["calls"] += 1
-    stats["wall_ms"] += call_stats["wall_ms"]
-    stats["routing_wall_ms"] += call_stats["routing_wall_ms"]
-    stats["mask_sync_wall_ms"] += call_stats["mask_sync_wall_ms"]
-    stats["active_experts"] += call_stats["active_experts"]
-    stats["routed_items"] += call_stats["routed_items"]
-    stats["empty_expert_iters"] += call_stats["empty_expert_iters"]
-    stats["skipped_experts"] += call_stats["skipped_experts"]
-    hist = stats["active_hist"]
-    active = call_stats["active_experts"]
-    hist[active] = hist.get(active, 0) + 1
-    for name in _MOE_PROFILE_SECTIONS:
-        stats["sections"][name] += call_stats["sections"].get(name, 0.0)
+
+def _moe_profile_update(prefix, bucket_key, call_stats):
+    """Stage 2C, Step A: per-rank warmup skip + per-bucket + per-layer rollup.
+
+    bucket_key is (phase, M, route_slots, grouped, fast). Reports also include
+    per-layer top-3 offenders so we keep visibility into hot layers regardless
+    of which shape bucket they fall into.
+    """
+    global _MOE_PROFILE_TOTAL_CALLS, _MOE_PROFILE_RECORDED
 
     _MOE_PROFILE_TOTAL_CALLS += 1
-    if (_MOE_PROFILE_TOTAL_CALLS % _MOE_PROFILE_EVERY) != 0:
+    if _MOE_PROFILE_TOTAL_CALLS <= _MOE_PROFILE_WARMUP_CALLS:
+        return  # Warmup window: do not pollute decode-only stats.
+
+    _MOE_PROFILE_RECORDED += 1
+
+    bucket_stats = _MOE_PROFILE_STATS.setdefault(
+        bucket_key, _new_moe_profile_stats())
+    layer_stats = _MOE_LAYER_STATS.setdefault(
+        prefix, _new_moe_profile_stats())
+
+    for stats in (bucket_stats, layer_stats):
+        stats["calls"] += 1
+        stats["wall_ms"] += call_stats["wall_ms"]
+        stats["active_experts"] += call_stats["active_experts"]
+        stats["routed_items"] += call_stats["routed_items"]
+        stats["empty_expert_iters"] += call_stats["empty_expert_iters"]
+        stats["skipped_experts"] += call_stats["skipped_experts"]
+        hist = stats["active_hist"]
+        active = call_stats["active_experts"]
+        hist[active] = hist.get(active, 0) + 1
+        for name in _MOE_PROFILE_SECTIONS:
+            stats["sections"][name] += call_stats["sections"].get(name, 0.0)
+
+    if (_MOE_PROFILE_RECORDED % _MOE_PROFILE_EVERY) != 0:
         return
     if _moe_profile_rank() not in (0, -1):
         return
 
-    totals = _new_moe_profile_stats()
-    for layer_stats in _MOE_PROFILE_STATS.values():
-        for key in (
-            "calls",
-            "active_experts",
-            "routed_items",
-            "empty_expert_iters",
-            "skipped_experts",
-        ):
-            totals[key] += layer_stats[key]
-        for key in ("wall_ms", "routing_wall_ms", "mask_sync_wall_ms"):
-            totals[key] += layer_stats[key]
-        for name in _MOE_PROFILE_SECTIONS:
-            totals["sections"][name] += layer_stats["sections"][name]
-
-    calls = max(1, totals["calls"])
-    section_bits = " ".join(
-        f"{name}={totals['sections'][name] / calls:.3f}ms"
-        for name in _MOE_PROFILE_SECTIONS
-    )
+    rank = _moe_profile_rank()
+    pid = os.getpid()
     print(
-        f"[V100-FP8-MOE-PROFILE rank={_moe_profile_rank()} pid={os.getpid()}] "
-        f"calls={totals['calls']} avg_wall={totals['wall_ms'] / calls:.3f}ms "
-        f"routing={totals['routing_wall_ms'] / calls:.3f}ms "
-        f"mask_sync={totals['mask_sync_wall_ms'] / calls:.3f}ms "
-        f"active_experts={totals['active_experts'] / calls:.2f}/call "
-        f"routed_items={totals['routed_items'] / calls:.2f}/call "
-        f"empty_iters={totals['empty_expert_iters'] / calls:.2f}/call "
-        f"skipped_experts={totals['skipped_experts'] / calls:.2f}/call "
-        f"{section_bits}",
+        f"[V100-FP8-MOE-PROFILE rank={rank} pid={pid}] "
+        f"warmup_skip={_MOE_PROFILE_WARMUP_CALLS} "
+        f"recorded_calls={_MOE_PROFILE_RECORDED} "
+        f"total_calls={_MOE_PROFILE_TOTAL_CALLS} "
+        f"decode_m_max={_MOE_DECODE_M_MAX}",
         flush=True,
     )
 
-    top_layers = sorted(
+    # Per-bucket: print the top-K buckets by wall_ms so we don't drown the
+    # log when many shape combinations appear during a long run.
+    top_buckets = sorted(
         _MOE_PROFILE_STATS.items(),
         key=lambda item: item[1]["wall_ms"],
         reverse=True,
+    )[:6]
+    for key, stats in top_buckets:
+        _moe_profile_print_bucket(rank, pid, key, stats)
+
+    top_layers = sorted(
+        _MOE_LAYER_STATS.items(),
+        key=lambda item: item[1]["wall_ms"],
+        reverse=True,
     )[:3]
-    for layer_prefix, layer_stats in top_layers:
-        layer_calls = max(1, layer_stats["calls"])
+    for layer_prefix, lstats in top_layers:
+        lcalls = max(1, lstats["calls"])
         hist = ",".join(
             f"{active}:{count}"
-            for active, count in sorted(layer_stats["active_hist"].items())
+            for active, count in sorted(lstats["active_hist"].items())
         )
         print(
-            f"[V100-FP8-MOE-PROFILE rank={_moe_profile_rank()} pid={os.getpid()}] "
-            f"top_layer={layer_prefix} calls={layer_stats['calls']} "
-            f"avg_wall={layer_stats['wall_ms'] / layer_calls:.3f}ms "
+            f"[V100-FP8-MOE-PROFILE rank={rank} pid={pid}] "
+            f"top_layer={layer_prefix} calls={lstats['calls']} "
+            f"avg_wall={lstats['wall_ms'] / lcalls:.3f}ms "
             f"active_hist={hist}",
+            flush=True,
+        )
+
+
+def _moe_profile_print_bucket(rank, pid, key, stats):
+    """Pretty-print one shape-bucket aggregate.
+
+    Important: distinguish cuda_event_sections (GPU-elapsed time, accurate)
+    from wall_sections (perf_counter; launch + Python overhead, NOT GPU
+    elapsed). The unattributed residual is what's left over and is the
+    target signal for Step B optimization decisions.
+    """
+    phase, M, route_slots, grouped, fast = key
+    calls = max(1, stats["calls"])
+    sections = stats["sections"]
+    cuda_ms = sum(sections[name] for name in _MOE_CUDA_EVENT_SECTIONS)
+    wall_ms = sum(sections[name] for name in _MOE_WALL_SECTIONS)
+    total_wall = stats["wall_ms"]
+    unattrib_ms = total_wall - cuda_ms - wall_ms
+
+    cuda_bits = " ".join(
+        f"{name}={sections[name] / calls:.3f}"
+        for name in _MOE_CUDA_EVENT_SECTIONS
+        if sections[name] > 0.0
+    )
+    wall_bits = " ".join(
+        f"{name}={sections[name] / calls:.3f}"
+        for name in _MOE_WALL_SECTIONS
+        if sections[name] > 0.0
+    )
+    print(
+        f"[V100-FP8-MOE-PROFILE rank={rank} pid={pid}] "
+        f"bucket=(phase={phase},M={M},route_slots={route_slots},grouped={grouped},fast={fast}) "
+        f"calls={stats['calls']} "
+        f"avg_wall={total_wall / calls:.3f}ms "
+        f"cuda_sections={cuda_ms / calls:.3f}ms "
+        f"wall_sections={wall_ms / calls:.3f}ms "
+        f"unattributed={unattrib_ms / calls:.3f}ms "
+        f"active_experts={stats['active_experts'] / calls:.2f}/call "
+        f"routed_items={stats['routed_items'] / calls:.2f}/call",
+        flush=True,
+    )
+    if cuda_bits:
+        print(
+            f"[V100-FP8-MOE-PROFILE rank={rank} pid={pid}] "
+            f"  cuda_ms_per_call: {cuda_bits}",
+            flush=True,
+        )
+    if wall_bits:
+        print(
+            f"[V100-FP8-MOE-PROFILE rank={rank} pid={pid}] "
+            f"  wall_ms_per_call: {wall_bits}",
             flush=True,
         )
 
@@ -1014,16 +1304,7 @@ def _our_moe_apply(self, layer, x, topk_weights, topk_ids, shared_experts_input)
     profile = _MOE_PROFILE and torch.cuda.is_available()
     if profile:
         call_t0 = time.perf_counter()
-        call_stats = {
-            "wall_ms": 0.0,
-            "routing_wall_ms": 0.0,
-            "mask_sync_wall_ms": 0.0,
-            "active_experts": 0,
-            "routed_items": 0,
-            "empty_expert_iters": 0,
-            "skipped_experts": 0,
-            "sections": {name: 0.0 for name in _MOE_PROFILE_SECTIONS},
-        }
+        call_stats = _new_moe_call_stats()
         cuda_events = []
 
         def timed_cuda(name, fn):
@@ -1034,9 +1315,20 @@ def _our_moe_apply(self, layer, x, topk_weights, topk_ids, shared_experts_input)
             end.record()
             cuda_events.append((name, start, end))
             return result
+
+        def timed_wall(name, fn):
+            # Wall (perf_counter) timer for sections dominated by Python/
+            # launch overhead rather than GPU elapsed time. Does NOT sync,
+            # so this measures the launch/allocator path, not GPU work.
+            t0 = time.perf_counter()
+            result = fn()
+            call_stats["sections"][name] += (time.perf_counter() - t0) * 1000.0
+            return result
     else:
         call_stats = None
         cuda_events = None
+        timed_cuda = None
+        timed_wall = None
 
     M, hidden_size = x_work.shape
     intermediate = int(layer.intermediate_size_per_partition)
@@ -1044,22 +1336,29 @@ def _our_moe_apply(self, layer, x, topk_weights, topk_ids, shared_experts_input)
 
     # Convert global expert ids to local ids. Non-local experts become -1 and
     # contribute zero on this rank; vLLM's later TP/EP combine handles the sum.
+    # When expert_map is None, the grouped fast path (Step C) skips this
+    # entire block; we still run local_topk = topk_ids.to(long) for the
+    # legacy/fallback paths.
     routing_t0 = time.perf_counter() if profile else None
     local_topk = topk_ids.to(torch.long)
-    expert_map = getattr(layer, "expert_map", None)
-    if expert_map is not None:
+    expert_map_dev = _get_layer_expert_map_dev(layer, topk_ids.device)
+    if expert_map_dev is not None:
         safe_ids = torch.clamp(local_topk, min=0)
-        local_topk = expert_map.to(device=topk_ids.device)[safe_ids]
-        local_topk = torch.where(topk_ids < 0, torch.full_like(local_topk, -1), local_topk)
+        local_topk = expert_map_dev[safe_ids]
+        local_topk = torch.where(
+            topk_ids < 0, torch.full_like(local_topk, -1), local_topk)
     if profile:
-        call_stats["routing_wall_ms"] += (time.perf_counter() - routing_t0) * 1000.0
+        call_stats["sections"]["routing"] += (
+            time.perf_counter() - routing_t0) * 1000.0
+
+    route_slots = int(local_topk.numel())
 
     grouped_k_splits = _moe_grouped_routed_k_splits(
         hidden_size,
         intermediate,
         block_h,
         block_w,
-        int(local_topk.numel()),
+        route_slots,
     )
     if grouped_k_splits is not None:
         out = _our_moe_apply_grouped(
@@ -1075,7 +1374,8 @@ def _our_moe_apply(self, layer, x, topk_weights, topk_ids, shared_experts_input)
             block_w,
             profile,
             call_stats,
-            timed_cuda if profile else None,
+            timed_cuda,
+            timed_wall,
             grouped_k_splits[0],
             grouped_k_splits[1],
         )
@@ -1086,12 +1386,22 @@ def _our_moe_apply(self, layer, x, topk_weights, topk_ids, shared_experts_input)
             for name, start, end in cuda_events:
                 call_stats["sections"][name] += float(start.elapsed_time(end))
             call_stats["wall_ms"] = (time.perf_counter() - call_t0) * 1000.0
-            _moe_profile_update(getattr(layer, "prefix", "<unknown>"), call_stats)
+            fast_flag = 1 if call_stats.get("used_fast_path") else 0
+            bucket_key = (
+                _moe_phase_tag(M, route_slots), M, route_slots, 1, fast_flag)
+            _moe_profile_update(
+                getattr(layer, "prefix", "<unknown>"), bucket_key, call_stats)
         return out
 
     w13_scale = getattr(layer, f"w13_{self.weight_scale_name}")
     w2_scale = getattr(layer, f"w2_{self.weight_scale_name}")
-    out = torch.zeros((M, hidden_size), dtype=torch.float16, device=x.device)
+    if profile:
+        out = timed_wall(
+            "out_zeros",
+            lambda: torch.zeros(
+                (M, hidden_size), dtype=torch.float16, device=x.device))
+    else:
+        out = torch.zeros((M, hidden_size), dtype=torch.float16, device=x.device)
     apply_weight_on_input = bool(getattr(layer, "apply_router_weight_on_input", False))
 
     local_num_experts = int(layer.local_num_experts)
@@ -1100,7 +1410,10 @@ def _our_moe_apply(self, layer, x, topk_weights, topk_ids, shared_experts_input)
             mask_t0 = time.perf_counter()
         expert_iter = torch.unique(local_topk[local_topk >= 0]).tolist()
         if profile:
-            call_stats["mask_sync_wall_ms"] += (
+            # In active-list mode this is the same instrumentation-style
+            # sync as grouped mode's torch.unique() stat; carry it under the
+            # same bucket so the two paths are directly comparable.
+            call_stats["sections"]["active_experts_stat"] += (
                 time.perf_counter() - mask_t0) * 1000.0
             call_stats["skipped_experts"] += (
                 local_num_experts - len(expert_iter))
@@ -1113,7 +1426,7 @@ def _our_moe_apply(self, layer, x, topk_weights, topk_ids, shared_experts_input)
             if profile:
                 mask_t0 = time.perf_counter()
                 has_tokens = bool(mask.any().item())
-                call_stats["mask_sync_wall_ms"] += (
+                call_stats["sections"]["active_experts_stat"] += (
                     time.perf_counter() - mask_t0) * 1000.0
             else:
                 has_tokens = bool(mask.any().item())
@@ -1131,7 +1444,12 @@ def _our_moe_apply(self, layer, x, topk_weights, topk_ids, shared_experts_input)
                 "index_select", lambda: x_work.index_select(0, token_idx))
         else:
             route_x = x_work.index_select(0, token_idx)
-        route_w = topk_weights[token_idx, route_idx].to(torch.float16)
+        if profile:
+            route_w = timed_cuda(
+                "route_w_build",
+                lambda: topk_weights[token_idx, route_idx].to(torch.float16))
+        else:
+            route_w = topk_weights[token_idx, route_idx].to(torch.float16)
         if apply_weight_on_input:
             route_x = route_x * route_w.unsqueeze(-1)
 
@@ -1175,7 +1493,12 @@ def _our_moe_apply(self, layer, x, topk_weights, topk_ids, shared_experts_input)
         else:
             expert_out, _ = run_w2()
         if not apply_weight_on_input:
-            expert_out = expert_out * route_w.unsqueeze(-1)
+            if profile:
+                expert_out = timed_cuda(
+                    "route_weight_apply",
+                    lambda: expert_out * route_w.unsqueeze(-1))
+            else:
+                expert_out = expert_out * route_w.unsqueeze(-1)
         if profile:
             timed_cuda("scatter", lambda: out.index_add_(0, token_idx, expert_out))
         else:
@@ -1188,7 +1511,9 @@ def _our_moe_apply(self, layer, x, topk_weights, topk_ids, shared_experts_input)
         for name, start, end in cuda_events:
             call_stats["sections"][name] += float(start.elapsed_time(end))
         call_stats["wall_ms"] = (time.perf_counter() - call_t0) * 1000.0
-        _moe_profile_update(getattr(layer, "prefix", "<unknown>"), call_stats)
+        bucket_key = (_moe_phase_tag(M, route_slots), M, route_slots, 0, 0)
+        _moe_profile_update(
+            getattr(layer, "prefix", "<unknown>"), bucket_key, call_stats)
     return out
 
 
