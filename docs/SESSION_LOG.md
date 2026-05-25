@@ -1097,8 +1097,37 @@ from the default serve command (replaced with an explanatory comment).
 Trailing positional args still allow it to be added back per-run if a
 future host needs it.
 
-**Stage 2D Step 2C.2** (pending): no-code A/B confirming the flag drop is
-empirically a no-op vs Step 2B.1.
+**Stage 2D Step 2C.2 (2026-05-25, GPT-fired, Claude cross-checked):** no-code A/B
+confirmed empirically. Run dir
+`/tmp/v100_bench/20260525_095017_stage2d_step2c2_no_disable_ar/`, built from
+commit `e7c81e1` (= v0.3.1), serve command verified flag-free in
+`config.txt`. Engine config logged `disable_custom_all_reduce=False` and
+all 8 worker ranks emitted the explicit warning at boot:
+
+```
+WARNING [custom_all_reduce.py:154] Custom allreduce is disabled because
+it's not supported on more than two PCIe-only GPUs. To silence this
+warning, specify disable_custom_all_reduce=True explicitly.
+```
+
+| Metric | 2B.1 (flag ON) | 2C.2 (flag OFF) | Δ |
+|---|---:|---:|---:|
+| Mean tok/s (2 curls) | 4.064 | 4.116 | +1.3% |
+| Total ms/token (decode) | 228.620 | 225.654 | -1.3% |
+| `moe_other_allreduce` ms/token | 50.431 | 47.985 | -4.9% |
+| `moe_other_allreduce` share of `moe_other` | 88.8% | 88.7% | -0.1pp |
+| MoE block ms/token | 127.555 | 125.599 | -1.5% |
+| GDN ms/token | 67.690 | 67.160 | -0.8% |
+| Coherence (Paris loop) | pass | pass | - |
+
+All differences within the 2-3% serve-restart noise band documented in
+Stage 2C. Flag is confirmed empirically dead weight on this DGX-1 V100
+TP=8 host. The `tools/bench_v100.sh` flag drop landed in v0.3.1 is
+correct as-is; no further code change needed.
+
+**Stage 2D Step 2C closed.** Next: Step 2D source-read of GDN
+(`Qwen3NextGatedDeltaNet`) — 67 ms/token, 29.6% of decode, now the
+largest remaining unexplained lever.
 
 **Stage 2D Step 2D** (pending): pivot to GDN
 (`Qwen3NextGatedDeltaNet`, ~68 ms/token, 29.6% of decode) which is now the
@@ -1121,5 +1150,192 @@ New env vars added in v0.3.1 (all measurement-only, default off unless noted):
 | `VLLM_V100_FP8_DECODE_BREAKDOWN_MOE_SUBS` | 1 (when DECODE_BREAKDOWN=1) | Step 1: hook gate / experts / shared_expert sub-modules of every SparseMoeBlock |
 | `VLLM_V100_FP8_DEBUG_SHARED_EXPERTS` | 0 | Step 2A: one-shot rank-0 dump of the shared expert runtime structure |
 | `VLLM_V100_FP8_MOE_OTHER_PROFILE` | 0 | Step 2B.1: monkey-patch SparseMoeBlock.forward with CUDA events around combine + all-reduce |
+
+## Stage 2D Step 2D.1/2D.2/2D.3 (2026-05-25): GDN attribution + cross-cutting TP all-reduce finding
+
+Tagged at `v0.3.2`. Pure instrumentation; no behavior change vs v0.3.1.
+Decisive finding: **TP all-reduce dominates decode at ~41.5% of profile-on
+wall (≈96 NCCL calls/token × ~1.08 ms each)**, topology-limited at TP=8
+on this DGX-1 V100 hypercube. Stage 2D closes as a bottleneck-map
+release; the AR bottleneck is structural and out of Stage 2D scope to
+attack.
+
+**Step 2D.1: source-read `Qwen3NextGatedDeltaNet`.** Decode call graph:
+
+```
+forward(hidden_states, output):
+  Part 1: in_proj_qkvz(...) [FP8, our patch]
+          in_proj_ba(...)   [block-FP8 alignment mismatch → FP16 fallback]
+          Python rearranges + cat
+  Part 2: torch.ops.vllm.gdn_attention_core(...) → self._forward_core(...):
+          self.conv1d.weight.view(...)   [weight read, conv1d.forward NEVER called]
+          causal_conv1d_update(...)      [FLA Triton, decode variant]
+          rearrange_mixed_qkv(...)
+          fused_sigmoid_gating_delta_rule_update(...)  [FLA Triton, decode variant]
+  Part 3: norm(...)         [RMSNormGated]
+          rearranges
+          out_proj(...)     [RowParallelLinear, FP8 + hidden all-reduce]
+```
+
+Linears in GDN: `in_proj_qkvz` (FP8, our patch, heavy), `out_proj`
+(RowParallel FP8 + AR, heavy), `in_proj_ba` (FP16 fallback, small),
+`conv1d` (FP16, never called via forward at decode). The two FLA Triton
+kernels (`causal_conv1d_update`, `fused_sigmoid_gating_delta_rule_update`)
+are third-party.
+
+**Step 2D.2: read-only sub-attribution of GDN.** Instance-tagged forward
+hooks on `in_proj_qkvz`, `in_proj_ba`, `norm`, `out_proj` (no `conv1d`
+hook — its forward is never invoked at decode/prefill) plus a
+class-method monkey-patch of `Qwen3NextGatedDeltaNet._forward_core` tagged
+`gdn_core`. Gated by `VLLM_V100_FP8_DECODE_BREAKDOWN_GDN_SUBS=1` (default
+on when DECODE_BREAKDOWN is set). Also added a per-section residual
+label map so `Qwen3NextGatedDeltaNet`'s residual prints as
+`gdn_other (rearrange/cat/residual)` rather than the MoE label.
+
+First V100 measurement (run dir
+`/tmp/v100_bench/20260525_103059_stage2d_step2d2_gdn_subs/`) overturned
+the "FLA dominates" hypothesis from Step 2D.1:
+
+```
+Qwen3NextGatedDeltaNet           83.886 ms/token (34.3% of decode)
+  + gdn_in_qkvz                   3.826  ( 4.6% of GDN)
+  + gdn_in_ba                     1.657  ( 2.0%)
+  + gdn_core                     17.577  (21.0%)
+  + gdn_out_proj                 40.178  (47.9%)   <-- biggest, unexpected
+  + gdn_other                    20.648  (24.6%)
+```
+
+`gdn_out_proj` at 47.9% of GDN, `gdn_core` (the FLA Triton kernels we
+feared) at only 21%. Arithmetic from `gdn_in_qkvz` (ColumnParallel, no
+AR) = 3.826/36 = ~0.106 ms per FP8 GEMM at M=1, but `gdn_out_proj`
+(RowParallel) = 40.178/36 = ~1.116 ms per call. Δ ≈ 1.01 ms — matching
+the ~1.05 ms MoE-block all-reduce latency we already measured.
+
+Source-read of `vllm/model_executor/layers/linear.py:1498-1525` confirmed:
+
+```python
+def forward(self, input_):
+    ...
+    output_parallel = self.quant_method.apply(self, input_parallel, bias_)
+    if self.reduce_results and self.tp_size > 1:
+        output = tensor_model_parallel_all_reduce(output_parallel)
+    ...
+```
+
+**Every `RowParallelLinear` at TP>1 does an internal NCCL all-reduce
+after the GEMM.** `reduce_results` defaults to True. Our forward hook on
+`gdn_out_proj` captures both as a single bucket. The Qwen3-Next attention
+block also uses `RowParallelLinear` for its `out_proj`, so its bucket
+similarly conflates GEMM + AR.
+
+**Step 2D.3: cross-cutting `row_parallel_ar` instrumentation.** To verify
+the AR-dominance hypothesis without per-Linear attribution overhead,
+monkey-patched `RowParallelLinear.forward` with a verbatim mirror of
+upstream (same input split, same GEMM, same bias) that brackets only the
+`tensor_model_parallel_all_reduce(output_parallel)` call with CUDA
+events. Single aggregated bucket `row_parallel_ar` across all
+RowParallelLinear instances. Gated by
+`VLLM_V100_FP8_ROW_PARALLEL_AR_PROFILE=1`. Rendered in the breakdown as
+a **cross-cutting attribution line** below `Total` with an explicit
+`[cross-cutting attribution; already counted in module buckets above]`
+annotation, NOT summed into the per-token total. `tools/bench_v100.sh`
+extract grep extended to capture `row_parallel_ar` + the cross-cutting
+annotation + Stage 2D Step banners.
+
+V100 measurement (run dir
+`/tmp/v100_bench/20260525_105438_stage2d_step2d3_row_ar/`):
+
+```
+Total                           250.555 ms/token  (100.0%)
+  Qwen3NextSparseMoeBlock         129.054  (51.5%)
+    + moe_router                    1.590
+    + moe_experts                  70.020
+        +-- moe_shared             26.254
+        +-- moe_experts excl       43.766
+    + moe_other                    57.443
+        +-- moe_other_combine       2.968
+        +-- moe_other_allreduce    51.182  (89.1% of moe_other)
+        +-- moe_other_residual      3.293
+  Qwen3NextGatedDeltaNet           87.020  (34.7%)
+    + gdn_in_qkvz                   3.630
+    + gdn_in_ba                     1.131
+    + gdn_core                     15.853
+    + gdn_out_proj                 46.770  (53.7% of GDN; mostly AR)
+    + gdn_other                    19.636
+  Qwen3NextAttention               30.849  (12.3%)
+  LogitsProcessor                   0.948
+  Other (residual)                  2.686
+  [cross-cutting attribution; already counted in module buckets above]
+  row_parallel_ar                  52.703  (21.0% of total) calls=1536
+```
+
+Calls/token from `calls=1536` over the 32-token window:
+`row_parallel_ar` = 48/token (36 GDN out_proj + 12 attention out_proj),
+`moe_other_allreduce` = 48/token (one per MoE block).
+
+**Total visible TP all-reduce:**
+
+```
+moe_other_allreduce  51.182 ms/token (48 calls/tok, ~1.066 ms each)
+row_parallel_ar      52.703 ms/token (48 calls/tok, ~1.099 ms each)
+─────────────────────────────────────────────────────────────────
+total                103.885 ms/token = 41.5% of profile-on decode
+                     96 NCCL all-reduces/token at ~1.08 ms each on 6 KB
+```
+
+**Stage 2D bottleneck map (final, profile-on, 250 ms/token total):**
+
+| Bucket | ms/token | % of decode | Optimization domain |
+|---|---:|---:|---|
+| **TP all-reduce (combined)** | **103.9** | **41.5%** | **structural, topology-limited at TP=8** |
+|   moe_other_allreduce | 51.2 | 20.4% | explicit `maybe_all_reduce_tensor_model_parallel` |
+|   row_parallel_ar | 52.7 | 21.0% | hidden inside `RowParallelLinear.forward` |
+| moe_experts routed-only | 43.8 | 17.5% | our FP8 path, near floor at M=1 |
+| Attention (incl. ~12 ms AR) | 30.8 | 12.3% | Triton attention; AR portion already in row_parallel_ar |
+| moe_shared (FP8 MLP) | 26.3 | 10.5% | structural memory-bound on our path |
+| gdn_other (rearrange/cat/norm/python) | 19.6 | 7.8% | misc; small targets |
+| gdn_core (FLA Triton conv1d + recurrent) | 15.9 | 6.3% | third-party Triton |
+| GDN out_proj GEMM (≈ 46.8 - AR portion) | ~7 | ~2.8% | our FP8 path |
+| moe_other_combine + residual | 6.3 | 2.5% | python wrap |
+| moe_router + Logits + Other + small | ~8 | ~3.2% | free |
+
+Every other named bucket is ≤17.5%. The MoE inner GEMM (routed) and
+shared experts are already on our optimized FP8 path. Attention and GDN
+core kernels are third-party Triton. Wrappers and Python are tiny.
+
+**Future levers (documented, deferred):**
+
+1. **TP=4 single-quadrant test.** GPUs 0-3 (or 4-7) form a fully NVLink-
+   connected subset on this DGX-1 hypercube. At TP=4, vLLM's
+   `CustomAllreduce` would auto-enable (`is_fully_connected` returns
+   True), bypassing NCCL latency on small messages. Halves the per-rank
+   model shard, doubling per-rank memory pressure on already-tight
+   32 GB V100s — Qwen3.5-122B-A10B-FP8 weights ~30 GB/rank at TP=4,
+   leaving <2 GB for KV cache and runtime. Feasibility: TBD; separate
+   memory-bound experiment with reduced `max_model_len`.
+2. **Custom V100 small-message AR.** A bespoke CUDA IPC + warp-level
+   collective tailored to 6 KB fp16 messages on partial-NVLink topology.
+   Engineering project; would need to upstream into vLLM's communicator
+   abstraction.
+3. **Reducing AR frequency.** Batch ARs across adjacent transformer
+   blocks. Each TP-sharded operator's correctness depends on its own
+   AR; batching is invasive in vLLM's per-layer dispatch model.
+4. **GDN/attention Triton kernel work.** Smaller pool combined
+   (~22% of decode if you sum `gdn_core` + attention compute), and
+   third-party.
+
+New env vars added in v0.3.2 (all measurement-only):
+
+| Var | Default | Purpose |
+|---|---|---|
+| `VLLM_V100_FP8_DECODE_BREAKDOWN_GDN_SUBS` | 1 (when DECODE_BREAKDOWN=1) | Step 2D.2: hook in_proj_qkvz / in_proj_ba / norm / out_proj on every Qwen3NextGatedDeltaNet + monkey-patch `_forward_core` for `gdn_core` bucket |
+| `VLLM_V100_FP8_ROW_PARALLEL_AR_PROFILE` | 0 | Step 2D.3: monkey-patch `RowParallelLinear.forward` to time only the AR call; rendered as cross-cutting bucket below the breakdown |
+
+**Stage 2D is closed.** The bottleneck map is fully evidenced. The
+remaining decode wall is dominated by a topology-limited communication
+cost that is not addressable without structural changes to either the TP
+configuration (memory feasibility) or vLLM's per-block AR dispatch
+(invasive). Stage 2E candidates (TP=4 memory feasibility, param hygiene
+pass) are separate stages.
 
 End of log.

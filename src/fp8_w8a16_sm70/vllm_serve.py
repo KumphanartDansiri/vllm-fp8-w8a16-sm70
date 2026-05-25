@@ -251,10 +251,66 @@ _BREAKDOWN_MOE_OTHER_SUB_ORDER = (
     "moe_other_combine",
     "moe_other_allreduce",
 )
+# Stage 2D, Step 2D.2: measurement-only sub-attribution of
+# Qwen3NextGatedDeltaNet (GDN), the linear-attention block that
+# accounts for ~30% of decode wall on Qwen3.5-122B-A10B-FP8. Source-read
+# (Stage 2D Step 2D.1) showed:
+#   - in_proj_qkvz, out_proj: on our patched FP8 path (heavy)
+#   - in_proj_ba, conv1d: FP16 fallback (small, block-FP8 alignment mismatch)
+#   - core attention: torch.ops.vllm.gdn_attention_core -> _forward_core,
+#     which invokes FLA Triton kernels (causal_conv1d_update,
+#     fused_sigmoid_gating_delta_rule_update) directly
+# Decode call-graph: in_proj_qkvz, in_proj_ba, _forward_core, norm,
+# out_proj are all direct siblings inside Qwen3NextGatedDeltaNet.forward.
+# self.conv1d.forward is NEVER called at decode -- only its weight is read
+# inside _forward_core -- so we do NOT hook conv1d (a hook would never
+# fire). All gdn_* sub-sections are siblings; no nested accounting.
+_BREAKDOWN_GDN_SUB_HOOK = os.environ.get(
+    "VLLM_V100_FP8_DECODE_BREAKDOWN_GDN_SUBS", "1").lower() not in (
+        "0", "off", "false", "")
+_BREAKDOWN_GDN_SUB_SECTION_ORDER = (
+    "gdn_in_qkvz",
+    "gdn_in_ba",
+    "gdn_core",
+    "gdn_norm",
+    "gdn_out_proj",
+)
+# (attr_name, section_label) tuples for the three GDN children whose
+# Module.forward fires at decode. gdn_core is NOT included here because
+# it is provided by a method-level monkey-patch on _forward_core, not by
+# a child Module hook.
+_BREAKDOWN_GDN_CHILDREN = (
+    ("in_proj_qkvz", "gdn_in_qkvz"),
+    ("in_proj_ba", "gdn_in_ba"),
+    ("norm", "gdn_norm"),
+    ("out_proj", "gdn_out_proj"),
+)
+# Stage 2D, Step 2D.3: cross-cutting attribution of the all-reduce hidden
+# inside every RowParallelLinear.forward at TP>1. Stage 2D Step 2D.2
+# surprise found that gdn_out_proj (RowParallelLinear) was 47.9% of GDN,
+# of which only ~10% was the FP8 GEMM and ~90% the post-GEMM
+# tensor_model_parallel_all_reduce. Attention's out_proj has the same
+# shape. This profile mode times ONLY the AR call inside
+# RowParallelLinear.forward (NOT the GEMM, NOT the input split, NOT the
+# bias post-processing), aggregated across all RowParallelLinear
+# instances in the model. Reported as a CROSS-CUTTING bucket
+# `row_parallel_ar`, NOT a sibling of the module sub-sections (its time
+# is already counted inside gdn_out_proj, the attention bucket, etc.).
+# See _breakdown_flush rendering for the explicit non-sibling annotation.
+_ROW_PARALLEL_AR_PROFILE = os.environ.get(
+    "VLLM_V100_FP8_ROW_PARALLEL_AR_PROFILE", "0").lower() not in (
+        "0", "off", "false", "")
 _BREAKDOWN_SUB_SECTION_ORDER = (
     "moe_router",
     "moe_experts",
     "moe_shared",
+    # Stage 2D Step 2D.2: GDN sibling sub-sections (all direct calls in
+    # Qwen3NextGatedDeltaNet.forward; no nesting).
+    "gdn_in_qkvz",
+    "gdn_in_ba",
+    "gdn_core",
+    "gdn_norm",
+    "gdn_out_proj",
 )
 # Residual / nesting map for the breakdown report. Each key is a section
 # whose ms/token will be decomposed by subtracting the listed sub-sections.
@@ -271,14 +327,28 @@ _BREAKDOWN_SUB_SECTION_ORDER = (
 # moe_experts already includes it), inflating the apparent moe_other
 # residual by exactly the moe_shared time. See Stage 2D Step 2A source
 # read in docs/SESSION_LOG.md for the call-graph trace.
+#
+# For Qwen3NextGatedDeltaNet the direct siblings are in_proj_qkvz,
+# in_proj_ba, _forward_core (tagged gdn_core via class-method monkey-patch,
+# not a child Module forward hook), norm, out_proj. None of these are
+# nested. self.conv1d.forward is NEVER called at decode (only its weight
+# is read inside _forward_core), so it is intentionally absent.
 _BREAKDOWN_RESIDUAL_OF = {
     "Qwen3NextSparseMoeBlock": ("moe_router", "moe_experts"),
+    "Qwen3NextGatedDeltaNet": _BREAKDOWN_GDN_SUB_SECTION_ORDER,
 }
 _BREAKDOWN_NESTED_OF = {
     # parent_section -> tuple of sub-sections invoked from INSIDE the
     # parent's measurement window. Reporter renders these indented under
     # the parent and reports their share-of-parent, NOT share-of-block.
     "moe_experts": ("moe_shared",),
+}
+# Per-section label for the residual bucket printed under each parent's
+# breakdown (the time inside the parent's window that is NOT covered by
+# any sibling sub-section). Defaults to "<section>_other" if unspecified.
+_BREAKDOWN_RESIDUAL_LABEL = {
+    "Qwen3NextSparseMoeBlock": "moe_other (wrapper/topk/combine)",
+    "Qwen3NextGatedDeltaNet":  "gdn_other (rearrange/cat/residual)",
 }
 # Which named-child attributes of a Qwen3NextSparseMoeBlock to hook, and
 # what section label to assign. The first present name wins. Qwen3-Next
@@ -503,40 +573,48 @@ def _breakdown_flush():
         other_in_parent = max(0.0, per_token - sub_sum_ms)
         other_pct_parent = (
             100.0 * other_in_parent / per_token) if per_token else 0.0
+        # Stage 2D Step 2D.2: per-section residual label so each parent
+        # gets a clean "*_other" line (moe_other for MoE, gdn_other for
+        # GDN, etc.). Falls back to a generic name if unmapped.
+        residual_label = _BREAKDOWN_RESIDUAL_LABEL.get(
+            section, f"{section}_other (residual)")
         sub_lines.append(
-            f"    + {'moe_other (wrapper/topk/combine)':<26} "
+            f"    + {residual_label:<26} "
             f"{other_in_parent:8.3f} ms/token "
             f"({other_pct_parent:5.1f}% of {section})")
         # Stage 2D Step 2B.1: indent measurement-only sub-attribution of
         # the moe_other residual when the patched Qwen3NextSparseMoeBlock
         # forward is installed. moe_other_residual = moe_other - subs;
         # represents Python wrapper + view/reshape + dispatch glue we
-        # didn't bracket explicitly.
-        moe_other_sub_total = 0.0
-        moe_other_sub_lines = []
-        for sub in _BREAKDOWN_MOE_OTHER_SUB_ORDER:
-            sub_ms = interval_totals.get(sub, 0.0)
-            if sub_ms <= 0.0:
-                continue
-            sub_per_token = sub_ms / max(1, _DECODE_BREAKDOWN_EVERY)
-            moe_other_sub_total += sub_per_token
-            sub_pct_other = (
-                100.0 * sub_per_token / other_in_parent
-            ) if other_in_parent else 0.0
-            sub_calls = interval_counts.get(sub, 0)
-            moe_other_sub_lines.append(
-                f"        +-- {sub:<22} {sub_per_token:8.3f} ms/token "
-                f"({sub_pct_other:5.1f}% of moe_other) calls={sub_calls}")
-        if moe_other_sub_total > 0:
-            moe_other_residual = max(0.0, other_in_parent - moe_other_sub_total)
-            moe_other_residual_pct = (
-                100.0 * moe_other_residual / other_in_parent
-            ) if other_in_parent else 0.0
-            moe_other_sub_lines.append(
-                f"        +-- moe_other_residual    "
-                f"{moe_other_residual:8.3f} ms/token "
-                f"({moe_other_residual_pct:5.1f}% of moe_other)")
-            sub_lines.extend(moe_other_sub_lines)
+        # didn't bracket explicitly. Only applies to Qwen3NextSparseMoeBlock;
+        # GDN's residual is left as a single bucket since 2D.2 source-read
+        # showed gdn_other should be small (rearrange/cat/Python only).
+        if section == "Qwen3NextSparseMoeBlock":
+            moe_other_sub_total = 0.0
+            moe_other_sub_lines = []
+            for sub in _BREAKDOWN_MOE_OTHER_SUB_ORDER:
+                sub_ms = interval_totals.get(sub, 0.0)
+                if sub_ms <= 0.0:
+                    continue
+                sub_per_token = sub_ms / max(1, _DECODE_BREAKDOWN_EVERY)
+                moe_other_sub_total += sub_per_token
+                sub_pct_other = (
+                    100.0 * sub_per_token / other_in_parent
+                ) if other_in_parent else 0.0
+                sub_calls = interval_counts.get(sub, 0)
+                moe_other_sub_lines.append(
+                    f"        +-- {sub:<22} {sub_per_token:8.3f} ms/token "
+                    f"({sub_pct_other:5.1f}% of moe_other) calls={sub_calls}")
+            if moe_other_sub_total > 0:
+                moe_other_residual = max(0.0, other_in_parent - moe_other_sub_total)
+                moe_other_residual_pct = (
+                    100.0 * moe_other_residual / other_in_parent
+                ) if other_in_parent else 0.0
+                moe_other_sub_lines.append(
+                    f"        +-- moe_other_residual    "
+                    f"{moe_other_residual:8.3f} ms/token "
+                    f"({moe_other_residual_pct:5.1f}% of moe_other)")
+                sub_lines.extend(moe_other_sub_lines)
         lines.extend(sub_lines)
     other = max(0.0, total_per_token - section_sum)
     other_pct = (100.0 * other / total_per_token) if total_per_token else 0.0
@@ -555,6 +633,32 @@ def _breakdown_flush():
         f"  {'Total':<30} {total_per_token:8.3f} ms/token (100.0%)",
         flush=True,
     )
+
+    # Stage 2D Step 2D.3: cross-cutting attribution buckets. These are
+    # AGGREGATE timings across every RowParallelLinear instance in the
+    # model -- they do NOT correspond to a single named module, and the
+    # time they measure is ALREADY counted inside the gdn_out_proj,
+    # Qwen3NextAttention, and (where applicable) other module-level
+    # buckets above. They are NOT summed into the per-token total; they
+    # are printed below the breakdown with an explicit "(cross-cutting,
+    # already counted)" annotation so future readers don't double-count.
+    ar_ms = interval_totals.get("row_parallel_ar", 0.0)
+    if ar_ms > 0.0:
+        ar_per_token = ar_ms / max(1, _DECODE_BREAKDOWN_EVERY)
+        ar_calls = interval_counts.get("row_parallel_ar", 0)
+        ar_pct_total = (
+            100.0 * ar_per_token / total_per_token
+        ) if total_per_token else 0.0
+        print(
+            f"  [cross-cutting attribution; already counted in module "
+            f"buckets above]",
+            flush=True,
+        )
+        print(
+            f"  {'row_parallel_ar':<30} {ar_per_token:8.3f} ms/token "
+            f"({ar_pct_total:5.1f}% of total) calls={ar_calls}",
+            flush=True,
+        )
 
 
 def _attach_shared_experts_debug_hook(model):
@@ -715,17 +819,32 @@ def _attach_decode_breakdown_hooks(model):
         # attributes (gate, experts, shared_experts) with role-named
         # sub-sections. moe_other is computed at report time as the residual
         # of the parent block minus these children.
-        if cls_name != "Qwen3NextSparseMoeBlock" or not _BREAKDOWN_MOE_SUB_HOOK:
+        if cls_name == "Qwen3NextSparseMoeBlock" and _BREAKDOWN_MOE_SUB_HOOK:
+            for attr_name, sub_section in _BREAKDOWN_SPARSE_MOE_CHILDREN:
+                child = getattr(module, attr_name, None)
+                if child is None or not isinstance(child, torch.nn.Module):
+                    continue
+                # Avoid double-attach if a child is shared across blocks.
+                if getattr(child, "_v100_breakdown_section", None) is not None:
+                    continue
+                _attach(child, sub_section)
+                attached[sub_section] += 1
             continue
-        for attr_name, sub_section in _BREAKDOWN_SPARSE_MOE_CHILDREN:
-            child = getattr(module, attr_name, None)
-            if child is None or not isinstance(child, torch.nn.Module):
-                continue
-            # Avoid double-attach if a child is shared across blocks.
-            if getattr(child, "_v100_breakdown_section", None) is not None:
-                continue
-            _attach(child, sub_section)
-            attached[sub_section] += 1
+
+        # Stage 2D, Step 2D.2: read-only sub-attribution of GDN. Hook the
+        # 4 child Modules whose forward fires per call; gdn_core is
+        # handled by a separate class-method monkey-patch on _forward_core
+        # (see _patch_vllm_for_v100 below) so it appears alongside these.
+        if cls_name in ("Qwen3NextGatedDeltaNet", "Qwen3_5GatedDeltaNet") \
+                and _BREAKDOWN_GDN_SUB_HOOK:
+            for attr_name, sub_section in _BREAKDOWN_GDN_CHILDREN:
+                child = getattr(module, attr_name, None)
+                if child is None or not isinstance(child, torch.nn.Module):
+                    continue
+                if getattr(child, "_v100_breakdown_section", None) is not None:
+                    continue
+                _attach(child, sub_section)
+                attached[sub_section] += 1
     if _breakdown_rank() in (0, -1):
         parts = ", ".join(f"{name}={count}" for name, count in sorted(attached.items()))
         print(
@@ -2228,6 +2347,103 @@ def _patch_vllm_for_v100():
                         f"[V100-FP8 pid={os.getpid()}] Stage 2D Step 2B.1 "
                         f"moe_other sub-attribution patch installed "
                         f"(combine + allreduce timing).",
+                        flush=True,
+                    )
+
+            # Stage 2D, Step 2D.2: measurement-only wrap of
+            # Qwen3NextGatedDeltaNet._forward_core so the FLA Triton
+            # core-attention path can be timed as a single `gdn_core`
+            # bucket. Semantics identical to upstream; only adds CUDA
+            # events bracketing the method body and a single
+            # _BREAKDOWN_PENDING_EVENTS append per call. Sibling subs
+            # (in_proj_qkvz, in_proj_ba, norm, out_proj) are hooked at
+            # the Module level via _attach_decode_breakdown_hooks; no
+            # nested accounting needed.
+            if _BREAKDOWN_GDN_SUB_HOOK and torch.cuda.is_available():
+                _orig_gdn_forward_core = (
+                    qwen3_next.Qwen3NextGatedDeltaNet._forward_core)
+
+                def _timed_gdn_forward_core(self, mixed_qkv, b, a, core_attn_out):
+                    regime = "decode" if mixed_qkv.size(0) == 1 else "prefill"
+                    start = torch.cuda.Event(enable_timing=True)
+                    end = torch.cuda.Event(enable_timing=True)
+                    start.record()
+                    result = _orig_gdn_forward_core(
+                        self, mixed_qkv, b, a, core_attn_out)
+                    end.record()
+                    _BREAKDOWN_PENDING_EVENTS.append(
+                        (regime, "gdn_core", start, end))
+                    return result
+
+                qwen3_next.Qwen3NextGatedDeltaNet._forward_core = (
+                    _timed_gdn_forward_core)
+                if _breakdown_rank() in (0, -1):
+                    print(
+                        f"[V100-FP8 pid={os.getpid()}] Stage 2D Step 2D.2 "
+                        f"gdn_core sub-attribution patch installed "
+                        f"(_forward_core timing).",
+                        flush=True,
+                    )
+
+            # Stage 2D, Step 2D.3: cross-cutting timer for the all-reduce
+            # hidden inside RowParallelLinear.forward at TP>1. Replicates
+            # upstream semantics exactly (input split, GEMM, AR, bias) --
+            # only wraps the AR call with CUDA events. The patched forward
+            # is a verbatim mirror of upstream linear.py to keep behavior
+            # identical; only the two .record() calls and the
+            # _BREAKDOWN_PENDING_EVENTS.append are additive.
+            if _ROW_PARALLEL_AR_PROFILE and torch.cuda.is_available():
+                from vllm.model_executor.layers.linear import (
+                    RowParallelLinear as _RowParallelLinear,
+                )
+                from vllm.distributed import (
+                    split_tensor_along_last_dim as _split_tensor_along_last_dim,
+                    tensor_model_parallel_all_reduce as _tp_ar,
+                )
+
+                _orig_row_parallel_forward = _RowParallelLinear.forward
+
+                def _timed_row_parallel_forward(self, input_):
+                    if self.input_is_parallel:
+                        input_parallel = input_
+                    else:
+                        split_input = _split_tensor_along_last_dim(
+                            input_, num_partitions=self.tp_size)
+                        input_parallel = split_input[self.tp_rank].contiguous()
+
+                    assert self.quant_method is not None
+                    bias_ = (None
+                             if (self.tp_rank > 0 or self.skip_bias_add)
+                             else self.bias)
+                    output_parallel = self.quant_method.apply(
+                        self, input_parallel, bias_)
+
+                    if self.reduce_results and self.tp_size > 1:
+                        num_tokens = output_parallel.size(0)
+                        regime = "decode" if num_tokens == 1 else "prefill"
+                        start = torch.cuda.Event(enable_timing=True)
+                        end = torch.cuda.Event(enable_timing=True)
+                        start.record()
+                        output = _tp_ar(output_parallel)
+                        end.record()
+                        _BREAKDOWN_PENDING_EVENTS.append(
+                            (regime, "row_parallel_ar", start, end))
+                    else:
+                        output = output_parallel
+
+                    if not self.return_bias:
+                        return output
+                    output_bias = (self.bias
+                                   if self.skip_bias_add else None)
+                    return output, output_bias
+
+                _RowParallelLinear.forward = _timed_row_parallel_forward
+                if _breakdown_rank() in (0, -1):
+                    print(
+                        f"[V100-FP8 pid={os.getpid()}] Stage 2D Step 2D.3 "
+                        f"row_parallel_ar cross-cutting timer installed "
+                        f"(times only the AR call inside "
+                        f"RowParallelLinear.forward).",
                         flush=True,
                     )
         except Exception as exc:

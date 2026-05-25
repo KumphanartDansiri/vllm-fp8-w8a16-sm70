@@ -289,6 +289,9 @@ PY
                 -e 'attached hooks' \
                 -e 'patched PWAL fired' \
                 -e 'Application startup complete' \
+                -e 'Stage 2D Step' \
+                -e 'cross-cutting attribution' \
+                -e 'row_parallel_ar' \
                 "$SERVE_LOG" > "$EXTRACT" 2>/dev/null || true
             echo "[bench_v100] high-signal serve extract: $EXTRACT"
             echo "[bench_v100] grep'd $(wc -l < "$EXTRACT") lines"
