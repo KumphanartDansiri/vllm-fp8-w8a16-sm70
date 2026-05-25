@@ -213,6 +213,83 @@ _BREAKDOWN_SECTION_ORDER = (
     "Qwen3NextAttention",
     "LogitsProcessor",
 )
+# Stage 2D, Step 1: read-only attribution of the MoE-block wrapper.
+# Sub-sections decompose Qwen3NextSparseMoeBlock without being double-counted
+# into the per-token decode total (they live *inside* the parent section,
+# whose hook captures the full block time end-to-end). We attach hooks on
+# specific instance children of each Qwen3NextSparseMoeBlock and tag them
+# via `module._v100_breakdown_section` (read first in the hooks), because
+# the underlying torch classes (e.g. ReplicatedLinear, FusedMoE) are also
+# used elsewhere and we don't want over-attaching to attention / other
+# layers.
+_BREAKDOWN_MOE_SUB_HOOK = os.environ.get(
+    "VLLM_V100_FP8_DECODE_BREAKDOWN_MOE_SUBS", "1").lower() not in (
+        "0", "off", "false", "")
+# Stage 2D, Step 2A.2b: one-shot rank-0 dump of the shared_expert runtime
+# structure (type, children, quant method, weight dtype/shape, whether
+# child Linears go through our patched FP8 apply). Fires once on the
+# first Qwen3NextSparseMoeBlock forward call so it reads AFTER PWAL has
+# transformed weights to block-FP8 uint8 storage. Off by default; turn on
+# to confirm shared_experts is on our FP8 path (Stage 2A.3 measurement).
+_DEBUG_SHARED_EXPERTS = os.environ.get(
+    "VLLM_V100_FP8_DEBUG_SHARED_EXPERTS", "0").lower() not in (
+        "0", "off", "false", "")
+_DEBUG_SHARED_EXPERTS_DONE = False
+# Stage 2D, Step 2B.1: measurement-only sub-attribution of the moe_other
+# residual (the work inside Qwen3NextSparseMoeBlock.forward that is NOT
+# inside self.gate or self.experts). When enabled, monkey-patches the
+# forward with CUDA-event timers bracketing:
+#   moe_other_combine    -- the `(routed_out, shared_out)` -> sum step
+#   moe_other_allreduce  -- maybe_all_reduce_tensor_model_parallel
+#                           (or SP all-gather when use_sequence_parallel_moe)
+# The remainder (Python view/reshape, attribute lookups, dispatch glue)
+# falls into moe_other_residual computed in the report.
+_MOE_OTHER_PROFILE = os.environ.get(
+    "VLLM_V100_FP8_MOE_OTHER_PROFILE", "0").lower() not in (
+        "0", "off", "false", "")
+_BREAKDOWN_MOE_OTHER_SUB_ORDER = (
+    "moe_other_combine",
+    "moe_other_allreduce",
+)
+_BREAKDOWN_SUB_SECTION_ORDER = (
+    "moe_router",
+    "moe_experts",
+    "moe_shared",
+)
+# Residual / nesting map for the breakdown report. Each key is a section
+# whose ms/token will be decomposed by subtracting the listed sub-sections.
+# CRUCIAL: only list sub-sections that are *direct sibling* calls inside
+# the parent's forward body. Nested calls (a sub-section invoked from
+# inside another sub-section) live under _BREAKDOWN_NESTED_OF below.
+#
+# For Qwen3NextSparseMoeBlock the direct siblings are:
+#   self.gate(...)        -> moe_router
+#   self.experts(...)     -> moe_experts (a SharedFusedMoE that internally
+#                                          invokes self._shared_experts(...))
+# moe_shared is therefore NESTED inside moe_experts, not a sibling of it.
+# Subtracting moe_shared at the parent level would double-count (since
+# moe_experts already includes it), inflating the apparent moe_other
+# residual by exactly the moe_shared time. See Stage 2D Step 2A source
+# read in docs/SESSION_LOG.md for the call-graph trace.
+_BREAKDOWN_RESIDUAL_OF = {
+    "Qwen3NextSparseMoeBlock": ("moe_router", "moe_experts"),
+}
+_BREAKDOWN_NESTED_OF = {
+    # parent_section -> tuple of sub-sections invoked from INSIDE the
+    # parent's measurement window. Reporter renders these indented under
+    # the parent and reports their share-of-parent, NOT share-of-block.
+    "moe_experts": ("moe_shared",),
+}
+# Which named-child attributes of a Qwen3NextSparseMoeBlock to hook, and
+# what section label to assign. The first present name wins. Qwen3-Next
+# uses singular `shared_expert`; we keep the plural `shared_experts`
+# fallback in case future architecture variants change the name.
+_BREAKDOWN_SPARSE_MOE_CHILDREN = (
+    ("gate", "moe_router"),
+    ("experts", "moe_experts"),
+    ("shared_expert", "moe_shared"),
+    ("shared_experts", "moe_shared"),
+)
 _BREAKDOWN_PENDING_EVENTS = []
 _BREAKDOWN_TOTALS = {
     "decode": defaultdict(float),
@@ -256,11 +333,25 @@ def _first_tensor_m(args, kwargs=None):
     return None
 
 
+def _breakdown_section_for(module):
+    """Resolve the section label for a hooked module.
+
+    Stage 2D, Step 1: prefer the instance-tagged `_v100_breakdown_section`
+    attribute so we can attach sub-section hooks to specific submodule
+    instances (e.g. `Qwen3NextSparseMoeBlock.gate` -> 'moe_router') without
+    over-attaching every same-class module in the model.
+    """
+    section = getattr(module, "_v100_breakdown_section", None)
+    if section is not None:
+        return section
+    cls_name = type(module).__name__
+    return _BREAKDOWN_HOOK_CLASSES.get(cls_name, cls_name)
+
+
 def _breakdown_pre_hook(module, args, kwargs):
     if not torch.cuda.is_available():
         return
-    cls_name = type(module).__name__
-    section = _BREAKDOWN_HOOK_CLASSES.get(cls_name, cls_name)
+    section = _breakdown_section_for(module)
     m = _first_tensor_m(args, kwargs)
     regime = "decode" if m == 1 else "prefill"
     start = torch.cuda.Event(enable_timing=True)
@@ -271,8 +362,12 @@ def _breakdown_pre_hook(module, args, kwargs):
         setattr(module, "_v100_breakdown_stack", stack)
     stack.append((regime, start))
 
+    # Sub-section hooks fire *inside* a parent section's measurement window;
+    # they must not also re-open the per-token wall (which is opened by the
+    # first non-LogitsProcessor parent section per token).
     global _BREAKDOWN_TOKEN_OPEN, _BREAKDOWN_TOKEN_START
-    if (regime == "decode" and section != "LogitsProcessor"
+    is_sub = section in _BREAKDOWN_SUB_SECTION_ORDER
+    if (regime == "decode" and section != "LogitsProcessor" and not is_sub
             and not _BREAKDOWN_TOKEN_OPEN):
         _BREAKDOWN_TOKEN_START = torch.cuda.Event(enable_timing=True)
         _BREAKDOWN_TOKEN_START.record()
@@ -288,8 +383,7 @@ def _breakdown_post_hook(module, args, kwargs, output):
     regime, start = stack.pop()
     end = torch.cuda.Event(enable_timing=True)
     end.record()
-    cls_name = type(module).__name__
-    section = _BREAKDOWN_HOOK_CLASSES.get(cls_name, cls_name)
+    section = _breakdown_section_for(module)
     _BREAKDOWN_PENDING_EVENTS.append((regime, section, start, end))
 
     global _BREAKDOWN_DECODE_TOKENS, _BREAKDOWN_TOKEN_OPEN, _BREAKDOWN_TOKEN_START
@@ -327,7 +421,14 @@ def _breakdown_flush():
         return
     tokens = max(1, _BREAKDOWN_DECODE_TOKENS)
     if total_ms <= 0.0:
-        total_ms = sum(_BREAKDOWN_TOTALS["decode"].values())
+        # Token-wall events weren't captured (the first token's worth of
+        # data was thrown away, or no LogitsProcessor fired). Fall back to
+        # the sum of *parent* section times -- never sum in sub-sections,
+        # which would double-count their parent.
+        total_ms = sum(
+            interval_totals.get(name, 0.0)
+            for name in _BREAKDOWN_SECTION_ORDER
+        )
     total_per_token = total_ms / max(1, _DECODE_BREAKDOWN_EVERY)
     section_sum = 0.0
     lines = []
@@ -342,6 +443,101 @@ def _breakdown_flush():
         lines.append(
             f"  {section:<30} {per_token:8.3f} ms/token ({pct:5.1f}%) "
             f"calls={calls}")
+
+        # Stage 2D, Step 1: indent sub-section breakdown under its parent.
+        # The sub-section times live *inside* the parent's measurement
+        # window; report them as a breakdown of the parent, NOT as new
+        # entries in the per-token total.
+        # Stage 2D, Step 2A: also indent NESTED sub-sections under their
+        # immediate parent sub-section (e.g. moe_shared lives inside
+        # moe_experts because SharedFusedMoE.forward invokes
+        # self._shared_experts(...) directly).
+        sub_names = _BREAKDOWN_RESIDUAL_OF.get(section)
+        if not sub_names:
+            continue
+        sub_sum_ms = 0.0
+        sub_lines = []
+        for sub in sub_names:
+            sub_ms = interval_totals.get(sub, 0.0)
+            if sub_ms <= 0.0:
+                continue
+            sub_per_token = sub_ms / max(1, _DECODE_BREAKDOWN_EVERY)
+            sub_sum_ms += sub_per_token
+            # share-of-parent (not share-of-total), so the breakdown sums
+            # to ~100% within the MoE block alone.
+            sub_pct = (100.0 * sub_per_token / per_token) if per_token else 0.0
+            sub_calls = interval_counts.get(sub, 0)
+            sub_lines.append(
+                f"    + {sub:<26} {sub_per_token:8.3f} ms/token "
+                f"({sub_pct:5.1f}% of {section}) calls={sub_calls}")
+
+            # Render any nested sub-sections (e.g. moe_shared inside
+            # moe_experts) at one more indent level. Their time is
+            # already inside `sub`'s window, so we subtract their sum
+            # from `sub` to compute the routed-only residual (e.g. our
+            # _our_moe_apply path inside SharedFusedMoE).
+            nested_names = _BREAKDOWN_NESTED_OF.get(sub)
+            if not nested_names:
+                continue
+            nested_sum_ms = 0.0
+            for nested in nested_names:
+                nested_ms = interval_totals.get(nested, 0.0)
+                if nested_ms <= 0.0:
+                    continue
+                nested_per_token = nested_ms / max(1, _DECODE_BREAKDOWN_EVERY)
+                nested_sum_ms += nested_per_token
+                nested_pct = (
+                    100.0 * nested_per_token / sub_per_token
+                ) if sub_per_token else 0.0
+                nested_calls = interval_counts.get(nested, 0)
+                sub_lines.append(
+                    f"        +-- {nested:<22} {nested_per_token:8.3f} ms/token "
+                    f"({nested_pct:5.1f}% of {sub}) calls={nested_calls}")
+            sub_routed_only = max(0.0, sub_per_token - nested_sum_ms)
+            sub_routed_pct = (
+                100.0 * sub_routed_only / sub_per_token) if sub_per_token else 0.0
+            sub_lines.append(
+                f"        +-- {sub + ' (excl. nested)':<22} "
+                f"{sub_routed_only:8.3f} ms/token "
+                f"({sub_routed_pct:5.1f}% of {sub})")
+        other_in_parent = max(0.0, per_token - sub_sum_ms)
+        other_pct_parent = (
+            100.0 * other_in_parent / per_token) if per_token else 0.0
+        sub_lines.append(
+            f"    + {'moe_other (wrapper/topk/combine)':<26} "
+            f"{other_in_parent:8.3f} ms/token "
+            f"({other_pct_parent:5.1f}% of {section})")
+        # Stage 2D Step 2B.1: indent measurement-only sub-attribution of
+        # the moe_other residual when the patched Qwen3NextSparseMoeBlock
+        # forward is installed. moe_other_residual = moe_other - subs;
+        # represents Python wrapper + view/reshape + dispatch glue we
+        # didn't bracket explicitly.
+        moe_other_sub_total = 0.0
+        moe_other_sub_lines = []
+        for sub in _BREAKDOWN_MOE_OTHER_SUB_ORDER:
+            sub_ms = interval_totals.get(sub, 0.0)
+            if sub_ms <= 0.0:
+                continue
+            sub_per_token = sub_ms / max(1, _DECODE_BREAKDOWN_EVERY)
+            moe_other_sub_total += sub_per_token
+            sub_pct_other = (
+                100.0 * sub_per_token / other_in_parent
+            ) if other_in_parent else 0.0
+            sub_calls = interval_counts.get(sub, 0)
+            moe_other_sub_lines.append(
+                f"        +-- {sub:<22} {sub_per_token:8.3f} ms/token "
+                f"({sub_pct_other:5.1f}% of moe_other) calls={sub_calls}")
+        if moe_other_sub_total > 0:
+            moe_other_residual = max(0.0, other_in_parent - moe_other_sub_total)
+            moe_other_residual_pct = (
+                100.0 * moe_other_residual / other_in_parent
+            ) if other_in_parent else 0.0
+            moe_other_sub_lines.append(
+                f"        +-- moe_other_residual    "
+                f"{moe_other_residual:8.3f} ms/token "
+                f"({moe_other_residual_pct:5.1f}% of moe_other)")
+            sub_lines.extend(moe_other_sub_lines)
+        lines.extend(sub_lines)
     other = max(0.0, total_per_token - section_sum)
     other_pct = (100.0 * other / total_per_token) if total_per_token else 0.0
     print(
@@ -361,6 +557,134 @@ def _breakdown_flush():
     )
 
 
+def _attach_shared_experts_debug_hook(model):
+    """Stage 2D, Step 2A.2b: register a one-shot rank-0 hook on the first
+    Qwen3NextSparseMoeBlock found in `model`. Fires once on first forward
+    (post-PWAL), dumps the shared-expert structure, then short-circuits.
+
+    Independent of `_DECODE_BREAKDOWN`: this attach runs even if the
+    decode breakdown is disabled, so the debug dump is cheap to enable
+    on its own (single profile-off serve, single curl).
+    """
+    if not _DEBUG_SHARED_EXPERTS:
+        return
+    model_id = id(model)
+    # Reuse the decode-breakdown attached-set: we attach to the same
+    # model anchor, but the debug-only hook is a different callable so
+    # double-attach is harmless. Tracking just to avoid double work.
+    target = None
+    target_prefix = "<unknown>"
+    for name, module in model.named_modules():
+        if type(module).__name__ == "Qwen3NextSparseMoeBlock":
+            target = module
+            target_prefix = name or "<unknown>"
+            break
+    if target is None:
+        return
+
+    state = {"fired": False}
+
+    def _one_shot(mod, args, kwargs):
+        if state["fired"]:
+            return
+        state["fired"] = True
+        try:
+            _dump_shared_experts_structure(mod, target_prefix)
+        except Exception as exc:
+            print(
+                f"[V100-FP8-DBG-SHARED rank={_breakdown_rank()} "
+                f"pid={os.getpid()}] dump_failed={type(exc).__name__}: {exc}",
+                flush=True,
+            )
+
+    target.register_forward_pre_hook(_one_shot, with_kwargs=True)
+
+
+def _dump_shared_experts_structure(layer_module, layer_prefix):
+    """Stage 2D, Step 2A.2b: one-shot rank-0 dump of the shared_expert
+    runtime structure. Fires once per process; subsequent calls are skipped.
+
+    Purpose: definitively classify the shared-expert path as one of
+      (a) already-FP8 (child Linears use Fp8LinearMethod + our patched apply)
+      (b) bypass (child Linears use a non-FP8 quant method, e.g. FP16)
+      (c) hybrid (some children FP8, some not)
+
+    The decision drives Stage 2D Step 2B: if (a), shared experts are
+    structural M=1 memory-bound work and we pivot Step 2B to GDN or the
+    moe_other wrapper bucket; if (b) or (c), there's an optimization
+    target we hadn't measured yet.
+    """
+    global _DEBUG_SHARED_EXPERTS_DONE
+    if not _DEBUG_SHARED_EXPERTS or _DEBUG_SHARED_EXPERTS_DONE:
+        return
+    if _breakdown_rank() not in (0, -1):
+        # Mark done on this rank too so we don't keep firing.
+        _DEBUG_SHARED_EXPERTS_DONE = True
+        return
+    _DEBUG_SHARED_EXPERTS_DONE = True
+
+    rank = _breakdown_rank()
+    pid = os.getpid()
+    tag = f"[V100-FP8-DBG-SHARED rank={rank} pid={pid}]"
+
+    shared = getattr(layer_module, "shared_expert", None)
+    if shared is None:
+        shared = getattr(layer_module, "shared_experts", None)
+    if shared is None:
+        print(
+            f"{tag} layer={layer_prefix} shared_expert=None "
+            f"(model has no shared experts)",
+            flush=True,
+        )
+        return
+
+    # Resolve whether Fp8LinearMethod.apply has been swapped to our patch.
+    apply_is_patched = "?"
+    fp8_method_cls = None
+    try:
+        from vllm.model_executor.layers.quantization.fp8 import Fp8LinearMethod
+        fp8_method_cls = Fp8LinearMethod
+        apply_qual = getattr(
+            Fp8LinearMethod.apply, "__qualname__", "")
+        apply_is_patched = "patched_apply" in apply_qual
+    except Exception as exc:
+        print(f"{tag} fp8_introspect_failed={type(exc).__name__}: {exc}",
+              flush=True)
+
+    print(f"{tag} layer={layer_prefix}", flush=True)
+    print(f"{tag}   type(shared_expert)={type(shared).__name__} "
+          f"module={type(shared).__module__}", flush=True)
+    print(f"{tag}   Fp8LinearMethod.apply patched_by_v100={apply_is_patched}",
+          flush=True)
+
+    for child_name, child in shared.named_children():
+        child_cls = type(child).__name__
+        print(f"{tag}   child={child_name} type={child_cls}", flush=True)
+        qm = getattr(child, "quant_method", None)
+        if qm is not None:
+            qm_cls = type(qm).__name__
+            is_fp8 = (fp8_method_cls is not None
+                      and isinstance(qm, fp8_method_cls))
+            block_quant = getattr(qm, "block_quant", None)
+            block_size = getattr(qm, "weight_block_size", None)
+            print(
+                f"{tag}     quant_method={qm_cls} "
+                f"is_fp8={is_fp8} block_quant={block_quant} "
+                f"block_size={block_size}",
+                flush=True,
+            )
+        for attr in ("weight", "weight_scale_inv", "weight_scale",
+                     "input_scale"):
+            t = getattr(child, attr, None)
+            if t is None or not isinstance(t, torch.Tensor):
+                continue
+            print(
+                f"{tag}     {attr}: dtype={t.dtype} shape={tuple(t.shape)} "
+                f"contiguous={t.is_contiguous()}",
+                flush=True,
+            )
+
+
 def _attach_decode_breakdown_hooks(model):
     if not _DECODE_BREAKDOWN or not torch.cuda.is_available():
         return
@@ -369,14 +693,39 @@ def _attach_decode_breakdown_hooks(model):
         return
     _BREAKDOWN_ATTACHED_MODEL_IDS.add(model_id)
 
+    def _attach(module, section_label):
+        # Tag the instance so the hook can read the role-specific section
+        # without depending on the module's class name (which may be shared
+        # with unrelated modules elsewhere in the model).
+        module._v100_breakdown_section = section_label
+        module.register_forward_pre_hook(_breakdown_pre_hook, with_kwargs=True)
+        module.register_forward_hook(_breakdown_post_hook, with_kwargs=True)
+
     attached = defaultdict(int)
     for module in model.modules():
         cls_name = type(module).__name__
         if cls_name not in _BREAKDOWN_HOOK_CLASSES:
             continue
-        module.register_forward_pre_hook(_breakdown_pre_hook, with_kwargs=True)
-        module.register_forward_hook(_breakdown_post_hook, with_kwargs=True)
-        attached[_BREAKDOWN_HOOK_CLASSES[cls_name]] += 1
+        section = _BREAKDOWN_HOOK_CLASSES[cls_name]
+        _attach(module, section)
+        attached[section] += 1
+
+        # Stage 2D, Step 1: read-only sub-attribution of the MoE block.
+        # For each Qwen3NextSparseMoeBlock instance, hook specific child
+        # attributes (gate, experts, shared_experts) with role-named
+        # sub-sections. moe_other is computed at report time as the residual
+        # of the parent block minus these children.
+        if cls_name != "Qwen3NextSparseMoeBlock" or not _BREAKDOWN_MOE_SUB_HOOK:
+            continue
+        for attr_name, sub_section in _BREAKDOWN_SPARSE_MOE_CHILDREN:
+            child = getattr(module, attr_name, None)
+            if child is None or not isinstance(child, torch.nn.Module):
+                continue
+            # Avoid double-attach if a child is shared across blocks.
+            if getattr(child, "_v100_breakdown_section", None) is not None:
+                continue
+            _attach(child, sub_section)
+            attached[sub_section] += 1
     if _breakdown_rank() in (0, -1):
         parts = ", ".join(f"{name}={count}" for name, count in sorted(attached.items()))
         print(
@@ -1788,6 +2137,7 @@ def _patch_vllm_for_v100():
             def patched_qwen3next_init(self, *args, **kwargs):
                 original_qwen3next_init(self, *args, **kwargs)
                 _attach_decode_breakdown_hooks(self)
+                _attach_shared_experts_debug_hook(self)
 
             qwen3_next.Qwen3NextForCausalLM.__init__ = patched_qwen3next_init
 
@@ -1796,8 +2146,90 @@ def _patch_vllm_for_v100():
             def patched_qwen35_base_init(self, *args, **kwargs):
                 original_qwen35_base_init(self, *args, **kwargs)
                 _attach_decode_breakdown_hooks(self)
+                _attach_shared_experts_debug_hook(self)
 
             qwen3_5.Qwen3_5ForCausalLMBase.__init__ = patched_qwen35_base_init
+
+            # Stage 2D, Step 2B.1: measurement-only wrap of
+            # Qwen3NextSparseMoeBlock.forward so the moe_other residual
+            # can be decomposed into combine + all-reduce + python.
+            # Identical semantics to the upstream forward; the only
+            # difference is CUDA events bracketing two narrow sections,
+            # appended to the existing _BREAKDOWN_PENDING_EVENTS list.
+            if _MOE_OTHER_PROFILE and torch.cuda.is_available():
+                _orig_sparsemoe_forward = (
+                    qwen3_next.Qwen3NextSparseMoeBlock.forward)
+                # Imports the wrapper needs. Resolved once at install time
+                # so the per-call hot path is just attribute lookups.
+                from vllm.distributed import (
+                    tensor_model_parallel_all_gather as _tp_all_gather)
+                from vllm.model_executor.models.utils import (
+                    sequence_parallel_chunk as _sp_chunk)
+
+                def _timed_sparsemoe_forward(self, hidden_states):
+                    orig_shape = hidden_states.shape
+                    num_tokens, hidden_dim = hidden_states.shape
+                    regime = "decode" if num_tokens == 1 else "prefill"
+                    hidden_states = hidden_states.view(-1, hidden_dim)
+
+                    if self.is_sequence_parallel:
+                        hidden_states = _sp_chunk(hidden_states)
+
+                    if self.experts.is_internal_router:
+                        final_hidden_states = self.experts(
+                            hidden_states=hidden_states,
+                            router_logits=hidden_states)
+                    else:
+                        router_logits, _ = self.gate(hidden_states)
+                        final_hidden_states = self.experts(
+                            hidden_states=hidden_states,
+                            router_logits=router_logits)
+
+                    if self.shared_expert is not None:
+                        combine_start = torch.cuda.Event(enable_timing=True)
+                        combine_end = torch.cuda.Event(enable_timing=True)
+                        combine_start.record()
+                        final_hidden_states = (
+                            final_hidden_states[0] + final_hidden_states[1])
+                        combine_end.record()
+                        _BREAKDOWN_PENDING_EVENTS.append(
+                            (regime, "moe_other_combine",
+                             combine_start, combine_end))
+
+                    if self.is_sequence_parallel:
+                        ag_start = torch.cuda.Event(enable_timing=True)
+                        ag_end = torch.cuda.Event(enable_timing=True)
+                        ag_start.record()
+                        final_hidden_states = _tp_all_gather(
+                            final_hidden_states, 0)
+                        final_hidden_states = final_hidden_states[:num_tokens]
+                        ag_end.record()
+                        _BREAKDOWN_PENDING_EVENTS.append(
+                            (regime, "moe_other_allreduce",
+                             ag_start, ag_end))
+                    elif self.tp_size > 1:
+                        ar_start = torch.cuda.Event(enable_timing=True)
+                        ar_end = torch.cuda.Event(enable_timing=True)
+                        ar_start.record()
+                        final_hidden_states = (
+                            self.experts.maybe_all_reduce_tensor_model_parallel(
+                                final_hidden_states))
+                        ar_end.record()
+                        _BREAKDOWN_PENDING_EVENTS.append(
+                            (regime, "moe_other_allreduce",
+                             ar_start, ar_end))
+
+                    return final_hidden_states.view(orig_shape)
+
+                qwen3_next.Qwen3NextSparseMoeBlock.forward = (
+                    _timed_sparsemoe_forward)
+                if _breakdown_rank() in (0, -1):
+                    print(
+                        f"[V100-FP8 pid={os.getpid()}] Stage 2D Step 2B.1 "
+                        f"moe_other sub-attribution patch installed "
+                        f"(combine + allreduce timing).",
+                        flush=True,
+                    )
         except Exception as exc:
             print(
                 f"[DECODE-BREAKDOWN rank={_breakdown_rank()} pid={os.getpid()}] "

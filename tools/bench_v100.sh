@@ -135,7 +135,13 @@ case "$mode" in
             echo "    --attention-backend TRITON_ATTN --tensor-parallel-size $TP_SIZE \\"
             echo "    --max-num-seqs 1 --gpu-memory-utilization 0.80 \\"
             echo "    --max-model-len $MAX_MODEL_LEN --no-enable-chunked-prefill \\"
-            echo "    --disable-custom-all-reduce --host 0.0.0.0 --port $PORT $*"
+            # NOTE: --disable-custom-all-reduce was historically passed for
+            # sm_70 safety. Source-read in Stage 2D Step 2C.1 found that vLLM
+            # 0.18's CustomAllreduce auto-disables anyway on this DGX-1 V100
+            # topology (NOT fully NVLink-connected at TP=8), so the flag is
+            # dead weight here. Removed by default; pass it as a trailing
+            # arg to this script if a future host needs it back.
+            echo "    --host 0.0.0.0 --port $PORT $*"
         } >> "$CONFIG"
 
         echo "[bench_v100] run dir : $RUN_DIR"
@@ -154,7 +160,6 @@ case "$mode" in
                 --tensor-parallel-size "$TP_SIZE" \
                 --max-num-seqs 1 --gpu-memory-utilization 0.80 \
                 --max-model-len "$MAX_MODEL_LEN" --no-enable-chunked-prefill \
-                --disable-custom-all-reduce \
                 --host 0.0.0.0 --port "$PORT" \
                 "$@"
         ) 2>&1 | tee "$SERVE_LOG"
@@ -266,13 +271,22 @@ PY
         # Extract high-signal lines from the serve log into serve_extract.log
         # so the proof-of-config (fast_route_prep banner, MoE profile, engine
         # throughput logger) is co-located with the curl timings.
+        #
+        # Important: DECODE-BREAKDOWN multi-line blocks have an indented body
+        # (e.g. "  Qwen3NextSparseMoeBlock ... ms/token", "    + moe_router
+        # ..."). The grep below needs to catch those too, not just the
+        # "DECODE-BREAKDOWN" header line, otherwise the breakdown body is
+        # silently dropped from the extract.
         if [[ -f "$SERVE_LOG" ]]; then
             grep -E \
                 -e 'fast_route_prep=' \
                 -e 'V100-FP8-MOE-GROUPED' \
+                -e 'V100-FP8-DBG-SHARED' \
                 -e 'loggers\.py:259' \
                 -e 'V100-FP8-MOE-PROFILE' \
                 -e 'DECODE-BREAKDOWN' \
+                -e '^\(Worker_TP[0-9]+ pid=[0-9]+\)[[:space:]]+(\+ |\+-- |Qwen|LogitsProcessor|Other|Total[[:space:]])' \
+                -e 'attached hooks' \
                 -e 'patched PWAL fired' \
                 -e 'Application startup complete' \
                 "$SERVE_LOG" > "$EXTRACT" 2>/dev/null || true

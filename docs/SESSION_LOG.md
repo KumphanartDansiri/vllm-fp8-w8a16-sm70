@@ -978,4 +978,148 @@ Not Stage 2D:
 - Deferred-sync profile mode (not needed once `py_inner_loop` separates
   wall from sync wait).
 
+## Stage 2D Step 1+2A+2B.1 (2026-05-25): measurement-only attribution of the MoE wrapper
+
+Tagged at `v0.3.1`. Pure instrumentation; no behavior change vs `v0.3.0`. The
+goal was to attribute the ~60 ms/token wrapper gap between
+`Qwen3NextSparseMoeBlock` (~145 ms in profile-on) and our `_our_moe_apply`
+(~84 ms), which was visible at the close of Stage 2C but not decomposed.
+
+Three layers of sub-attribution added:
+
+**Step 1: sub-MoE module hooks.** `_BREAKDOWN_SPARSE_MOE_CHILDREN` attaches
+instance-tagged `_v100_breakdown_section` hooks to `self.gate` (`moe_router`),
+`self.experts` (`moe_experts`), and `self.shared_expert`/`self.shared_experts`
+(`moe_shared`) on every `Qwen3NextSparseMoeBlock`. Refactored
+`_breakdown_pre_hook` / `_breakdown_post_hook` to read the instance attribute
+first (class-map fallback preserves backward-compat). Gated by
+`VLLM_V100_FP8_DECODE_BREAKDOWN_MOE_SUBS=1` (default on when
+`VLLM_V100_FP8_DECODE_BREAKDOWN=1` is set).
+
+**Step 2A: residual math fix + one-shot shared-expert structure dump.**
+Source read of `vllm/model_executor/models/qwen3_next.py` and
+`shared_fused_moe.py` revealed that `self.shared_expert` is invoked **from
+inside** `SharedFusedMoE.forward()` (line 28: `shared_out = self._shared_experts(hidden_states)`).
+So the `moe_shared` hook fires *inside* the `moe_experts` measurement window;
+they are NOT siblings. Without the fix, the parent residual
+`moe_other = parent - router - experts - shared` double-subtracted
+`moe_shared`, inflating the apparent wrapper gap by exactly `moe_shared`.
+
+Fix: `_BREAKDOWN_RESIDUAL_OF["Qwen3NextSparseMoeBlock"]` lists only the direct
+siblings (`moe_router`, `moe_experts`). New `_BREAKDOWN_NESTED_OF` maps
+`moe_experts -> (moe_shared,)`. Reporter renders nested subs indented as
+`+-- moe_shared X.XXX ms/token (YY% of moe_experts)` plus a derived
+`moe_experts (excl. nested)` row.
+
+One-shot rank-0 runtime dump under `VLLM_V100_FP8_DEBUG_SHARED_EXPERTS=1`
+prints `Qwen2MoeMLP` structure on the first MoE-block forward (post-PWAL):
+type, child types, quant_method (incl. is_fp8, block_quant, block_size),
+weight dtype/shape/contiguity, and whether `Fp8LinearMethod.apply` was
+swapped to our patched function.
+
+Definitive runtime evidence (rank 0 dump):
+
+| Child | Class | Quant method | dtype | Shape | Notes |
+|---|---|---|---|---:|---|
+| `gate_up_proj` | `MergedColumnParallelLinear` | `Fp8LinearMethod` | `float8_e4m3fn` | (256, 3072) | `block_quant=True, block_size=[128, 128]` |
+| `down_proj` | `RowParallelLinear` | `Fp8LinearMethod` | `float8_e4m3fn` | (3072, 128) | `block_quant=True, block_size=[128, 128]` |
+| `act_fn` | `SiluAndMul` | n/a | - | - | - |
+| `expert_gate` | `ReplicatedLinear` | `UnquantizedLinearMethod` | `float16` | (1, 3072) | conditional sigmoid weight |
+
+`Fp8LinearMethod.apply patched_by_v100=True`. **Classification: already-FP8.**
+Shared experts run through `_v100_fp8_gemm` (same path as the routed MoE
+inner GEMM). No optimization wedge there; the 26 ms/token is structural M=1
+memory-bound work over two block-FP8 Linears across 48 layers.
+
+`intermediate=128` per TP=8 shard for the shared expert (= per-rank
+`shared_expert_intermediate_size / TP`), matching the routed-expert
+intermediate observed in the Stage 2B grouped log.
+
+**Step 2B.1: sub-attribution of the `moe_other` residual.** Monkey-patched
+`Qwen3NextSparseMoeBlock.forward` with measurement-only CUDA-event timers
+bracketing the combine and all-reduce sections (semantics identical to
+upstream; gated by `VLLM_V100_FP8_MOE_OTHER_PROFILE=1`):
+
+- `moe_other_combine` = the `final_hidden_states[0] + final_hidden_states[1]`
+  fp16 add (routed + shared).
+- `moe_other_allreduce` = `self.experts.maybe_all_reduce_tensor_model_parallel(...)`
+  or the sequence-parallel all-gather branch; same bucket name either way.
+- `moe_other_residual` = derived; covers Python view/reshape, attribute
+  lookups, dispatch glue.
+
+Resulting decomposition at steady-state decode (tokens=576 sample, profile-on,
+3 instrumentation layers all on):
+
+```
+Qwen3NextSparseMoeBlock          127.555 ms/token  (55.8% of decode)
+  moe_router                       1.487
+  moe_experts                     69.283
+    moe_shared (nested)           26.163
+    moe_experts (excl. nested)    43.120
+  moe_other                       56.784
+    moe_other_combine              3.001  ( 5.3% of moe_other)
+    moe_other_allreduce           50.431  (88.8% of moe_other)
+    moe_other_residual             3.352  ( 5.9% of moe_other)
+GDN                               67.690  (29.6%)
+Attention                         30.251  (13.2%)
+LogitsProcessor                    0.955
+Other (residual)                   2.169
+Total                            228.620  ms/token
+```
+
+**Headline finding: `moe_other` is 89% TP all-reduce.** 48 NCCL all-reduce
+calls per token on a `[1, 3072]` fp16 buffer (~6 KB) at ~1.05 ms each.
+Python-wrapper overhead is only ~6 ms/token (combine + residual); the
+wrapper-bypass lever from earlier Stage 2D planning is **dropped from the
+active list** -- too small to justify a SparseMoeBlock.forward replacement.
+
+**Source read (Stage 2D Step 2C.1) on the all-reduce path:**
+
+`--disable-custom-all-reduce` is **dead weight** on this DGX-1 V100 host.
+vLLM 0.18's `CustomAllreduce` auto-disables at runtime when
+`current_platform.is_fully_connected(physical_device_ids)` is False, which
+requires 1-hop NVLink between every TP rank pair. `nvidia-smi topo -m`
+shows the typical DGX-1 hypercube -- two NVLink quadrants ({0,1,2,3},
+{4,5,6,7}) with several cross-quadrant pairs at NODE (PCIe-through-host-bridge),
+not NVLink. So the topology gate trips at TP=8 regardless of the flag.
+
+Removing the flag is therefore a no-op; the AR still goes through NCCL on
+the mixed-topology ring/tree algorithm. The 50 ms/token cost is small-message
+NCCL latency, not bandwidth. Not addressable by re-enabling custom AR at
+TP=8 on this host.
+
+**`SymmMemCommunicator: Device capability 7.0 not supported` is a separate
+warning** (sm_90+ symmetric-memory communicator), unrelated to custom AR
+availability.
+
+`tools/bench_v100.sh` was updated to drop `--disable-custom-all-reduce`
+from the default serve command (replaced with an explanatory comment).
+Trailing positional args still allow it to be added back per-run if a
+future host needs it.
+
+**Stage 2D Step 2C.2** (pending): no-code A/B confirming the flag drop is
+empirically a no-op vs Step 2B.1.
+
+**Stage 2D Step 2D** (pending): pivot to GDN
+(`Qwen3NextGatedDeltaNet`, ~68 ms/token, 29.6% of decode) which is now the
+largest unexplained lever after the AR finding. Per-AR latency at TP=8 on
+this topology is topology-limited; non-trivial optimization paths
+(structural AR-frequency reduction, custom-AR-with-NVLink TP=4 within a
+quadrant) are documented but not on the Stage 2D plan.
+
+**Param hygiene** as a separate later pass: this stage proved
+`--disable-custom-all-reduce` is sediment. Other candidates that have
+accumulated by trial-and-error and not been validated:
+`--no-enable-chunked-prefill`, `--attention-backend TRITON_ATTN`,
+`--max-num-seqs 1`, `--gpu-memory-utilization 0.80`. Only `--enforce-eager`
+is documented as load-blocking-when-removed.
+
+New env vars added in v0.3.1 (all measurement-only, default off unless noted):
+
+| Var | Default | Purpose |
+|---|---|---|
+| `VLLM_V100_FP8_DECODE_BREAKDOWN_MOE_SUBS` | 1 (when DECODE_BREAKDOWN=1) | Step 1: hook gate / experts / shared_expert sub-modules of every SparseMoeBlock |
+| `VLLM_V100_FP8_DEBUG_SHARED_EXPERTS` | 0 | Step 2A: one-shot rank-0 dump of the shared expert runtime structure |
+| `VLLM_V100_FP8_MOE_OTHER_PROFILE` | 0 | Step 2B.1: monkey-patch SparseMoeBlock.forward with CUDA events around combine + all-reduce |
+
 End of log.
