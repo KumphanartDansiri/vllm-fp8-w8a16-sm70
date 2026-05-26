@@ -1,0 +1,77 @@
+# cu129 sibling of Dockerfile.vllm018_py312. Built per NVIDIA's explicit V100
+# endgame guidance: driver R580 + CUDA 12.9 toolkit is the supported envelope
+# for sm_70 through mid-2028 (sources: NVIDIA data-center driver support table,
+# CUDA architecture matrix, "Navigating GPU architecture support" blog).
+#
+# Held constant vs Dockerfile.vllm018_py312:
+#   * vllm version: 0.18.0
+#   * torch version: 2.10.0
+#   * transformers: 4.57.6 (resolved by vllm)
+#   * Python: 3.12 / Ubuntu 24.04
+#
+# Changed:
+#   * Base CUDA image: 12.8.1-devel -> 12.9.2-devel
+#   * Torch wheel:     +cu128       -> +cu129
+#   * Added:           cuda-compat-12-9 for forward-compat on R535 hosts
+#
+# Compatibility note: CUDA 12.9 natively requires driver >=575.x. On the
+# current host driver R535, this image relies on NVIDIA's CUDA Forward
+# Compatibility shim (cuda-compat-12-9). If forward-compat fails at runtime
+# (e.g. driver-too-old error from libcuda), the bare-metal R580 upgrade is
+# the required next step.
+#
+# Build:  ./tools/build_cu129.sh
+
+FROM nvidia/cuda:12.9.2-devel-ubuntu24.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_ROOT_USER_ACTION=ignore \
+    PIP_BREAK_SYSTEM_PACKAGES=1
+
+# Ubuntu 24.04 ships python3.12 as system python. gcc/g++ for triton JIT.
+# cuda-compat-12-9 is the forward-compat shim that lets cu129 toolkit run
+# against the current R535 host driver. NVIDIA-recommended for datacenter
+# deployments where the host driver lags the toolkit.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3 python3-dev python3-pip \
+        gcc g++ \
+        curl ca-certificates libgomp1 \
+        cuda-compat-12-9 && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Torch 2.10.0+cu129 — matches the cu128 sibling's torch minor exactly, only
+# the CUDA wheel variant differs. Keeps vllm 0.18 ABI compatibility.
+RUN python3 -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu129 \
+        torch==2.10.0
+
+# Stock vllm 0.18.0 from PyPI. transformers etc. resolved automatically.
+RUN python3 -m pip install --no-cache-dir \
+        vllm==0.18.0 \
+        safetensors>=0.4
+
+# Build-time validation. GPU not available during docker build (no --gpus
+# flag), so torch.cuda.get_arch_list() returns []. The sm_70 arch check
+# moves to post-build runtime validation in build_cu129.sh where --gpus all
+# is available. Here we only verify static package metadata.
+RUN python3 - <<'PY'
+import sys
+import torch
+import vllm
+
+print("python:", sys.version.split()[0])
+print("torch:", torch.__version__)
+print("torch.version.cuda:", torch.version.cuda)
+print("torch.cuda.get_arch_list() (no-GPU, informational):", torch.cuda.get_arch_list())
+print("torch compile-time NCCL:", torch.cuda.nccl.version())
+print("vllm:", vllm.__version__)
+
+assert torch.__version__.startswith("2.10."), f"expected torch 2.10.x, got {torch.__version__}"
+assert torch.version.cuda and torch.version.cuda.startswith("12.9"), \
+    f"expected cuda 12.9, got {torch.version.cuda}"
+assert vllm.__version__ == "0.18.0", f"expected vllm 0.18.0, got {vllm.__version__}"
+PY
+
+WORKDIR /work

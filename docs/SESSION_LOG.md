@@ -1589,3 +1589,249 @@ Repo-facing defaults now point at the py3.12 v0.4.0 baseline:
 - `REQUIREMENTS.md` now lists `FULL_DECODE_ONLY` cudagraph as the performance path and `--enforce-eager` as the legacy fallback.
 - `docker/run_docker_vllm018_py312.sh` now defaults to `VLLM_V100_FP8_MOE_GROUPED_MAX_ROUTE_SLOTS=128` and `VLLM_V100_FP8_MOE_FAST_ROUTE_PREP=1`.
 - `docker/Dockerfile.vllm018_py312` comments now describe the image as the baseline, not only an exploratory test image.
+
+## Stage 3.6 prep (2026-05-26 evening): cu129 sibling image, controlled A/B, driver hygiene
+
+This section documents the work that preceded the R580 acceptance summary
+below: the cu129 image build, the controlled A/B that decomposed an
+apparent +37% gain into a max-num-seqs config effect, the driver-hygiene
+lesson from the R535 host, and the NCCL-bump experiment's outcome.
+
+### cu129 sibling image
+
+Built `vllm-v100-py312-test:cu129` alongside the cu128 baseline (neither
+replaces the other):
+
+- Base: `nvidia/cuda:12.9.2-devel-ubuntu24.04`
+- Toolkit: CUDA 12.9.2 (cuBLAS 12.9.1.4, cuDNN 9.10.2.21)
+- torch: 2.10.0+cu129 (transitively pulls `nvidia-nccl-cu12==2.27.5`, same
+  version as the cu128 wheel)
+- vLLM: 0.18.0 unchanged
+- Adds `cuda-compat-12-9` for NVIDIA CUDA Forward Compatibility (shipped
+  libcuda 575.57.08 — the R575 UMD shim that let cu129 toolkit run against
+  the older R535 KMD before the bare-metal upgrade).
+
+Build-time validation gotcha: `torch.cuda.get_arch_list()` returns `[]`
+during `docker build` (no `--gpus` flag, no NVIDIA Container Toolkit UMD
+injection). The `sm_70` check moved to post-build runtime in
+`tools/build_cu129.sh` where `--gpus all` is available. Documented for
+future image work.
+
+### Forward-compat probe on R535 (Scenario A confirmed)
+
+`cuda-compat-12-9` shim functional on R535 at TP=4 and TP=8. All 8 V100s
+visible, `matmul on cuda:0 = 1.0`, NCCL P2P/AR across the partial-NVLink
+hypercube worked correctly under forward-compat at TP=8 (the highest-risk
+hypothesis going in). Conclusion: cu129 toolkit usable on R535 without
+the bare-metal driver upgrade — the upgrade became a strategic move, not
+a perf-blocker.
+
+### cu129/R535 smoke matrix (7 paths)
+
+All deltas vs documented cu128 v0.4.0 envelope baselines (which were
+measured at `--max-num-seqs=1`):
+
+| Model | Path | cu128 ref | cu129/R535 | Apparent delta |
+|---|---|---:|---:|---:|
+| 27B FP16 | stock, m=3 FA+P | 39.60 | 42.04 | +6.2% |
+| 27B GPTQ-Int4 | stock, m=3 FD | 47.61 | 65.35 | +37.3% |
+| 35B-A3B FP16 | stock, m=3 FA+P | 15.76 | 15.88 | +0.8% |
+| 27B-FP8 (dense) | patched, m=0 FD | 11.44 | 11.82 | +3.3% |
+| 35B-A3B-FP8 | patched, m=0 FD | 52.87 | 53.12 | +0.5% |
+| 122B-A10B-FP8 TP=8 | patched, m=0 FD | 34.76 | 34.78 | +0.1% |
+| 122B-A10B-Int4 TP=8 | stock, m=3 FD | 63.62 | 64.88 | +2.0% |
+
+**Caveat: cu129 tests used `--max-num-seqs=8`; cu128 references used `=1`.**
+The deltas above are config-confounded. The 27B-Int4 outlier (+37%)
+triggered the controlled A/B below.
+
+### Controlled A/B — the decisive decomposition
+
+Same cu128 baseline image, same args, only `--max-num-seqs` varied:
+
+```
+cu128 max-num-seqs=1: 47.61 tok/s  (documented v0.4.0 envelope)
+cu128 max-num-seqs=8: 65.40 tok/s  (this A/B)
+cu129 max-num-seqs=8: 65.35 tok/s  (smoke matrix)
+```
+
+Output SHA `1460dc04ae` token-for-token identical between cu128 max-ns=8
+and cu129 max-ns=8. **The entire apparent +37% was the `max-num-seqs`
+change. cu129 contribution: +0.1% noise.** This generalizes to every
+smoke-matrix row — after decomposition, cu129 is perf-neutral within
+±0.5% across all 7 paths. cu129 is a support-envelope upgrade, not a
+performance upgrade.
+
+### Why max-num-seqs=8 helps single-stream perf
+
+At runtime batch=1, vLLM still captures cudagraphs for batch sizes
+{1, 2, 4, 8} during warmup. Triton autotune sees more shapes during
+capture and picks better kernel configs. The batch=1 captured graph uses
+those better kernels at runtime even though only batch=1 is dispatched.
+
+Effect is path-specific:
+
+- **Big** on dense Int4 (exllama sm_70 GEMM had headroom for kernel-config
+  tuning): +37% on 27B-Int4
+- **Small** on dense FP16 (already near memory-BW limit): +6% on 27B-FP16
+- **Tiny** on MoE+GDN paths (compute dominated by routed expert kernels,
+  not the captured-batch Linears): +0.1% to +2% on 122B/35B variants
+
+The full sweep on 27B-Int4 R580 (`{1, 8, 16}`):
+
+| max-num-seqs | tok/s | Δ vs ns=1 | Δ vs ns=8 |
+|---:|---:|---:|---:|
+| 1 | 47.61 | — | -27.2% |
+| **8** | **65.40** | **+37.4%** | **0% (peak)** |
+| 16 | 64.76 | +36.0% | -0.97% |
+
+Returns diminish past 8. Plausible causes for the small regression at 16:
+captured-graph set bloat (more memory, slightly higher dispatch lookup
+cost), KV-cache competition under the `gpu-memory-utilization=0.85`
+budget, or autotune picking a less batch-1-specific config given a wider
+shape set.
+
+### Driver hygiene lesson — mixed-source R535 install
+
+The pre-upgrade R535 host driver had **mixed install sources**: Ubuntu apt
+packages and an older NVIDIA `.run` installer running side-by-side.
+Discovered during R580 upgrade prep. Likely explains several
+pre-upgrade glitches we couldn't pin down:
+
+- NCCL-bump (`nvidia-nccl-cu12==2.30.4` via pip override on cu128) crashed
+  on multiple serve startups despite ctypes-verified runtime override
+- Intermittent serve startup behavior observed by GPT during initial
+  FP16/Int4 probes
+- Slight non-determinism patterns under cudagraph capture
+
+Single-source R580 install from NVIDIA's repo is the new operational
+standard.
+
+**Operational note for future hosts:** when troubleshooting unexplained
+CUDA-level glitches, check `dpkg -l | grep nvidia` against
+`/var/log/nvidia-installer.log` for source consistency. Mixed-source can
+silently leave libcuda paths inconsistent across the host even though
+`nvidia-smi` reports a single version.
+
+### NCCL bump experiment status (built, verified, parked)
+
+Built `vllm-v100-py312-nccl-test:cu128` as a sibling that pip-overrides
+`nvidia-nccl-cu12==2.30.4` (from torch wheel's transitive 2.27.5).
+Runtime-verified two ways:
+
+1. `ctypes.CDLL(libnccl.so.2).ncclGetVersion()` returns `23004` → 2.30.4
+2. `NCCL_DEBUG=VERSION` banner from a torchrun 2-rank `init_process_group`
+   + `all_reduce`: `NCCL version 2.30.4+cuda12.9`
+
+Override genuinely loads at runtime. But multiple production serve
+startups on cu128 crashed — possibly mixed-source R535 driver artifacts
+(now resolved), possibly real ABI gap vs torch 2.10.0+cu128's
+compile-time 2.27.5. Deprioritized in favor of cu129+R580, which is the
+NVIDIA-blessed envelope and didn't need the NCCL bump to pass acceptance.
+
+Image retained on disk for future quick A/B if a workload reveals NCCL
+headroom on the cu129+R580 base.
+
+**Methodology lesson worth keeping:**
+`torch.cuda.nccl.version()` returns torch's **compile-time** NCCL constant
+(baked into the wheel), not the runtime-loaded library version. For an
+NCCL override, only `ctypes.CDLL(libnccl.so).ncclGetVersion()` or the
+`NCCL_DEBUG=VERSION` banner on first `ncclCommInitRank` gives runtime
+ground truth.
+
+### Files in this stage
+
+| File | Purpose |
+|---|---|
+| `docker/Dockerfile.vllm018_py312_cu129` | cu129 sibling image |
+| `tools/build_cu129.sh` | Build + post-build forward-compat probe with `--gpus all` |
+| `docker/Dockerfile.vllm018_py312_nccl` | NCCL-bump experiment sibling on cu128 (parked) |
+| `tools/build_nccl_bump.sh` | NCCL-bump build + ctypes ncclGetVersion validation |
+| `tools/nccl_probe.py` | torchrun-driven 2-rank NCCL init probe — prints `NCCL_DEBUG=VERSION` banner via a real `init_process_group` + all_reduce |
+| `docker/run_docker_vllm018_py312.sh` | `IMAGE` env override (1-line patch) so the same launcher can drive cu128 or cu129 images |
+
+### Operational state heading into R580 acceptance
+
+| Layer | Value |
+|---|---|
+| Host driver | R535.288.01 (mixed-source, slated for replacement) |
+| Container image | `vllm-v100-py312-test:cu129` |
+| Container CUDA toolkit | 12.9.2 |
+| Container torch | 2.10.0+cu129 |
+| Container NCCL | 2.27.5 (torch wheel transitive) |
+| Forward-compat shim | active (`cuda-compat-12-9`, libcuda 575.57.08) |
+| Throughput default | `--max-num-seqs 8` |
+| Streaming default | `--max-num-seqs 1` (latency + FP8-path determinism) |
+
+---
+
+## 2026-05-26 R580 acceptance and FlashAttention integration notes
+
+### R580 driver acceptance
+
+Final acceptance matrix across the important serving paths:
+
+| Row | Path | Reference | R580 | Delta | Verdict | Determinism |
+|---|---|---:|---:|---:|---|---|
+| 1 | 122B-A10B-Int4 TP=8 | 64.88 | 64.50 | -0.58% | PASS | 3-of-5 |
+| 2 | 122B-A10B-FP8 TP=8 production | 34.78 | 34.77 | -0.02% | PASS | 3-of-5 |
+| 3 | 35B-A3B-FP8 TP=4 | 53.12 | 52.82 | -0.56% | PASS | 5-of-5 |
+| 4 | 27B-GPTQ-Int4 TP=4 | 65.35 | 65.42 | +0.11% | PASS | 1-of-5 perfect |
+| 5 | 27B FP16 TP=4 | 42.04 | 42.16 | +0.29% | PASS | 1-of-5 perfect |
+| bonus | 35B-A3B FP16 TP=4 | 15.88 | 15.62 | -1.62% | borderline | 1-of-5 perfect |
+| bonus | 27B-FP8 TP=4 dense | 11.82 | 11.86 | +0.33% | PASS | 2-of-5 |
+
+Summary statistic across the five deployment-relevant rows: mean delta
+`-0.15%`. This is noise-floor. **R580 holds production.**
+
+The remaining methodology probe, `27B-Int4 max-num-seqs=16`, showed slightly
+lower throughput than the current envelope. Conclusion:
+
+- Keep `max-num-seqs=8` as the operational default.
+- `max-num-seqs=16` is valid as an experiment, but under the current load
+  pattern and config it shows diminishing or negative return.
+- No R580 acceptance caveat is needed for batching defaults.
+
+### FlashAttention-V100 mental model
+
+Current project understanding:
+
+- FP8 integration is mostly a linear-path interception problem. It is like
+  finding the relevant resistors and replacing them with parts of the correct
+  value/package. The board stays mostly the same.
+- FlashAttention integration is an attention-backend / serving-runtime contract
+  problem. It is more like replacing an IC or MCU on a board: even if the new
+  chip exposes all the legs, the pinout, timing, voltage/protocol assumptions,
+  and surrounding components must match.
+
+Surrounding "peripherals" that may need adaptation:
+
+- attention metadata builder
+- KV cache allocator/layout
+- paged block tables and slot mapping
+- prefill/decode scheduler split
+- prefix-cache logic
+- chunked-prefill behavior
+- CUDA graph capture path
+- workspace allocation and lifetime
+- backend selection/fallback logic
+- model-specific attention wrappers
+- KV dtype and scale handling, including FP8 KV
+- tensor-parallel assumptions
+
+Therefore "no error" is weak evidence for FlashAttention correctness. The
+right integration loop is still incremental, but it must manufacture
+correctness checks:
+
+1. Make the backend importable and selectable.
+2. Route one simple path to FA-V100 and assert that the FA path actually ran.
+3. Compare tensors/logits against `TRITON_ATTN` on tiny controlled cases.
+4. Expand shape coverage: dense contiguous, varlen/prefill, paged decode,
+   paged prefill, prefix-cache cases, FP8 KV, CUDA graphs.
+5. Only after correctness, run real model throughput A/B.
+
+Practical conclusion: keep FlashAttention-V100 as a separate backend project,
+not as the next patch inside the FP8 package. For the current production
+MoE+GDN targets, `TRITON_ATTN` remains the serving default; previous cross-stack
+data showed FA2-v100 can help pure dense-attention models but can hurt hybrid
+GDN models badly.

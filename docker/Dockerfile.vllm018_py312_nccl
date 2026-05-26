@@ -1,0 +1,47 @@
+# Sibling of Dockerfile.vllm018_py312 with NCCL bumped from 2.27.5
+# (torch 2.10.0+cu128 default) to 2.30.4 (current PyPI head as of 2026-05-26).
+#
+# Purpose: Stage 3.5+ container-only experiment. Test whether newer NCCL
+# improves the all-reduce-dominated decode path on V100 TP=8. Driver bump
+# is the bare-metal lever underneath; this is the userspace lever first.
+#
+# Baseline image (vllm-v100-py312-test:cu128) is NOT modified.
+#
+# Build:  ./tools/build_nccl_bump.sh
+
+FROM vllm-v100-py312-test:cu128
+
+# Override torch-pinned nvidia-nccl-cu12. --no-deps prevents pip's resolver
+# from downgrading the other nvidia-* wheels that torch 2.10.0+cu128 pinned.
+RUN python3 -m pip install --no-cache-dir --upgrade --no-deps \
+        nvidia-nccl-cu12==2.30.4
+
+# Build-time validation: confirm the override installed a new libnccl.so.
+# `torch.cuda.nccl.version()` reports PyTorch's compiled-against NCCL version
+# in this stack, so keep it informational and validate the shared library via
+# ncclGetVersion() instead. Runtime validation still happens with
+# NCCL_DEBUG=VERSION on first serve.
+RUN python3 - <<'PY'
+import ctypes
+import os
+import nvidia.nccl as nccl_pkg
+import torch
+
+lib_dir = os.path.join(nccl_pkg.__path__[0], "lib")
+lib_path = os.path.join(lib_dir, "libnccl.so.2")
+lib = ctypes.CDLL(lib_path)
+version = ctypes.c_int()
+rc = lib.ncclGetVersion(ctypes.byref(version))
+if rc != 0:
+    raise RuntimeError(f"ncclGetVersion failed with rc={rc}")
+
+print("torch:", torch.__version__)
+print("torch compiled NCCL API:", torch.cuda.nccl.version())
+print("override libnccl:", lib_path)
+print("override ncclGetVersion:", version.value)
+
+major = version.value // 10000
+minor = (version.value % 10000) // 100
+patch = version.value % 100
+assert (major, minor) >= (2, 30), f"expected >=2.30.x, got {(major, minor, patch)}"
+PY

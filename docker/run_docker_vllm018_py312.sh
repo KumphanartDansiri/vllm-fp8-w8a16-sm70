@@ -31,7 +31,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$HERE/.." && pwd)"
-IMAGE="vllm-v100-py312-test:cu128"
+IMAGE="${IMAGE:-vllm-v100-py312-test:cu128}"
 
 MODEL_MOUNT=()
 if [[ -d /mnt/models ]]; then
