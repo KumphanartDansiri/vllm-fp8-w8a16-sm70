@@ -1338,4 +1338,95 @@ configuration (memory feasibility) or vLLM's per-block AR dispatch
 (invasive). Stage 2E candidates (TP=4 memory feasibility, param hygiene
 pass) are separate stages.
 
+---
+
+## Stage 3 (v0.4.0, 2026-05-26): Production breakthrough — Qwen3.5-122B-A10B-FP8 TP=8 at 34.76 tok/s
+
+### Headline
+
+`Qwen3.5-122B-A10B-FP8` on 8× V100 TP=8 sustained **34.76 tok/s** decode, σ ≈ 10 ms across 4 curls. **6.83× over the v0.3.2 cu128+eager baseline of 5.09 tok/s** that Stage 2D closed against. Comfortably above the 20 tok/s shippable floor; in the user's "30+ comfortable" band.
+
+`Qwen3.6-35B-A3B-FP8` (same arch family, TP=4) sustained **52.87 tok/s**, **8.05× over its own eager-mode baseline of 6.57 tok/s** measured this stage.
+
+Quality validated on both — full 200-token Rayleigh-scattering paragraph completions, capability-grade output, no garbage / corruption.
+
+### What changed: a new image
+
+`docker/Dockerfile.vllm018_py312` builds `vllm-v100-py312-test:cu128`. Held constant from the legacy cu128 image: vLLM 0.18.0, torch 2.10.0+cu128, transformers 4.57.6, our `fp8_w8a16_sm70` monkey-patches. One variable bumped: **Python 3.10 → 3.12** (forced ubuntu 22.04 → 24.04 base because deadsnakes was too brittle for the cudagraph path verification).
+
+Launcher: `docker/run_docker_vllm018_py312.sh` with a new `serve-fp8` mode that mirrors `run_docker.sh:serve` — mounts repo at `/work`, exports all `VLLM_V100_FP8_*` env vars, invokes `python3 -m fp8_w8a16_sm70.vllm_serve`. The non-FP8 `serve` mode (plain `vllm serve`) is retained for cross-stack baselining.
+
+### Three findings that compounded into the 6.83×
+
+**1. Python ≤3.10 was the cudagraph blocker, not vLLM 0.18 or torch 2.10.**
+
+Source comment at `vllm/compilation/compiler_interface.py:377` admits the `standalone_compile.FakeTensorMode` AttributeError is "Python ≤3.10 specific" — the `patch.object()` string resolver returns the wrapper function instead of the module on Py3.10. Stage 2D had us forcing `--enforce-eager` to dodge the error; we assumed it was a vLLM internals bug. It wasn't. Holding vLLM 0.18 + torch 2.10 constant and bumping Python alone fixed it. Verified end-to-end on Qwen2.5-7B-Instruct first (45.64 tok/s on stock vLLM 0.18 + py3.12 + cudagraph; statistically identical to 1catai-vllm's 45.32 measured separately).
+
+**2. `VLLM_V100_FP8_MOE_FAST_ROUTE_PREP=1` inverts under cudagraph.**
+
+Stage 2C A/B testing on cu128+eager had us default the env var to 0 because fast=1 was 1.3% slower. Under cudagraph capture, the trade-off **inverts completely**. The slow path uses `torch.nonzero(valid_mask, as_tuple=True)` (line 1436, data-dependent output shape) and `int(token_idx.numel())` (line 1437, GPU→CPU sync via `__int__`). Both are fatal under stream capture — emit `cudaErrorStreamCaptureUnsupported`. The fast path, built in Stage 2C (`_get_token_idx_cached`, `route_count = M*topk`, cached `arange`), is static-shape end-to-end. **The Stage 2C-era code path that we shelved as marginally slower for eager is the production code path for cudagraph.** Big lesson: never delete code paths whose value depends on a runtime mode you haven't enabled yet.
+
+**3. `--compilation-config '{"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY"}'` is required for monkey-patches + cudagraph.**
+
+vLLM's default `VLLM_COMPILE` mode (3) requires `fullgraph=True` — no graph breaks anywhere in the model forward. That forbids `torch._dynamo.disable` around our pybind11 extension entry points (`_ext.fp8_w8a16_gemm_a1/a2/a3/wmma_poc/grouped_routed_gemm_a3`). The fix path that actually works: skip dynamo entirely (mode=0), keep cudagraph capture on the decode hot path (FULL_DECODE_ONLY). Loses torch.compile fusion (small loss on MoE; would be a large loss on dense models) but unblocks the FP8 path. The proper long-term cleanup is registering the 5 extension entry points as `torch.library.custom_op` with fake/meta impls, which lets us run mode=3 + FULL_AND_PIECEWISE later. Deferred — current numbers already cleared the production floor.
+
+### Configuration knobs that emerged
+
+| Env var | v0.4.0 cudagraph default | Why differs from cu128 eager |
+|---|---|---|
+| `VLLM_V100_FP8_MOE_FAST_ROUTE_PREP` | **1** (was 0) | Slow path's `torch.nonzero` / `int(numel())` syncs are forbidden under capture; fast path's static-shape route prep is the only safe one. |
+| `VLLM_V100_FP8_MOE_GROUPED_ROUTED_GEMM` | 1 (unchanged) | Grouped path is cudagraph-clean; fallback `_our_moe_apply` is not (`.tolist()` at line 1904, `.item()` at 1921/1925). |
+| `VLLM_V100_FP8_MOE_GROUPED_MAX_ROUTE_SLOTS` | **128** (was 32) | With `max-num-seqs=8` and top-k=8, route_slots can hit 64 (or 128 if capture set includes M=16). Default 32 caused fallback into the cudagraph-unsafe path. |
+
+Plus the vLLM-side `--compilation-config '{"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY"}'` flag (above).
+
+### Cross-stack methodology / dead-end branches
+
+This stage explored two parallel hypotheses before landing on stock vLLM 0.18 + py3.12 as the winner:
+
+**1catai-vllm v1.0.0 fork** — Built `docker/Dockerfile.1catai` + `run_docker_1catai.sh` + `tools/bench_1catai.sh`. Their stack ships FA2-v100 attention, native SM70 FP8 MoE method (TurboMind s884), MTP speculative decoding. Empirical findings:
+
+- Loads cleanly on dense models (Qwen2.5-7B, Qwen3.6-27B Dense).
+- **`Qwen3_5MoeForConditionalGeneration` arch fails to load** — their loader expects `language_model.` prefix on weight keys; on-disk checkpoint has flat keys. Stock vLLM 0.18 doesn't have this bug.
+- **FP8 capability gate at `fp8.py:157`** blocks all FP8 models — same as stock vLLM but 1catai's `Fp8SM70MoEMethod` was never reachable through it.
+- **FA2-v100 is 2.65× SLOWER than TRITON_ATTN on hybrid attn+GDN models** (Qwen3.6-27B Dense: 14.97 vs 39.60). This is the "GDN dichotomy" — FA2-v100 helps pure-dense-attention models (e.g. Qwen3-30B-A3B-2507 at 12.63 tok/s, beating our 9.67 on the same model), but hurts hybrid models.
+
+For our Qwen3.5/3.6-family production target (with GDN), 1catai is not the right base. Its remaining unique value is MTP speculative decoding — deferred for evaluation as an orthogonal 2-3× optimization on top of v0.4.0.
+
+**Refactor `_our_moe_apply_grouped` for cudagraph safety** — Briefly considered when the grouped path hit `cudaErrorStreamCaptureUnsupported`. GPT (peer-review) correctly identified `torch.nonzero` at line 1436 as the actual culprit, not the grouped GEMM kernel itself. After source inspection we found that **a pre-existing fast path (Stage 2C, `_MOE_FAST_ROUTE_PREP=1`) was already static-shape and capture-safe** — no refactor needed, just an env var flip. This was the cheapest win of the whole stage; would have been a ~2-4 hour refactor if we'd gone straight to writing new code.
+
+### Cross-model results table
+
+| Model | Stack | TP | tok/s | Shippable (≥20)? |
+|---|---|---|---|---|
+| Qwen2.5-7B-Instruct (toy) | py3.12 + cudagraph | 1 | 45.64 | ✅ (not deployment-grade capability) |
+| Qwen3.6-27B Dense FP16 | py3.12 + cudagraph (FULL_AND_PIECEWISE) | 4 | 39.60 | ✅ |
+| Qwen3.6-27B-FP8 | py3.12 + cudagraph (FULL_DECODE_ONLY) + monkey-patches | 4 | 11.36 | ❌ (dense FP8 dequant cost ≈ FP8 BW saving) |
+| Qwen3.6-35B-A3B FP16 | py3.12 + cudagraph (FULL_AND_PIECEWISE) | 4 | 15.76 | ❌ |
+| **Qwen3.6-35B-A3B-FP8** | **py3.12 + cudagraph (FULL_DECODE_ONLY) + monkey-patches** | **4** | **52.87** | **✅** |
+| **Qwen3.5-122B-A10B-FP8 (prod target)** | **py3.12 + cudagraph (FULL_DECODE_ONLY) + monkey-patches** | **8** | **34.76** | **✅✅✅** |
+| Qwen3-30B-A3B-Instruct-2507 (no-GDN MoE) | py3.12 + cudagraph | 4 | 9.67 | ❌ (1catai+FA2 wins on no-GDN, gives 12.63) |
+
+### What's still on the table for Stage 3.5+ (deferred)
+
+- **`torch.library.custom_op` proper registration** for the 5 `_ext.*` entry points (with fake/meta impls). Unlocks `mode=3 + FULL_AND_PIECEWISE` and brings torch.compile fusion back. Estimated +20-40% on top of 34.76 tok/s.
+- **Stage 2D bottleneck profiling on v0.4.0** — re-run the AR-percentage measurement; on py3.12+cudagraph, AR fraction should be much higher relative to compute (since compute compressed 6.83×). If AR is now >60% of decode, then **MTP via 1catai becomes the natural next investment** (speculative decode amortizes AR cost across multiple tokens).
+- **V100 MoE config autotune** — vLLM ships no `E=128/N=192/Tesla_V100-SXM2-32GB.json`; default config is Ampere/Hopper-tuned. Should be +20-40% on the MoE path.
+- **Determinism investigation** — observed minor newline-pattern variance between curls 1-2 (\n\n) vs 3-4 (\n) at temp=0 on the 122B. Likely a captured-graph dispatch quirk between batch-size slots; not affecting semantic quality. Worth investigating before any A/B that depends on bit-level reproducibility.
+- **1catai MTP probe** — if Stage 3.5 needs another 2-3×, evaluate 1catai with MTP after patching their `language_model.` loader. Standalone investment, ~1-2 hours of source work + wheel rebuild.
+
+### Files shipped in v0.4.0
+
+| File | Purpose |
+|---|---|
+| `docker/Dockerfile.vllm018_py312` | py3.12 + cu128 image (new) |
+| `docker/run_docker_vllm018_py312.sh` | Launcher with `build`/`shell`/`serve`/`serve-fp8`/`py` modes (new) |
+| `docker/Dockerfile.1catai` | 1Cat-vLLM v1.0.0 wheel image (new, used for cross-stack baselining only) |
+| `docker/run_docker_1catai.sh` | 1catai launcher (new) |
+| `tools/bench_1catai.sh` | 1catai bench helper paralleling `bench_v100.sh` (new) |
+| `docker/run_docker.sh` | Port-mapping fix `${PORT}:8000` → `${PORT}:${PORT}` (modified) |
+| `tools/bench_v100.sh` | `grep ... \|\| true` on empty env scan; `ENFORCE_EAGER` env var (modified) |
+| `src/fp8_w8a16_sm70/vllm_serve.py` | `torch._dynamo.disable` block for `_ext.*` (modified; harmless on eager, may be removed once custom_op refactor lands) |
+| `pyproject.toml` | 0.3.2 → 0.4.0 (modified) |
+
 End of log.

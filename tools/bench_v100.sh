@@ -40,6 +40,7 @@
 #   PORT=8000
 #   GPUS=0,1,2,3,4,5,6,7
 #   TP_SIZE=8
+#   QUANT=fp8                   (serve-time; set QUANT=none to omit --quantization)
 #   MAX_MODEL_LEN=32768
 #   MAX_TOKENS=200             (curl-time)
 #   VLLM_V100_FP8_* (anything matching this prefix is recorded in config.txt)
@@ -94,13 +95,18 @@ write_config() {
         echo "git_status_short : $(git -C "$PROJECT_ROOT" status --porcelain 2>/dev/null | wc -l) files modified"
         echo ""
         echo "# resolved env (V100 FP8 vars only)"
-        env | grep -E '^VLLM_V100_FP8_' | sort
+        # `|| true`: grep returns 1 when no monkey-patch env vars are
+        # exported (e.g. running a baseline against an unrelated model);
+        # set -euo pipefail would otherwise abort write_config and the
+        # whole script before the docker run command ever fires.
+        env | grep -E '^VLLM_V100_FP8_' | sort || true
         echo ""
         echo "# resolved bench vars"
         echo "MODEL          = ${MODEL:-/mnt/models/Qwen3.5-122B-A10B-FP8}"
         echo "PORT           = ${PORT:-8000}"
         echo "GPUS           = ${GPUS:-0,1,2,3,4,5,6,7}"
         echo "TP_SIZE        = ${TP_SIZE:-8}"
+        echo "QUANT          = ${QUANT:-fp8}"
         echo "MAX_MODEL_LEN  = ${MAX_MODEL_LEN:-32768}"
         echo "MAX_TOKENS     = ${MAX_TOKENS:-200}"
     } > "$out"
@@ -117,7 +123,28 @@ case "$mode" in
         PORT="${PORT:-8000}"
         GPUS="${GPUS:-0,1,2,3,4,5,6,7}"
         TP_SIZE="${TP_SIZE:-8}"
+        QUANT="${QUANT:-fp8}"
         MAX_MODEL_LEN="${MAX_MODEL_LEN:-32768}"
+        # ENFORCE_EAGER=1 (default) preserves the documented sm_70 path.
+        # Set ENFORCE_EAGER=0 to exercise the cudagraph path — known to
+        # crash on our cu128 stack at compiler_interface.py:382 due to a
+        # vllm 0.18 / torch 2.10 / py3.10 standalone_compile.FakeTensorMode
+        # mismatch (see no_eager_attempt.log). Useful for confirming that
+        # failure mode against a fresh model arch.
+        ENFORCE_EAGER="${ENFORCE_EAGER:-1}"
+        QUANT_ARGS=()
+        QUANT_DESC="omitted"
+        if [[ -n "$QUANT" && "$QUANT" != "none" ]]; then
+            QUANT_ARGS=(--quantization "$QUANT")
+            QUANT_DESC="--quantization $QUANT"
+        fi
+        EAGER_ARGS=()
+        EAGER_DESC="--enforce-eager"
+        if [[ "$ENFORCE_EAGER" == "0" || "$ENFORCE_EAGER" == "off" || "$ENFORCE_EAGER" == "false" ]]; then
+            EAGER_DESC="(eager disabled — cudagraph path)"
+        else
+            EAGER_ARGS=(--enforce-eager)
+        fi
 
         TS="$(date +%Y%m%d_%H%M%S)"
         RUN_DIR="$BENCH_ROOT/${TS}_${TAG}"
@@ -131,7 +158,7 @@ case "$mode" in
             echo ""
             echo "# serve command"
             echo "GPUS=\"$GPUS\" ./docker/run_docker.sh serve \\"
-            echo "    --model $MODEL --quantization fp8 --dtype float16 --enforce-eager \\"
+            echo "    --model $MODEL $QUANT_DESC --dtype float16 $EAGER_DESC \\"
             echo "    --attention-backend TRITON_ATTN --tensor-parallel-size $TP_SIZE \\"
             echo "    --max-num-seqs 1 --gpu-memory-utilization 0.80 \\"
             echo "    --max-model-len $MAX_MODEL_LEN --no-enable-chunked-prefill \\"
@@ -155,7 +182,7 @@ case "$mode" in
             GPUS="$GPUS" \
             ./docker/run_docker.sh serve \
                 --model "$MODEL" \
-                --quantization fp8 --dtype float16 --enforce-eager \
+                "${QUANT_ARGS[@]}" --dtype float16 "${EAGER_ARGS[@]}" \
                 --attention-backend TRITON_ATTN \
                 --tensor-parallel-size "$TP_SIZE" \
                 --max-num-seqs 1 --gpu-memory-utilization 0.80 \
@@ -189,6 +216,7 @@ case "$mode" in
                 echo "curls_timestamp : $(date -Iseconds)"
                 echo "N_CURLS         : $N_CURLS"
                 echo "MAX_TOKENS      : $MAX_TOKENS"
+                echo "IGNORE_EOS      : ${IGNORE_EOS:-0}"
                 echo "prompt          : $(echo "$PROMPT" | head -c 120)"
             } >> "$RUN_DIR/config.txt"
         else
@@ -211,15 +239,25 @@ case "$mode" in
         done
         echo "[bench_v100] /health ready"
 
-        BODY=$(python3 -c "
-import json, sys
-print(json.dumps({
+        # IGNORE_EOS=1 disables natural EOS so the model is forced to
+        # produce exactly MAX_TOKENS regardless of when it would have
+        # stopped on its own. Needed for cross-config wall comparisons
+        # (different TP shard arithmetic can break a logit tie at temp=0
+        # and cause early EOS in one config but not another -- e.g.
+        # Qw3.6-35B FP16 TP=4 stopped at 80 tokens while TP=8 ran to 200).
+        IGNORE_EOS="${IGNORE_EOS:-0}"
+        BODY=$(IGNORE_EOS="$IGNORE_EOS" python3 -c "
+import json, os, sys
+payload = {
     'model': sys.argv[1],
     'prompt': sys.argv[2],
     'max_tokens': int(sys.argv[3]),
     'temperature': 0,
     'stream': False,
-}))
+}
+if os.environ.get('IGNORE_EOS', '0') not in ('0', 'off', 'false', ''):
+    payload['ignore_eos'] = True
+print(json.dumps(payload))
 " "$MODEL" "$PROMPT" "$MAX_TOKENS")
 
         (
@@ -314,7 +352,9 @@ usage: $0 <serve|curls> [args...]
 
 env (serve-time):
   MODEL=/mnt/models/Qwen3.5-122B-A10B-FP8
-  PORT=8000  GPUS=0,1,2,3,4,5,6,7  TP_SIZE=8  MAX_MODEL_LEN=32768
+  PORT=8000  GPUS=0,1,2,3,4,5,6,7  TP_SIZE=8  QUANT=fp8
+  MAX_MODEL_LEN=32768
+  QUANT=none omits --quantization for native FP16/BF16 checkpoints.
   VLLM_V100_FP8_* (any matching var is recorded in config.txt)
 
 env (curl-time):

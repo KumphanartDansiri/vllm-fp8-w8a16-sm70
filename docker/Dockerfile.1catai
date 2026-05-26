@@ -1,0 +1,78 @@
+# 1Cat-vLLM v1.0.0 wheel-runtime image for V100/SM70.
+#
+# Installs Python 3.12 + torch 2.9.1+cu128 + the public 1catai-vllm and
+# flash_attn_v100 wheels (cp312) from the GitHub release. No source build,
+# no monkey-patches.
+#
+# Build:
+#   ./docker/run_docker_1catai.sh build
+#
+# Notes:
+#   * Base image is ubuntu 24.04 because the 1catai vllm._C extension is
+#     linked against GLIBC_2.38 (see their README: "SM70 wheel needs
+#     glibc >= 2.38"). Ubuntu 22.04 ships glibc 2.35 and fails at first
+#     `import vllm._C`. Ubuntu 24.04 ships glibc 2.39 + python3.12 as the
+#     system default, so we can also drop the deadsnakes PPA dance.
+#   * Only the model weight dir is reused from our cu128 stack — Triton /
+#     torch_inductor caches are NOT reused (torch 2.10 -> 2.9.1 fingerprint
+#     change would risk stale-hit corruption). Separate cache mounts are
+#     wired in run_docker_1catai.sh.
+
+FROM nvidia/cuda:12.8.1-base-ubuntu24.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_ROOT_USER_ACTION=ignore \
+    PIP_BREAK_SYSTEM_PACKAGES=1
+
+# Ubuntu 24.04 ships python3.12 as the system python; just add pip+headers
+# and curl for the wheel download below. PIP_BREAK_SYSTEM_PACKAGES=1 is
+# required on 24.04 because the system python is marked externally-managed.
+#
+# gcc/g++ are needed at runtime, not build-time: triton JIT-builds its
+# NVIDIA driver bridge on first cuda use and fails with "Failed to find C
+# compiler" if no gcc is present. 1catai's README explicitly notes this
+# ("the runtime image also keeps gcc/g++").
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3 python3-dev python3-pip \
+        gcc g++ \
+        curl ca-certificates libgomp1 && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Skip the pip/setuptools/wheel upgrade dance — ubuntu 24.04's debian-managed
+# versions (pip 24.0, setuptools 68, wheel 0.42) all lack RECORD files, so
+# pip refuses to uninstall them. The apt-shipped versions are recent enough
+# for our two needs: fetching torch from the cu128 index, and installing
+# local .whl files. Nothing here uses bleeding-edge packaging features.
+
+# Torch 2.9.1+cu128 — matches 1catai release baseline. The cu128 wheels
+# bundle their own CUDA 12.8 runtime libs.
+RUN python3 -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu128 \
+        torch==2.9.1
+
+# pip enforces PEP 427 wheel filenames (5 dash-separated parts), so the
+# downloaded files must keep the full <name>-<ver>-<py>-<abi>-<plat>.whl
+# shape. Saving as /tmp/flash_attn_v100.whl strips the version/abi parts
+# and pip rejects it with "Invalid wheel filename".
+ARG ONECAT_VERSION=1.0.0
+RUN FA_WHL="flash_attn_v100-${ONECAT_VERSION}-cp312-cp312-linux_x86_64.whl" && \
+    VLLM_WHL="vllm-${ONECAT_VERSION}-cp312-cp312-linux_x86_64.whl" && \
+    curl -L -o "/tmp/${FA_WHL}" \
+        "https://github.com/1CatAI/1Cat-vLLM/releases/download/v${ONECAT_VERSION}/${FA_WHL}" && \
+    curl -L -o "/tmp/${VLLM_WHL}" \
+        "https://github.com/1CatAI/1Cat-vLLM/releases/download/v${ONECAT_VERSION}/${VLLM_WHL}" && \
+    python3 -m pip install --no-cache-dir --prefer-binary \
+        "/tmp/${FA_WHL}" \
+        "/tmp/${VLLM_WHL}" && \
+    rm -f "/tmp/${FA_WHL}" "/tmp/${VLLM_WHL}"
+
+# Quick smoke import so build fails fast if the wheel set is wrong. Note:
+# torch MUST import first — it dlopen's libc10/libtorch with RTLD_GLOBAL,
+# exposing the symbols that the C++ extensions (flash_attn_v100_cuda etc.)
+# link against. Without that, `import flash_attn_v100_cuda` fails with
+# "libc10.so: cannot open shared object file".
+RUN python3 -c "import torch; import flash_attn_v100_cuda, paged_kv_utils, vllm; print('1catai-vllm import ok:', vllm.__version__, 'torch:', torch.__version__)"
+
+WORKDIR /work

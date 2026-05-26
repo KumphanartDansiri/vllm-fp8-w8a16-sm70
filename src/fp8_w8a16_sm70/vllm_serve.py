@@ -49,6 +49,31 @@ print("[serve_fp8_v100] Compiling FP8 W8A16 kernel for sm_70 ...", flush=True)
 _ext = load_kernel(name="fp8_dequant_ext_vllm")
 print("[serve_fp8_v100] Kernel compiled OK.", flush=True)
 
+# Dynamo / torch.compile cannot trace into pybind11 C extension functions. On
+# the cu128 stack we forced --enforce-eager so dynamo never ran, hiding the
+# problem; on py3.12 + cudagraph (vllm 0.18, FULL_AND_PIECEWISE) the dynamo
+# pass tries to inline these calls. `allow_in_graph` alone is insufficient —
+# dynamo still tries to execute the kernel against FakeTensors during shape
+# inference and aborts with "tensor data is not allocated yet". The proper
+# long-term fix is torch.library.custom_op with a fake/meta impl per entry
+# point; for now we use the narrower graph-break tool: wrap each pybind entry
+# point with torch._dynamo.disable so dynamo bails to eager for just that
+# call. PIECEWISE cudagraph captures around each break. Expected overhead:
+# ~2-5 μs per break × ~200 GEMMs/token = ~0.4-1.0 ms/token (5-15% of cudagraph
+# win). Acceptable cost as a path-validating probe.
+import torch._dynamo as _dynamo  # noqa: E402
+for _name in (
+    "fp8_w8a16_gemm_a1",
+    "fp8_w8a16_gemm_a2",
+    "fp8_w8a16_gemm_a3",
+    "fp8_w8a16_gemm_wmma_poc",
+    "fp8_w8a16_grouped_routed_gemm_a3",
+):
+    _fn = getattr(_ext, _name, None)
+    if _fn is not None:
+        setattr(_ext, _name, _dynamo.disable(_fn))
+del _dynamo, _fn, _name
+
 
 def _is_volta() -> bool:
     """True iff the first visible GPU is sm_70 (V100). vLLM assumes all visible

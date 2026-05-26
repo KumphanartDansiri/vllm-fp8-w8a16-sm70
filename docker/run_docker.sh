@@ -208,7 +208,7 @@ case "${1:-test}" in
             "${MODEL_MOUNT[@]}" \
             "${CACHE_MOUNTS[@]}" \
             -v "$PROJECT_ROOT":/work -w /work \
-            -p ${PORT}:8000 \
+            -p ${PORT}:${PORT} \
             --shm-size=8g \
             "${DEV_ENV[@]}" \
             "$DEV_IMAGE" \
@@ -264,7 +264,7 @@ case "${1:-test}" in
             "${MODEL_MOUNT[@]}" \
             "${CACHE_MOUNTS[@]}" \
             -v "$PROJECT_ROOT":/work -w /work \
-            -p ${PORT}:8000 \
+            -p ${PORT}:${PORT} \
             --shm-size=8g \
             "${DEV_ENV[@]}" \
             "$DEV_IMAGE" \
