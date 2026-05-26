@@ -1,19 +1,17 @@
-# Stock vLLM 0.18.0 on Python 3.12 + torch 2.10.0+cu128, to test whether the
-# standalone_compile.FakeTensorMode AttributeError observed under py3.10 goes
-# away on py3.12 (per the comment at vllm/compilation/compiler_interface.py:377
-# admitting the bug is Python ≤3.10 specific). If cudagraph captures here, we
-# have a cheap migration path: rebuild our existing cu128 stack on py3.12
-# without forking vllm or losing the fp8_w8a16_sm70 monkey-patches.
+# Baseline vLLM 0.18.0 image on Python 3.12 + torch 2.10.0+cu128.
+# This is the v0.4.0 performance path for V100 FP8 W8A16 serving:
+# Python 3.12 avoids the standalone_compile.FakeTensorMode AttributeError
+# observed under py3.10, allowing cudagraph decode while keeping the same
+# vLLM/torch ABI and fp8_w8a16_sm70 monkey-patches.
 #
-# Held constant vs our current Dockerfile.dev:
+# Held constant vs the legacy Dockerfile.dev fallback:
 #   * vllm version: 0.18.0
 #   * torch version: 2.10.0+cu128 (matches vllm 0.18's torch ABI)
 #   * transformers: 4.57.6
 #
 # Changed:
 #   * Python: 3.10 -> 3.12 (Ubuntu 22.04 -> 24.04 base)
-#   * No fp8_w8a16_sm70 monkey-patches yet — first test is cudagraph alone
-#     on a non-FP8 model (Qwen2.5-7B). Add patches once cudagraph confirmed.
+#   * CUDA devel base: 12.4 -> 12.8.1
 #
 # Build:   ./docker/run_docker_vllm018_py312.sh build
 # Serve:   ./docker/run_docker_vllm018_py312.sh serve <vllm serve args...>
@@ -38,9 +36,7 @@ RUN apt-get update && \
         curl ca-certificates libgomp1 && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Torch 2.10.0+cu128 — matches what vllm 0.18 was built against. Held
-# constant from our cu128 Dockerfile.dev so the only changed variable is
-# Python version.
+# Torch 2.10.0+cu128 — matches what vllm 0.18 was built against.
 RUN python3 -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu128 \
         torch==2.10.0
 

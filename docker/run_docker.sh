@@ -7,6 +7,9 @@
 # Run a test:   ./docker/run_docker.sh dev-test tests/test_fp8.py
 # Interactive:  ./docker/run_docker.sh dev-shell
 #
+# Note: this is the legacy py3.10/eager fallback launcher. The current v0.4.0
+# performance baseline is docker/run_docker_vllm018_py312.sh.
+#
 # Mounts (every run):
 #   <project root> -> /work                  (mounted rw)
 #   /mnt/models    -> /mnt/models            (read-only, if it exists)

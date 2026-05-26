@@ -1516,3 +1516,76 @@ Cheapest next diagnostic should be a microbenchmark rather than a model refactor
 3. Optional no-op monkey-patch: replace `_v100_fp8_gemm` with a shape-correct precomputed output for one local experiment only. This bounds all wrapper+kernel overhead inside the full model, but is less clean because correctness is intentionally broken.
 
 Do not spend engineering time on dense FP8 fixes before those measurements. The likely deployment answer is still "use Int4 or FP16 for dense V100 models; reserve custom FP8 for MoE+GDN where grouped MoE+cudagraph wins decisively."
+
+## 2026-05-26 Final session wrap-up
+
+Both peer reviews converged on the same deployment rule and next-session plan.
+
+### Deployment rule
+
+Do **not** use the custom block-FP8 W8A16 path for dense+GDN models on V100 unless a later microbench reveals a cheap implementation bug. Current evidence says dense FP8 is dominated by our dequant/custom-kernel path and is much slower than both FP16 and stock GPTQ-Int4.
+
+Use:
+
+| Workload | Preferred serving path |
+|---|---|
+| Qwen3.5/Qwen3.6 MoE+GDN FP8 | custom `fp8_w8a16_sm70` on py3.12 vLLM 0.18, `mode=0`, `FULL_DECODE_ONLY`, grouped MoE, fast route prep |
+| Dense+GDN 27B-class | GPTQ-Int4 if available; otherwise FP16 |
+| Small dense | FP16 or Int4 |
+
+### Dense FP8 diagnostic protocol
+
+If we revisit dense FP8, start with microbenchmarks, not refactors:
+
+1. Direct `_ext.fp8_w8a16_gemm_*` timing against FP16 `torch.matmul` on representative Qwen3.6-27B shapes.
+2. `_v100_fp8_gemm` wrapper timing against direct `_ext.*` calls to isolate Python dispatch and variant-selection overhead.
+3. Optional one-off no-op/full-model probe to bound total wrapper+kernel cost inside vLLM.
+
+Interpretation:
+
+- Direct `_ext.*` slow: kernel/dequant implementation is the bottleneck.
+- Direct `_ext.*` fast but wrapper slow: Python dispatch/variant selection is the bottleneck.
+- Both fast in isolation but model slow: graph replay/fusion/model-level call pattern is the bottleneck.
+
+### Baseline shift
+
+The performance baseline is now:
+
+- Python 3.12
+- vLLM 0.18.0
+- torch 2.10.0+cu128
+- CUDA 12.x runtime
+- `--compilation-config '{"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY"}'`
+- `VLLM_V100_FP8_MOE_GROUPED_ROUTED_GEMM=1`
+- `VLLM_V100_FP8_MOE_GROUPED_MAX_ROUTE_SLOTS=128`
+- `VLLM_V100_FP8_MOE_FAST_ROUTE_PREP=1`
+
+Legacy Python 3.10 / `--enforce-eager` remains a correctness fallback, not the performance baseline.
+
+### Upgrade ladder for next session
+
+Change one layer at a time:
+
+1. Driver upgrade first.
+2. CUDA runtime / torch wheel second.
+3. Torch version next, only if `torch.cuda.get_arch_list()` still includes `sm_70`.
+4. vLLM version last; this is highest risk because monkey-patch APIs may move.
+
+At every rung, rerun the same smoke/perf matrix:
+
+| Test | Purpose |
+|---|---|
+| Qwen3.5-122B-A10B-FP8 TP=8 | production target; must stay near or above 34.76 tok/s |
+| Qwen3.6-35B-A3B-FP8 TP=4 | smaller MoE+GDN canary; must stay near or above 52.87 tok/s |
+| Qwen3.6-27B FP16 / GPTQ-Int4 TP=4 | dense sanity check |
+
+Avoid CUDA 13 for V100/sm_70. Treat any torch/vLLM upgrade as a branch until the matrix proves it preserves the production target.
+
+### Baseline-prep continuation
+
+Repo-facing defaults now point at the py3.12 v0.4.0 baseline:
+
+- `README.md` rewritten from the original FP8 hello-world note to the current serve/deployment baseline.
+- `REQUIREMENTS.md` now lists `FULL_DECODE_ONLY` cudagraph as the performance path and `--enforce-eager` as the legacy fallback.
+- `docker/run_docker_vllm018_py312.sh` now defaults to `VLLM_V100_FP8_MOE_GROUPED_MAX_ROUTE_SLOTS=128` and `VLLM_V100_FP8_MOE_FAST_ROUTE_PREP=1`.
+- `docker/Dockerfile.vllm018_py312` comments now describe the image as the baseline, not only an exploratory test image.

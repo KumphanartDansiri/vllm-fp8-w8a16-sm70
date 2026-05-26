@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
-# Launcher for the stock-vllm-0.18-on-py3.12 test image (see
-# docker/Dockerfile.vllm018_py312 for the rationale). The one variable
-# this image isolates: Python 3.10 -> 3.12. Everything else is held to
-# match the cu128 image so we can attribute any cudagraph-mode change to
-# Python alone.
+# Launcher for the v0.4.0 Python 3.12 baseline image (see
+# docker/Dockerfile.vllm018_py312 for the rationale). It keeps vLLM 0.18.0
+# and torch 2.10.0+cu128 while enabling cudagraph decode on Python 3.12.
 #
 # First time:   ./docker/run_docker_vllm018_py312.sh build
 # Interactive:  ./docker/run_docker_vllm018_py312.sh shell
@@ -89,7 +87,7 @@ FP8_ENV=(
     -e VLLM_V100_FP8_MOE_FALLBACK="${VLLM_V100_FP8_MOE_FALLBACK:-1}"
     -e VLLM_V100_FP8_MOE_ACTIVE_LIST="${VLLM_V100_FP8_MOE_ACTIVE_LIST:-1}"
     -e VLLM_V100_FP8_MOE_GROUPED_ROUTED_GEMM="${VLLM_V100_FP8_MOE_GROUPED_ROUTED_GEMM:-1}"
-    -e VLLM_V100_FP8_MOE_GROUPED_MAX_ROUTE_SLOTS="${VLLM_V100_FP8_MOE_GROUPED_MAX_ROUTE_SLOTS:-32}"
+    -e VLLM_V100_FP8_MOE_GROUPED_MAX_ROUTE_SLOTS="${VLLM_V100_FP8_MOE_GROUPED_MAX_ROUTE_SLOTS:-128}"
     -e VLLM_V100_FP8_MOE_GROUPED_K_SPLIT="${VLLM_V100_FP8_MOE_GROUPED_K_SPLIT:-auto}"
     -e VLLM_V100_FP8_MOE_GROUPED_LOG_ONCE="${VLLM_V100_FP8_MOE_GROUPED_LOG_ONCE:-1}"
     -e VLLM_V100_FP8_MOE_DEBUG="${VLLM_V100_FP8_MOE_DEBUG:-0}"
@@ -98,7 +96,7 @@ FP8_ENV=(
     -e VLLM_V100_FP8_MOE_PROFILE_WARMUP_CALLS="${VLLM_V100_FP8_MOE_PROFILE_WARMUP_CALLS:-200}"
     -e VLLM_V100_FP8_MOE_DECODE_M_MAX="${VLLM_V100_FP8_MOE_DECODE_M_MAX:-8}"
     -e VLLM_V100_FP8_MOE_PROFILE_ACTIVE_STAT="${VLLM_V100_FP8_MOE_PROFILE_ACTIVE_STAT:-0}"
-    -e VLLM_V100_FP8_MOE_FAST_ROUTE_PREP="${VLLM_V100_FP8_MOE_FAST_ROUTE_PREP:-0}"
+    -e VLLM_V100_FP8_MOE_FAST_ROUTE_PREP="${VLLM_V100_FP8_MOE_FAST_ROUTE_PREP:-1}"
     -e VLLM_V100_FP8_DECODE_BREAKDOWN="${VLLM_V100_FP8_DECODE_BREAKDOWN:-0}"
     -e VLLM_V100_FP8_DECODE_BREAKDOWN_EVERY="${VLLM_V100_FP8_DECODE_BREAKDOWN_EVERY:-32}"
     -e VLLM_V100_FP8_DECODE_BREAKDOWN_MOE_SUBS="${VLLM_V100_FP8_DECODE_BREAKDOWN_MOE_SUBS:-1}"
@@ -124,9 +122,8 @@ case "${1:-help}" in
             bash
         ;;
     serve)
-        # Plain `vllm serve` — no monkey-patches in this image (first
-        # iteration tests cudagraph on stock vllm only). All args after
-        # `serve` are forwarded as-is.
+        # Plain `vllm serve` — no monkey-patches. Useful for FP16/GPTQ
+        # baselines and stock-vLLM comparisons.
         shift || true
         docker run --rm -i "${GPU_FLAG[@]}" \
             "${MODEL_MOUNT[@]}" \
@@ -171,7 +168,7 @@ case "${1:-help}" in
         cat >&2 <<USAGE
 usage: $0 <mode> [args...]
 
-  build      build the test image ($IMAGE) — stock vllm 0.18 on py3.12
+  build      build the baseline image ($IMAGE) — vllm 0.18 on py3.12
   shell      interactive bash inside the image
   serve      run \`vllm serve\` with forwarded args (no monkey-patches)
   serve-fp8  run \`python3 -m fp8_w8a16_sm70.vllm_serve\` with our monkey-patches

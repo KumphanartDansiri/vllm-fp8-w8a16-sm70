@@ -29,7 +29,8 @@ do" when invoking the serve:
 
 | Setting | Reason |
 |---|---|
-| `--enforce-eager` | torch.compile / CUDAGraph paths assume sm_80+ |
+| `--compilation-config '{"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY"}'` | Current v0.4.0 performance baseline. Python 3.12 avoids the Python <=3.10 FakeTensorMode cudagraph bug seen in vLLM 0.18. |
+| `--enforce-eager` | Legacy correctness fallback for Python 3.10 or profiling/debugging paths that are not cudagraph-safe. Not the performance baseline. |
 | `--attention-backend TRITON_ATTN` | FlashAttention v2+ needs sm_80+; Triton attention is the only V100-compatible backend in 0.18 |
 | `--no-enable-chunked-prefill` | Chunked prefill has known instability on V100 in this vllm version |
 | `--disable-custom-all-reduce` | vLLM's custom all-reduce uses sm_75+ features in some paths |
@@ -44,11 +45,11 @@ on this hardware — not a project bug.
 | Choice | Current value | Why we picked it, alternatives |
 |---|---|---|
 | torch wheel CUDA variant | `+cu128` | Mirrors aiagent's verified production baseline. `+cu129` is also valid (newer minor, same sm_70 retention, FA-V100 prefers it). Switching cu128↔cu129 is a Layer-3 move, not a Layer-1 change. |
-| Base docker image | `nvidia/cuda:12.4.0-devel-ubuntu22.04` | Toolchain for compiling our `.cu` kernels via `torch.utils.cpp_extension.load`. nvcc 12.4 emits sm_70-compatible PTX. Could use 12.8 / 12.9 if we standardize on that. |
+| Base docker image | `nvidia/cuda:12.8.1-devel-ubuntu24.04` | Current py3.12 baseline image. Devel image is required because `torch.utils.cpp_extension.load` JIT-compiles `fp8_dequant.cu`. Could try 12.9 as a Layer-3 move; avoid CUDA 13. |
 | transformers version | `4.57.6` | Matches aiagent. Any version in `[4.56.0, 5)` would satisfy vLLM. |
 | numpy, safetensors, etc. | Aiagent-mirrored | Convenience; not load-bearing. |
-| Python distribution | system Python 3.10 in Ubuntu 22.04 | Could use uv / conda / pyenv. |
-| NVIDIA driver | `535.288.01` (native CUDA 12.2) | Whatever the host has. cu128/cu129 wheels both run via NVIDIA forward-compat shim. |
+| Python distribution | system Python 3.12 in Ubuntu 24.04 | Current v0.4.0 baseline. Python 3.10 remains a fallback only. |
+| NVIDIA driver | Host-provided; previously observed `535.288.01` | Whatever the host has. cu128/cu129 wheels both run via NVIDIA forward-compat shim. Driver upgrade is the first rung in the post-v0.4.0 ladder. |
 
 ## Layer 4 — Observed-but-not-enforced (informational)
 
