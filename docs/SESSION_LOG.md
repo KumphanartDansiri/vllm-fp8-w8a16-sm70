@@ -1429,4 +1429,90 @@ For our Qwen3.5/3.6-family production target (with GDN), 1catai is not the right
 | `src/fp8_w8a16_sm70/vllm_serve.py` | `torch._dynamo.disable` block for `_ext.*` (modified; harmless on eager, may be removed once custom_op refactor lands) |
 | `pyproject.toml` | 0.3.2 → 0.4.0 (modified) |
 
+---
+
+## Stage 3.1 (2026-05-26, post-v0.4.0): Dense FP8 diagnosis — three-way 27B comparison and deployment rule
+
+After Stage 3 production breakthrough landed, ran a controlled three-way comparison on Qwen3.6-27B (dense + GDN hybrid, TP=4) to understand why dense FP8 was the *only* low number on the v0.4.0 stack:
+
+| 27B variant (TP=4) | Stack | tok/s | bytes/weight | vs FP16 |
+|---|---|---|---|---|
+| **FP16** (no quant) | py3.12 + cudagraph FULL_AND_PIECEWISE | 39.60 | 2.0 | 1.00× baseline |
+| **GPTQ-Int4** (stock vLLM, exllama path) | py3.12 + cudagraph FULL_DECODE_ONLY | **47.61** | 0.5 | **1.20× faster** |
+| **our FP8** (block-FP8 W8A16) | py3.12 + cudagraph FULL_DECODE_ONLY + monkey-patches | 11.44 | 1.0 | **0.29× — 3.46× SLOWER** |
+
+Bandwidth math predicts Int4 ~2× faster than FP8 on memory-bound decode. We observe Int4 4.16× faster — the extra ~2× is our path's overhead. **Same FP8 path wins on MoE+GDN by huge margins (35B-A3B-FP8 52.87, 122B-A10B-FP8 34.76) because only ~3B active params/token are touched, so per-GEMM dispatch and dequant amortize over far fewer calls.**
+
+GPT independent review confirmed the diagnosis and proposed a concrete three-step microbench (saved in `docs/STAGE_3.1_NEXT_STEPS.md`):
+1. Direct `_ext.fp8_w8a16_gemm_*` timing vs cuBLAS FP16 on dense 27B shapes.
+2. Python wrapper passthrough probe to isolate `_v100_fp8_gemm` dispatch cost.
+3. Three-branch attribution: kernel-itself slow → not worth fixing; wrapper slow → custom_op refactor unlocks fix; both fine → fusion/graph behavior is the cost.
+
+### Deployment rule (settled by data, endorsed by both Claude and GPT)
+
+| Workload | Recommended stack | tok/s |
+|---|---|---|
+| 122B / 35B-A3B / any MoE+GDN | **our FP8** OR **GPTQ-Int4** if available | 34.76 / 52.87 (our FP8); 63.62 (Int4) |
+| Dense+GDN (27B-class) | **GPTQ-Int4** or **FP16**, NOT our FP8 | 47.61 / 39.60 |
+| Small dense | FP16 or Int4, NOT our FP8 | — |
+
+### Failed 27B-FP8 profile run — also informative
+
+Attempted to enable Stage 2D breakdown profiling under cudagraph for diagnosis. Crashed with `cudaErrorInvalidValue` at first decode. Root cause: `_breakdown_post_hook` (vllm_serve.py:492) and `_breakdown_flush` (vllm_serve.py:502) call `torch.cuda.Event(enable_timing=True).elapsed_time()`, which triggers a host-side read of GPU state mid-stream-capture → forbidden. Stage 2D hooks are eager-only by construction. Cleanup queued: add `torch.cuda.is_current_stream_capturing()` guard to make them safe under both modes.
+
+### Upgrade ladder for further perf (post-v0.4.0, in priority order)
+
+Per GPT review, treat each as a controlled-variable change with the same three-test smoke matrix at each rung (122B-FP8 ≥34 / 35B-A3B-FP8 ≥52 / 27B sanity ≥39):
+
+1. **Driver bump** — current likely 535. Candidates R570/R575/R580. Avoid CUDA-13-implying combos (drops sm_70). Safest; expected modest gain via NCCL/CUDA-graph runtime improvements.
+2. **CUDA runtime image** — cu129 if wheels available. Do NOT try CUDA 13.
+3. **torch upgrade** — only after rung 1+2 stable. Pre-check: `torch.cuda.get_arch_list()` must include sm_70.
+4. **vLLM upgrade** — highest risk; internal API changes likely break our monkey-patches. Treat as branch, not default.
+
+Full plan in `docs/STAGE_3.1_NEXT_STEPS.md`.
+
+### Files added/modified in Stage 3.1
+
+| File | Purpose |
+|---|---|
+| `docs/STAGE_3.1_NEXT_STEPS.md` | Next-session action plan: dense-FP8 microbench protocol + controlled upgrade ladder + open Stage 3.5+ items (new) |
+| `docs/SESSION_LOG.md` | This Stage 3.1 closeout section (modified) |
+
 End of log.
+
+## 2026-05-26 Dense FP8 diagnostic handoff
+
+Reference question file: `/tmp/v100_bench/GPT_question_dense_fp8_diagnostic_20260526.md`.
+
+Current production rule is now evidence-backed:
+
+| Workload | Recommended path |
+|---|---|
+| Qwen3.5/Qwen3.6 MoE+GDN FP8 | `fp8_w8a16_sm70` on py3.12 vLLM 0.18, `mode=0`, `FULL_DECODE_ONLY`, grouped MoE, fast route prep |
+| Dense/GDN 27B-class | GPTQ-Int4 if available; otherwise FP16 |
+| Small dense | FP16 or Int4; not the custom FP8 path |
+
+Dense FP8 remains the open diagnostic:
+
+| Qwen3.6-27B variant | TP | tok/s |
+|---|---:|---:|
+| FP16 stock | 4 | 39.60 |
+| GPTQ-Int4 stock / exllama | 4 | 47.61 |
+| Custom block-FP8 W8A16 | 4 | 11.44 |
+
+This means the custom dense FP8 path is not merely losing the expected FP8-vs-Int4 bandwidth ratio; it is losing an extra roughly 2x beyond bandwidth expectation. The issue appears specific to our dense FP8 implementation, not a structural V100 limit, because stock Int4 is net-positive on the same model, stack, and hardware.
+
+Most plausible causes to test, in priority order:
+
+1. Python/per-call wrapper overhead in `_v100_fp8_gemm`.
+2. Kernel-level dequant+GEMM cost in `fp8_dequant.cu`.
+3. Lost compiler/fusion benefits from `mode=0` versus full vLLM compile.
+4. Captured-graph node replay overhead for many small custom extension calls.
+
+Cheapest next diagnostic should be a microbenchmark rather than a model refactor. Preferred sequence:
+
+1. Isolated kernel loop: call `_ext.fp8_w8a16_gemm_a1/a2/a3/wmma_poc` directly on representative dense/GDN shapes and compare against FP16 `torch.matmul`/cuBLAS on the same shapes. This separates CUDA kernel cost from vLLM/Python/model overhead.
+2. Python wrapper overhead probe: time `_v100_fp8_gemm` versus direct `_ext.*` calls in a tight loop with already-allocated inputs. This quantifies pure Python dispatch/variant-selection cost.
+3. Optional no-op monkey-patch: replace `_v100_fp8_gemm` with a shape-correct precomputed output for one local experiment only. This bounds all wrapper+kernel overhead inside the full model, but is less clean because correctness is intentionally broken.
+
+Do not spend engineering time on dense FP8 fixes before those measurements. The likely deployment answer is still "use Int4 or FP16 for dense V100 models; reserve custom FP8 for MoE+GDN where grouped MoE+cudagraph wins decisively."
