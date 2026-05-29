@@ -20,7 +20,6 @@ Why not GPTQ:
 Project root:
 - `/home/kumphanartd/vllm-fp8-w8a16-sm70`
 - Standalone pip-installable package: `fp8-w8a16-sm70`
-- GitLab remote: `tl-group/opensource/vllm-fp8-w8a16-sm70`
 - Branch: `main`
 
 Cold-start ritual: read this file first. It is the source of truth.

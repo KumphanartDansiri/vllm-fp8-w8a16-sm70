@@ -7,7 +7,8 @@
 #
 # Usage:
 #   ./tools/bench_v100.sh serve <tag>
-#       Launch the V100 FP8 serve in foreground, capturing console to
+#       Launch the v0.4.0 cudagraph FP8 serve (py3.12 serve-fp8 +
+#       FULL_DECODE_ONLY) in foreground, capturing console to
 #       /tmp/v100_bench/<YYYYMMDD_HHMMSS>_<tag>/serve.log. Also writes
 #       config.txt (git commit, env, command) into the same dir.
 #       The latest run path is symlinked to /tmp/v100_bench/latest.
@@ -43,7 +44,14 @@
 #   QUANT=fp8                   (serve-time; set QUANT=none to omit --quantization)
 #   MAX_MODEL_LEN=32768
 #   MAX_TOKENS=200             (curl-time)
-#   VLLM_V100_FP8_* (anything matching this prefix is recorded in config.txt)
+#   ENFORCE_EAGER=0             (default: v0.4.0 cudagraph baseline via
+#                                run_docker_vllm018_py312.sh serve-fp8 +
+#                                FULL_DECODE_ONLY. Set =1 for the legacy
+#                                eager fallback, ~6.8-8x slower.)
+#   ENABLE_QWEN_MTP=1           (optional; forwarded to the launcher's
+#                                --speculative-config. Default OFF.)
+#   VLLM_V100_FP8_* (anything matching this prefix propagates to serve-fp8
+#                    and is recorded in config.txt)
 
 set -euo pipefail
 
@@ -125,25 +133,27 @@ case "$mode" in
         TP_SIZE="${TP_SIZE:-8}"
         QUANT="${QUANT:-fp8}"
         MAX_MODEL_LEN="${MAX_MODEL_LEN:-32768}"
-        # ENFORCE_EAGER=1 (default) preserves the documented sm_70 path.
-        # Set ENFORCE_EAGER=0 to exercise the cudagraph path — known to
-        # crash on our cu128 stack at compiler_interface.py:382 due to a
-        # vllm 0.18 / torch 2.10 / py3.10 standalone_compile.FakeTensorMode
-        # mismatch (see no_eager_attempt.log). Useful for confirming that
-        # failure mode against a fresh model arch.
-        ENFORCE_EAGER="${ENFORCE_EAGER:-1}"
+        # Default is the v0.4.0 cudagraph baseline (py3.12 serve-fp8 +
+        # FULL_DECODE_ONLY) — the path that produces the documented headline
+        # tok/s. Set ENFORCE_EAGER=1 for the legacy eager fallback (~6.8-8x
+        # slower; debugging/correctness only). The old py3.10 cudagraph crash
+        # at compiler_interface.py was fixed by the py3.12 move in v0.4.0.
+        ENFORCE_EAGER="${ENFORCE_EAGER:-0}"
         QUANT_ARGS=()
         QUANT_DESC="omitted"
         if [[ -n "$QUANT" && "$QUANT" != "none" ]]; then
             QUANT_ARGS=(--quantization "$QUANT")
             QUANT_DESC="--quantization $QUANT"
         fi
+        # cudagraph (default): pass the FULL_DECODE_ONLY compilation-config.
+        # eager (ENFORCE_EAGER=1): pass --enforce-eager, no compilation-config.
         EAGER_ARGS=()
-        EAGER_DESC="--enforce-eager"
-        if [[ "$ENFORCE_EAGER" == "0" || "$ENFORCE_EAGER" == "off" || "$ENFORCE_EAGER" == "false" ]]; then
-            EAGER_DESC="(eager disabled — cudagraph path)"
-        else
+        COMPILE_ARGS=(--compilation-config '{"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY"}')
+        EXEC_DESC="--compilation-config '{\"mode\":0,\"cudagraph_mode\":\"FULL_DECODE_ONLY\"}'"
+        if [[ "$ENFORCE_EAGER" == "1" || "$ENFORCE_EAGER" == "on" || "$ENFORCE_EAGER" == "true" ]]; then
             EAGER_ARGS=(--enforce-eager)
+            COMPILE_ARGS=()
+            EXEC_DESC="--enforce-eager (legacy eager fallback)"
         fi
 
         TS="$(date +%Y%m%d_%H%M%S)"
@@ -157,10 +167,10 @@ case "$mode" in
         {
             echo ""
             echo "# serve command"
-            echo "GPUS=\"$GPUS\" ./docker/run_docker.sh serve \\"
-            echo "    --model $MODEL $QUANT_DESC --dtype float16 $EAGER_DESC \\"
+            echo "GPUS=\"$GPUS\" PORT=\"$PORT\" ./docker/run_docker_vllm018_py312.sh serve-fp8 \\"
+            echo "    --model $MODEL $QUANT_DESC --dtype float16 $EXEC_DESC \\"
             echo "    --attention-backend TRITON_ATTN --tensor-parallel-size $TP_SIZE \\"
-            echo "    --max-num-seqs 1 --gpu-memory-utilization 0.80 \\"
+            echo "    --max-num-seqs 1 --max-num-batched-tokens 32768 --gpu-memory-utilization 0.80 \\"
             echo "    --max-model-len $MAX_MODEL_LEN --no-enable-chunked-prefill \\"
             # NOTE: --disable-custom-all-reduce was historically passed for
             # sm_70 safety. Source-read in Stage 2D Step 2C.1 found that vLLM
@@ -179,13 +189,15 @@ case "$mode" in
 
         (
             cd "$PROJECT_ROOT"
-            GPUS="$GPUS" \
-            ./docker/run_docker.sh serve \
+            GPUS="$GPUS" PORT="$PORT" \
+            ./docker/run_docker_vllm018_py312.sh serve-fp8 \
                 --model "$MODEL" \
-                "${QUANT_ARGS[@]}" --dtype float16 "${EAGER_ARGS[@]}" \
+                "${QUANT_ARGS[@]}" --dtype float16 \
+                "${EAGER_ARGS[@]}" "${COMPILE_ARGS[@]}" \
                 --attention-backend TRITON_ATTN \
                 --tensor-parallel-size "$TP_SIZE" \
-                --max-num-seqs 1 --gpu-memory-utilization 0.80 \
+                --max-num-seqs 1 --max-num-batched-tokens 32768 \
+                --gpu-memory-utilization 0.80 \
                 --max-model-len "$MAX_MODEL_LEN" --no-enable-chunked-prefill \
                 --host 0.0.0.0 --port "$PORT" \
                 "$@"

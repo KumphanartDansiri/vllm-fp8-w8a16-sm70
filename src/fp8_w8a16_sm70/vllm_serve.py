@@ -230,12 +230,21 @@ _BREAKDOWN_HOOK_CLASSES = {
     "Qwen3NextGatedDeltaNet": "Qwen3NextGatedDeltaNet",
     "Qwen3_5GatedDeltaNet": "Qwen3NextGatedDeltaNet",
     "Qwen3NextAttention": "Qwen3NextAttention",
+    # Stage 3.5+ dense-FP8 diagnostic: Qwen3.6-27B-FP8 (dense+GDN) uses
+    # `Qwen2MoeMLP` (via `from vllm...qwen2_moe import Qwen2MoeMLP as
+    # Qwen3NextMLP` in vllm/model_executor/models/qwen3_next.py). MoE
+    # variants of this model also use Qwen2MoeMLP for shared_expert,
+    # which the SparseMoeBlock walk already tags as `moe_shared`; the
+    # class-level attach loop must skip already-tagged instances so the
+    # shared-expert bucket isn't clobbered. See `_attach_decode_breakdown_hooks`.
+    "Qwen2MoeMLP": "Qwen2MoeMLP",
     "LogitsProcessor": "LogitsProcessor",
 }
 _BREAKDOWN_SECTION_ORDER = (
     "Qwen3NextSparseMoeBlock",
     "Qwen3NextGatedDeltaNet",
     "Qwen3NextAttention",
+    "Qwen2MoeMLP",
     "LogitsProcessor",
 )
 # Stage 2D, Step 1: read-only attribution of the MoE-block wrapper.
@@ -310,6 +319,31 @@ _BREAKDOWN_GDN_CHILDREN = (
     ("norm", "gdn_norm"),
     ("out_proj", "gdn_out_proj"),
 )
+# Stage 3.5+ dense-FP8 diagnostic: measurement-only sub-attribution of
+# Qwen2MoeMLP (the dense MLP used by Qwen3.6-27B-FP8 etc.). The three
+# direct sibling children in Qwen2MoeMLP.forward are:
+#   self.gate_up_proj(x)   -> densemlp_gate_up  (MergedColumnParallelLinear; column-parallel, no AR)
+#   self.act_fn(gate_up)   -> densemlp_act      (SiluAndMul; element-wise)
+#   self.down_proj(out)    -> densemlp_down     (RowParallelLinear; includes tensor_model_parallel_all_reduce)
+# Splitting gate_up vs down matters because down_proj's wall-time is
+# GEMM + AR, while gate_up_proj is pure GEMM (modulo the FP8 dispatch
+# wrapper). The cross-cutting `row_parallel_ar` bucket isolates the AR
+# fraction inside down_proj; (densemlp_down - row_parallel_ar share) is
+# the GEMM+dequant+Python-dispatch cost. densemlp_other (residual) is
+# Python overhead, view/reshape, and dispatch glue.
+_BREAKDOWN_DENSEMLP_SUB_HOOK = os.environ.get(
+    "VLLM_V100_FP8_DECODE_BREAKDOWN_DENSEMLP_SUBS", "1").lower() not in (
+        "0", "off", "false", "")
+_BREAKDOWN_DENSEMLP_SUB_SECTION_ORDER = (
+    "densemlp_gate_up",
+    "densemlp_act",
+    "densemlp_down",
+)
+_BREAKDOWN_DENSEMLP_CHILDREN = (
+    ("gate_up_proj", "densemlp_gate_up"),
+    ("act_fn",       "densemlp_act"),
+    ("down_proj",    "densemlp_down"),
+)
 # Stage 2D, Step 2D.3: cross-cutting attribution of the all-reduce hidden
 # inside every RowParallelLinear.forward at TP>1. Stage 2D Step 2D.2
 # surprise found that gdn_out_proj (RowParallelLinear) was 47.9% of GDN,
@@ -336,6 +370,10 @@ _BREAKDOWN_SUB_SECTION_ORDER = (
     "gdn_core",
     "gdn_norm",
     "gdn_out_proj",
+    # Stage 3.5+ dense-FP8 diagnostic: Qwen2MoeMLP sibling sub-sections.
+    "densemlp_gate_up",
+    "densemlp_act",
+    "densemlp_down",
 )
 # Residual / nesting map for the breakdown report. Each key is a section
 # whose ms/token will be decomposed by subtracting the listed sub-sections.
@@ -361,6 +399,7 @@ _BREAKDOWN_SUB_SECTION_ORDER = (
 _BREAKDOWN_RESIDUAL_OF = {
     "Qwen3NextSparseMoeBlock": ("moe_router", "moe_experts"),
     "Qwen3NextGatedDeltaNet": _BREAKDOWN_GDN_SUB_SECTION_ORDER,
+    "Qwen2MoeMLP": _BREAKDOWN_DENSEMLP_SUB_SECTION_ORDER,
 }
 _BREAKDOWN_NESTED_OF = {
     # parent_section -> tuple of sub-sections invoked from INSIDE the
@@ -374,6 +413,7 @@ _BREAKDOWN_NESTED_OF = {
 _BREAKDOWN_RESIDUAL_LABEL = {
     "Qwen3NextSparseMoeBlock": "moe_other (wrapper/topk/combine)",
     "Qwen3NextGatedDeltaNet":  "gdn_other (rearrange/cat/residual)",
+    "Qwen2MoeMLP":             "densemlp_other (Python/dispatch)",
 }
 # Which named-child attributes of a Qwen3NextSparseMoeBlock to hook, and
 # what section label to assign. The first present name wins. Qwen3-Next
@@ -399,6 +439,7 @@ _BREAKDOWN_DECODE_TOKENS = 0
 _BREAKDOWN_TOKEN_OPEN = False
 _BREAKDOWN_TOKEN_START = None
 _BREAKDOWN_ATTACHED_MODEL_IDS = set()
+_BREAKDOWN_RUNTIME_DISABLED = False
 
 
 def _breakdown_rank():
@@ -407,6 +448,22 @@ def _breakdown_rank():
         return get_tensor_model_parallel_rank()
     except Exception:
         return -1
+
+
+def _breakdown_disable_runtime(reason):
+    """Fail closed if CUDA-event profiling is unsafe for this runtime mode."""
+    global _BREAKDOWN_RUNTIME_DISABLED, _BREAKDOWN_TOKEN_OPEN, _BREAKDOWN_TOKEN_START
+    if not _BREAKDOWN_RUNTIME_DISABLED and _breakdown_rank() in (0, -1):
+        print(
+            f"[DECODE-BREAKDOWN rank={_breakdown_rank()} pid={os.getpid()}] "
+            f"disabled at runtime: {reason}",
+            flush=True,
+        )
+    _BREAKDOWN_RUNTIME_DISABLED = True
+    _BREAKDOWN_PENDING_EVENTS.clear()
+    _BREAKDOWN_TOKEN_EVENTS.clear()
+    _BREAKDOWN_TOKEN_OPEN = False
+    _BREAKDOWN_TOKEN_START = None
 
 
 def _first_tensor_m(args, kwargs=None):
@@ -444,7 +501,14 @@ def _breakdown_section_for(module):
 
 
 def _breakdown_pre_hook(module, args, kwargs):
-    if not torch.cuda.is_available():
+    if _BREAKDOWN_RUNTIME_DISABLED or not torch.cuda.is_available():
+        return
+    # CUDA graph capture forbids cudaEventRecord on the captured stream
+    # (and `.elapsed_time()` in the post-hook would also be illegal).
+    # Skip silently during capture so the same binary works under both
+    # eager and cudagraph; data is only collected from non-captured
+    # forwards (warmup, profile_run, fallback shapes, --enforce-eager).
+    if torch.cuda.is_current_stream_capturing():
         return
     section = _breakdown_section_for(module)
     m = _first_tensor_m(args, kwargs)
@@ -470,7 +534,13 @@ def _breakdown_pre_hook(module, args, kwargs):
 
 
 def _breakdown_post_hook(module, args, kwargs, output):
-    if not torch.cuda.is_available():
+    if _BREAKDOWN_RUNTIME_DISABLED or not torch.cuda.is_available():
+        return
+    # Symmetric guard to _breakdown_pre_hook: under capture the pre-hook
+    # returned without pushing a stack frame, so `stack` is empty and we
+    # would no-op anyway, but check explicitly to avoid any `.record()`
+    # call on a captured stream if hook ordering ever changes.
+    if torch.cuda.is_current_stream_capturing():
         return
     stack = getattr(module, "_v100_breakdown_stack", None)
     if not stack:
@@ -495,22 +565,28 @@ def _breakdown_post_hook(module, args, kwargs, output):
 def _breakdown_flush():
     if not _BREAKDOWN_PENDING_EVENTS and not _BREAKDOWN_TOKEN_EVENTS:
         return
-    torch.cuda.synchronize()
     interval_totals = defaultdict(float)
     interval_counts = defaultdict(int)
-    for regime, section, start, end in _BREAKDOWN_PENDING_EVENTS:
-        elapsed = float(start.elapsed_time(end))
-        _BREAKDOWN_TOTALS[regime][section] += elapsed
-        _BREAKDOWN_COUNTS[regime][section] += 1
-        if regime == "decode":
-            interval_totals[section] += elapsed
-            interval_counts[section] += 1
-    _BREAKDOWN_PENDING_EVENTS.clear()
+    try:
+        torch.cuda.synchronize()
+        for regime, section, start, end in _BREAKDOWN_PENDING_EVENTS:
+            elapsed = float(start.elapsed_time(end))
+            _BREAKDOWN_TOTALS[regime][section] += elapsed
+            _BREAKDOWN_COUNTS[regime][section] += 1
+            if regime == "decode":
+                interval_totals[section] += elapsed
+                interval_counts[section] += 1
+        _BREAKDOWN_PENDING_EVENTS.clear()
 
-    total_ms = 0.0
-    for start, end in _BREAKDOWN_TOKEN_EVENTS:
-        total_ms += float(start.elapsed_time(end))
-    _BREAKDOWN_TOKEN_EVENTS.clear()
+        total_ms = 0.0
+        for start, end in _BREAKDOWN_TOKEN_EVENTS:
+            total_ms += float(start.elapsed_time(end))
+        _BREAKDOWN_TOKEN_EVENTS.clear()
+    except Exception as exc:
+        _breakdown_disable_runtime(
+            f"{type(exc).__name__} during CUDA event timing; "
+            "profiling is eager-only under cudagraph/replay")
+        return
 
     if _breakdown_rank() not in (0, -1):
         return
@@ -835,6 +911,16 @@ def _attach_decode_breakdown_hooks(model):
         cls_name = type(module).__name__
         if cls_name not in _BREAKDOWN_HOOK_CLASSES:
             continue
+        # Skip if a parent walk already tagged this instance with a more
+        # specific role. Critical for Qwen3.5/3.6 MoE variants where the
+        # SparseMoeBlock walk tags its shared_expert (a Qwen2MoeMLP) as
+        # `moe_shared`; without this guard the class-level attach would
+        # double-register hooks AND clobber the tag back to
+        # `Qwen2MoeMLP`, attributing shared-expert work to the dense
+        # bucket. Module preorder DFS guarantees the parent block is
+        # visited before its children.
+        if getattr(module, "_v100_breakdown_section", None) is not None:
+            continue
         section = _BREAKDOWN_HOOK_CLASSES[cls_name]
         _attach(module, section)
         attached[section] += 1
@@ -863,6 +949,22 @@ def _attach_decode_breakdown_hooks(model):
         if cls_name in ("Qwen3NextGatedDeltaNet", "Qwen3_5GatedDeltaNet") \
                 and _BREAKDOWN_GDN_SUB_HOOK:
             for attr_name, sub_section in _BREAKDOWN_GDN_CHILDREN:
+                child = getattr(module, attr_name, None)
+                if child is None or not isinstance(child, torch.nn.Module):
+                    continue
+                if getattr(child, "_v100_breakdown_section", None) is not None:
+                    continue
+                _attach(child, sub_section)
+                attached[sub_section] += 1
+            continue
+
+        # Stage 3.5+ dense-FP8 diagnostic: read-only sub-attribution of
+        # Qwen2MoeMLP (dense MLP). Splits gate_up_proj (column-parallel,
+        # no AR) vs act_fn vs down_proj (row-parallel, includes AR).
+        # The class-level skip above guarantees we don't re-walk a
+        # shared_expert Qwen2MoeMLP (already tagged moe_shared).
+        if cls_name == "Qwen2MoeMLP" and _BREAKDOWN_DENSEMLP_SUB_HOOK:
+            for attr_name, sub_section in _BREAKDOWN_DENSEMLP_CHILDREN:
                 child = getattr(module, attr_name, None)
                 if child is None or not isinstance(child, torch.nn.Module):
                     continue
@@ -2330,38 +2432,53 @@ def _patch_vllm_for_v100():
                             router_logits=router_logits)
 
                     if self.shared_expert is not None:
-                        combine_start = torch.cuda.Event(enable_timing=True)
-                        combine_end = torch.cuda.Event(enable_timing=True)
-                        combine_start.record()
+                        do_timing = (
+                            not _BREAKDOWN_RUNTIME_DISABLED
+                            and not torch.cuda.is_current_stream_capturing())
+                        if do_timing:
+                            combine_start = torch.cuda.Event(enable_timing=True)
+                            combine_end = torch.cuda.Event(enable_timing=True)
+                            combine_start.record()
                         final_hidden_states = (
                             final_hidden_states[0] + final_hidden_states[1])
-                        combine_end.record()
-                        _BREAKDOWN_PENDING_EVENTS.append(
-                            (regime, "moe_other_combine",
-                             combine_start, combine_end))
+                        if do_timing:
+                            combine_end.record()
+                            _BREAKDOWN_PENDING_EVENTS.append(
+                                (regime, "moe_other_combine",
+                                 combine_start, combine_end))
 
                     if self.is_sequence_parallel:
-                        ag_start = torch.cuda.Event(enable_timing=True)
-                        ag_end = torch.cuda.Event(enable_timing=True)
-                        ag_start.record()
+                        do_timing = (
+                            not _BREAKDOWN_RUNTIME_DISABLED
+                            and not torch.cuda.is_current_stream_capturing())
+                        if do_timing:
+                            ag_start = torch.cuda.Event(enable_timing=True)
+                            ag_end = torch.cuda.Event(enable_timing=True)
+                            ag_start.record()
                         final_hidden_states = _tp_all_gather(
                             final_hidden_states, 0)
                         final_hidden_states = final_hidden_states[:num_tokens]
-                        ag_end.record()
-                        _BREAKDOWN_PENDING_EVENTS.append(
-                            (regime, "moe_other_allreduce",
-                             ag_start, ag_end))
+                        if do_timing:
+                            ag_end.record()
+                            _BREAKDOWN_PENDING_EVENTS.append(
+                                (regime, "moe_other_allreduce",
+                                 ag_start, ag_end))
                     elif self.tp_size > 1:
-                        ar_start = torch.cuda.Event(enable_timing=True)
-                        ar_end = torch.cuda.Event(enable_timing=True)
-                        ar_start.record()
+                        do_timing = (
+                            not _BREAKDOWN_RUNTIME_DISABLED
+                            and not torch.cuda.is_current_stream_capturing())
+                        if do_timing:
+                            ar_start = torch.cuda.Event(enable_timing=True)
+                            ar_end = torch.cuda.Event(enable_timing=True)
+                            ar_start.record()
                         final_hidden_states = (
                             self.experts.maybe_all_reduce_tensor_model_parallel(
                                 final_hidden_states))
-                        ar_end.record()
-                        _BREAKDOWN_PENDING_EVENTS.append(
-                            (regime, "moe_other_allreduce",
-                             ar_start, ar_end))
+                        if do_timing:
+                            ar_end.record()
+                            _BREAKDOWN_PENDING_EVENTS.append(
+                                (regime, "moe_other_allreduce",
+                                 ar_start, ar_end))
 
                     return final_hidden_states.view(orig_shape)
 
@@ -2389,6 +2506,10 @@ def _patch_vllm_for_v100():
                     qwen3_next.Qwen3NextGatedDeltaNet._forward_core)
 
                 def _timed_gdn_forward_core(self, mixed_qkv, b, a, core_attn_out):
+                    if (_BREAKDOWN_RUNTIME_DISABLED
+                            or torch.cuda.is_current_stream_capturing()):
+                        return _orig_gdn_forward_core(
+                            self, mixed_qkv, b, a, core_attn_out)
                     regime = "decode" if mixed_qkv.size(0) == 1 else "prefill"
                     start = torch.cuda.Event(enable_timing=True)
                     end = torch.cuda.Event(enable_timing=True)
@@ -2446,13 +2567,18 @@ def _patch_vllm_for_v100():
                     if self.reduce_results and self.tp_size > 1:
                         num_tokens = output_parallel.size(0)
                         regime = "decode" if num_tokens == 1 else "prefill"
-                        start = torch.cuda.Event(enable_timing=True)
-                        end = torch.cuda.Event(enable_timing=True)
-                        start.record()
+                        do_timing = (
+                            not _BREAKDOWN_RUNTIME_DISABLED
+                            and not torch.cuda.is_current_stream_capturing())
+                        if do_timing:
+                            start = torch.cuda.Event(enable_timing=True)
+                            end = torch.cuda.Event(enable_timing=True)
+                            start.record()
                         output = _tp_ar(output_parallel)
-                        end.record()
-                        _BREAKDOWN_PENDING_EVENTS.append(
-                            (regime, "row_parallel_ar", start, end))
+                        if do_timing:
+                            end.record()
+                            _BREAKDOWN_PENDING_EVENTS.append(
+                                (regime, "row_parallel_ar", start, end))
                     else:
                         output = output_parallel
 

@@ -7,21 +7,118 @@ Upstream vLLM rejects FP8 on this architecture. This package keeps vLLM 0.18.0
 usable on V100 by replacing the FP8 linear path with custom CUDA kernels,
 including a Volta WMMA prefill path and grouped routed MoE decode kernels.
 
+> **This is not native FP8 execution.** V100 (`sm_70`) has no FP8 tensor-core
+> path. Weights are stored as block-scaled FP8 and dequantized to FP16 *inside*
+> the GEMM kernel — dequantized weights never round-trip through HBM — then
+> executed as FP16: WMMA tensor cores for prefill, CUDA-core GEMM for MoE
+> decode. See **How it works** below.
+
+## Why this exists
+
+V100 was the flagship datacenter GPU of its generation. What dates it now isn't
+raw compute — it's memory: 16/32 GB of capacity and ~900 GB/s of bandwidth that
+modern models outgrow, plus the absence of the native low-precision paths (FP8
+tensor cores, FlashAttention) newer GPUs added.
+
+Meanwhile, FP8 has become a format model creators ship *first*. Large MoE models
+in particular are released as block-scaled FP8 because that's what modern
+hardware trains and serves in — so the FP8 checkpoint is often the canonical
+release, and GPTQ builds are later re-quants. On V100, vLLM already runs that
+re-quantized GPTQ-Int4 today; its FP8 path was the one piece that refused
+`sm_70`. **This project fills that gap** — it adds the missing FP8
+capability so a V100 can consume those releases directly, instead of waiting for
+someone to re-quantize them.
+
+The catch: V100 has no native FP8, so weights must be dequantized in software.
+This project is the experiment — can the memory saved by FP8 storage outweigh
+that dequant cost on `sm_70`? For sparse MoE, where only a small fraction of
+weights move per token, the answer appears to be yes (34–52 tok/s); for dense
+models it doesn't (Int4/FP16 win). The rest of this README is the honest
+accounting of where it lands.
+
+## Status
+
+| Tier | What |
+|---|---|
+| **Known good** | vLLM 0.18.0, torch 2.10.0, CUDA 12.x, Python 3.12, NVIDIA V100 (`sm_70`); Qwen3.5/Qwen3.6 **MoE** block-FP8 checkpoints (122B-A10B-FP8, 35B-A3B-FP8). |
+| **Optional** | MTP speculative decoding (`ENABLE_QWEN_MTP=1`, default OFF). |
+| **Experimental / untested** | vLLM 0.19 (forward-compat unverified), dense-FP8 optimization, flash-attention-v100. |
+| **Unsupported here** | CUDA 13 and vLLM ≥0.20 (both drop `sm_70`, so V100 stops working); native FP8 hardware compute (V100 has none); non-Volta GPUs (A100/H100/etc. — use upstream vLLM, which has native FP8). |
+
+## Is this for me?
+
+**Use this if** you have V100s (`sm_70`) and want to serve **sparse MoE**
+block-FP8 checkpoints (DeepSeek-style W8A16) that upstream vLLM refuses to run
+on this hardware.
+
+**Do not use this if** you have H100/A100 or newer (use upstream vLLM with
+native FP8), want generic FP8 acceleration, or are serving **dense** models —
+on V100, GPTQ-Int4 or FP16 is faster there. See **Performance notes** below
+for the numbers.
+
+## How it works
+
+**Mechanism.** Weights are stored in block-scaled FP8 (DeepSeek-style E4M3),
+activations stay FP16 (W8A16). Custom Volta kernels apply the per-block scale
+and dequantize FP8→FP16 *inside* the kernel, immediately before the FP16
+computation, so dequantized weights never round-trip through HBM. The two paths
+differ in how: the **prefill** path stages the dequantized FP16 weight tiles in
+shared memory (double-buffered) and feeds them to an FP16 WMMA tensor-core
+matmul; the **MoE decode** path dequantizes inline inside a CUDA-core grouped
+GEMM.
+
+**Where this sits.** This is a **fused dequant→compute** design. FP8 weights are
+dequantized to FP16 *inside* the compute kernel, immediately before the FP16
+math; dequantized weights are never materialized as an FP16 matrix in HBM, and
+are not handed to a separate GEMM launch.
+
+What it is **not** is a natively-integrated quantized kernel like Marlin or
+GPTQ-Marlin, where the quantized format itself is woven into the tensor-core
+pipeline — format-aware packing, async-pipelined loads, dequantization
+interleaved directly with MMA execution. We are far from that level of
+integration, and on Volta (`sm_70`) there is no `cp.async` and no native
+FP8/INT4 tensor-core support to integrate against — so dequant-feeds-FP16 is
+the pragmatic structure here, not the optimal one.
+
+The payoff is enabling block-FP8 MoE on hardware upstream dropped, where
+per-token sparsity (~3B of weights active) makes "read fewer bytes" matter more
+than peak GEMM efficiency.
+
+**The landscape.** Quantized inference kernels generally fall into three
+categories:
+
+1. **Dequantize to an FP16 matrix, then launch a stock GEMM** (e.g. FP8 → FP16
+   buffer → cuBLAS). *Not this project.*
+2. **Dequantization fused inside the compute kernel**, immediately before the
+   FP16 math — dequantized weights are never materialized as an FP16 matrix in
+   HBM. **← this project.**
+3. **Quantized format integrated directly into the MMA / tensor-core pipeline**
+   (e.g. Marlin, GPTQ-Marlin). *Not this project.*
+
+If you arrived assuming Marlin/GPTQ-Marlin (category 3), or assuming "FP8" means
+Hopper FP8 tensor cores, or just "half the memory" — this is category 2 on
+hardware that has neither native FP8 nor the pipeline features category 3 needs.
+
 ## Current Baseline
 
-The performance baseline is `v0.4.0`:
+The package version is `0.4.1`. The **performance** baseline is the `v0.4.0`
+config below — v0.4.1 only adds the optional MTP knob (see "Optional: MTP
+Speculative Decoding"); nothing else changes:
 
 | Component | Baseline |
 |---|---|
-| Python | 3.12 |
+| Python | 3.12 (**required for cudagraph** — see below) |
 | vLLM | 0.18.0 |
 | torch | 2.10.0+cu128 |
 | CUDA | 12.x runtime/toolkit; do not use CUDA 13 on V100 |
 | Docker image | `vllm-v100-py312-test:cu128` |
 | Launcher | `docker/run_docker_vllm018_py312.sh` |
 
-The legacy Python 3.10 / `--enforce-eager` stack remains a correctness fallback,
-not the default performance path.
+> **Python 3.10 breaks cudagraph.** On Python ≤3.10 the cudagraph path hits a
+> FakeTensorMode bug in vLLM 0.18, so the legacy 3.10 stack is forced into
+> `--enforce-eager` — a correctness fallback that runs **~6.8–8× slower** (see
+> [Performance notes](#performance-notes)). Use Python 3.12 for the baseline
+> numbers; treat 3.10 as a debugging/correctness fallback only.
 
 ## Build
 
@@ -62,6 +159,41 @@ The launcher defaults the v0.4.0 MoE knobs:
 - `VLLM_V100_FP8_MOE_GROUPED_K_SPLIT=auto`
 - `VLLM_V100_FP8_MOE_FAST_ROUTE_PREP=1`
 
+## Serve a plain FP16 / GPTQ model (no wrapper)
+
+FP16/BF16 and GPTQ-Int4 models do **not** need this package — they run on
+stock vLLM 0.18. Use the `serve` subcommand (plain `vllm serve`, no
+monkey-patches):
+
+```bash
+PORT=8002 GPUS=all ./docker/run_docker_vllm018_py312.sh serve \
+    --model /mnt/models/<your-fp16-or-gptq-model> \
+    --dtype float16 \
+    --attention-backend TRITON_ATTN \
+    --tensor-parallel-size 4 \
+    --no-enable-chunked-prefill \
+    --disable-custom-all-reduce \
+    --compilation-config '{"mode":0,"cudagraph_mode":"FULL_AND_PIECEWISE"}' \
+    --host 0.0.0.0 --port 8002
+```
+
+Note the differences from the FP8 launch:
+
+- **`serve`, not `serve-fp8`** — no wrapper is loaded.
+- **No `--quantization fp8`** — let vLLM read the checkpoint's own config
+  (GPTQ-Int4 is auto-detected; FP16 needs no quant flag).
+- **`FULL_AND_PIECEWISE` cudagraph** is available here. The FP8 path is
+  restricted to `FULL_DECODE_ONLY` by its static-shape MoE route prep; stock
+  FP16/GPTQ has no such restriction, so it can use the fuller graph mode.
+
+The sm_70 viability flags (TRITON_ATTN, no chunked prefill, disabled custom
+all-reduce, cudagraph) still apply — those are V100 constraints, not FP8 ones.
+
+**Do not run FP16 through `serve-fp8`.** The monkey-patches only intercept the
+FP8 linear path, so on a non-FP8 checkpoint they are inert — you gain nothing
+and only add the FP8 capability-gate bypass you don't need. Rule: `serve` for
+FP16/GPTQ, `serve-fp8` for block-FP8.
+
 ## Known Deployment Rule
 
 | Workload | Preferred path |
@@ -70,9 +202,43 @@ The launcher defaults the v0.4.0 MoE knobs:
 | Dense+GDN 27B-class | GPTQ-Int4 if available; otherwise FP16 |
 | Small dense | FP16 or Int4 |
 
-Dense FP8 on V100 is currently slower than FP16 and GPTQ-Int4 because the
-custom dequant/GEMM path outweighs the bandwidth savings. See
-`docs/STAGE_3.1_NEXT_STEPS.md` before investing in dense-FP8 work.
+Dense FP8 on V100 is currently slower than FP16 and GPTQ-Int4. See
+**Performance notes** below for the numbers and why.
+
+## Performance notes
+
+*These effects come from the vLLM/V100 serving path and from model
+architecture — not from FP8 accuracy. They explain the headline numbers, and
+where this path does **not** help.*
+
+**cudagraph is mandatory for the headline numbers.** `mode=0 +
+FULL_DECODE_ONLY` (in the serve command above) is the performance path.
+`--enforce-eager` is a correctness fallback only and runs **~6.8–8× slower**
+(122B-A10B-FP8: 5.09 → 34.76 tok/s; 35B-A3B-FP8: 6.57 → 52.87 tok/s).
+Requires Python 3.12 — the 3.10 path hits a FakeTensorMode cudagraph bug.
+
+**Decode is communication-bound on V100.** With `TRITON_ATTN` (no
+FlashAttention on `sm_70`) and custom all-reduce disabled, cross-GPU
+all-reduce is a large fraction of per-token time at TP=8. That is the V100
+tax, and the reason MTP is the highest-leverage optional knob.
+
+**MTP (optional) amortizes that cost.** Speculative decoding spreads per-token
+overhead — notably all-reduce — across multiple tokens, so decode-heavy
+traffic gains most (up to 1.36×) and long-prompt/short-output can regress.
+
+**This path is for sparse MoE, not dense models.** On dense Qwen3.6-27B
+(TP=4), block-FP8 W8A16 is the *slowest* option:
+
+| 27B variant (TP=4) | tok/s | vs FP16 |
+|---|---|---|
+| GPTQ-Int4 | **47.61** | 1.20× faster |
+| FP16 | 39.60 | 1.00× baseline |
+| our block-FP8 W8A16 | **11.44** | **0.29× — 3.46× slower** |
+
+Dense models touch every weight each token, so the per-GEMM dequant/dispatch
+overhead never amortizes. The same FP8 path *wins* on MoE (35B-A3B-FP8: 52.87,
+122B-A10B-FP8: 34.76 tok/s) because only ~3B params are active per token. See
+`docs/STAGE_3.1_NEXT_STEPS.md` for the dense-FP8 diagnosis.
 
 ## Optional: MTP Speculative Decoding (v0.4.1)
 
@@ -88,8 +254,11 @@ Enable with `ENABLE_QWEN_MTP=1`:
 PORT=8002 GPUS=all ENABLE_QWEN_MTP=1 \
   ./docker/run_docker_vllm018_py312.sh serve-fp8 \
     --model /mnt/models/Qwen3.5-122B-A10B-FP8 \
-    ...  # same args as the v0.4.0 launch
+    <...the rest of the Serve FP8 args above...>
 ```
+
+*(Abbreviated — copy the complete argument list from **Serve FP8** above; the
+only change is adding the `ENABLE_QWEN_MTP=1` prefix.)*
 
 The launcher appends:
 
@@ -156,6 +325,140 @@ the investigation arc.
 3. Streaming and chat-completions endpoint sanity checks.
 4. Per-workload routing decision (per-request enable vs two-service split).
 5. Long-prompt-short-gen confirmation at higher N on the production target.
+
+## Benchmarking
+
+The figures below were measured on the **Serve FP8** cudagraph launch above
+(py3.12, TRITON_ATTN, `mode=0 + FULL_DECODE_ONLY`, the v0.4.0 MoE knobs),
+steady-state decode at temperature=0:
+
+| Model | Hardware | tok/s | Notes |
+|---|---|---|---|
+| Qwen3.5-122B-A10B-FP8 | 8× V100, TP=8 | 34.76 | v0.4.0 baseline |
+| Qwen3.5-122B-A10B-FP8 | 8× V100, TP=8 | 47.32 | with `ENABLE_QWEN_MTP=1` |
+| Qwen3.6-35B-A3B-FP8 | 4× V100, TP=4 | 52.87 | v0.4.0 baseline |
+
+**Reproduce with `tools/bench_v100.sh`** — it launches that exact cudagraph
+`serve-fp8` config by default and captures the resolved config, git commit,
+serve console, and a timed curl loop into one timestamped directory under
+`/tmp/v100_bench/`:
+
+```bash
+# Terminal 1: launch the cudagraph serve-fp8 baseline
+./tools/bench_v100.sh serve prod
+#   ENABLE_QWEN_MTP=1 ./tools/bench_v100.sh serve prod   # for the MTP row
+#   ENFORCE_EAGER=1   ./tools/bench_v100.sh serve prod   # legacy eager fallback
+
+# Terminal 2: 1 warmup + N timed requests against the running serve
+./tools/bench_v100.sh curls prod 8
+```
+
+Or measure manually: launch the **Serve FP8** command and drive it with any
+OpenAI-compatible client (1 warmup, then N timed requests at temperature=0,
+completion tokens ÷ elapsed). Either way, a tok/s figure is only meaningful
+next to the launch config that produced it — always report the serve command
+with it.
+
+## AI-Assisted Remote Setup
+
+This project runs well from a remote V100 server over SSH with an agentic
+coding assistant in the repo. The setup has many small environment details —
+CUDA version, Docker GPU access, mounted model paths, vLLM flags, JIT caches —
+and an agent can check them directly on the machine instead of forcing you to
+copy terminal output back and forth.
+
+Recommended workflow:
+
+1. SSH to the server with your normal remote editor or terminal.
+2. Clone this repo on the server.
+3. Start your coding agent from the repo root.
+4. Give it the prompt below, edited for your model path and GPU count.
+5. Review commands before approving anything that installs packages, starts a
+   long serve, or pushes to a remote.
+
+Suggested first prompt:
+
+```text
+I am setting up fp8-w8a16-sm70 on a remote V100 server.
+
+Please inspect the repo first, then verify:
+- nvidia-smi shows V100 GPUs
+- Docker can see the GPUs
+- /mnt/models contains my FP8 model
+- CUDA is 12.x, not CUDA 13
+- the README serve command matches this host
+
+Build the vLLM 0.18 Python 3.12 Docker image if needed:
+./docker/run_docker_vllm018_py312.sh build
+
+Then help me launch this model with serve-fp8:
+/mnt/models/Qwen3.5-122B-A10B-FP8
+
+Use port 8002, tensor parallel size 8, TRITON_ATTN, no chunked prefill,
+disable custom all-reduce, and quantization fp8.
+
+Do not modify files outside this repo. Do not delete models or caches.
+Explain each command before running anything destructive or long-running.
+```
+
+Useful things to ask the agent after launch:
+
+- "Check the logs and tell me whether the FP8 monkey-patch loaded."
+- "Confirm the CUDA extension compiled and is now cached."
+- "Send one OpenAI-compatible test request to the local server."
+- "Summarize throughput and any warnings from the serve log."
+- "Turn this exact launch into a systemd service or Docker runbook."
+
+Keep secrets out of prompts and repo files. API keys, private model tokens,
+SSH keys, and internal hostnames should stay in your shell environment,
+secret manager, or deployment system.
+
+## Profiling & diagnostics
+
+The package ships extensive opt-in instrumentation — per-section decode timing
+breakdown, MoE GEMM profiling, and cross-cutting all-reduce attribution — so
+you can see where decode time actually goes and decide what's worth
+optimizing. **All of it is OFF by default and costs nothing in normal
+serving.**
+
+Two things to know before enabling it:
+
+- Treat the profiling hooks as **eager-only**. Some capture-sensitive paths
+  are guarded, but CUDA timing events do not produce useful decode attribution
+  under cudagraph capture; add `--enforce-eager` when profiling.
+- Eager is ~7× slower, so profiling numbers are for **relative attribution**
+  ("the all-reduce is 90% of `out_proj`"), never headline throughput.
+
+Quick start:
+
+```bash
+VLLM_V100_FP8_DECODE_BREAKDOWN=1 ... serve-fp8 ... --enforce-eager
+```
+
+Full knob reference, output guide, and a worked "find the bottleneck" workflow
+are in [`docs/PROFILING.md`](docs/PROFILING.md).
+
+## Why monkey-patches, not a vLLM fork
+
+This package patches vLLM at runtime — replacing the FP8 linear method and a
+few MoE/attention paths on import — rather than forking and editing vLLM's
+source. That's deliberate:
+
+- **Stock vLLM stays unmodified.** You install the official `vllm==0.18.0`
+  wheel; the patches apply when you run `python -m fp8_w8a16_sm70.vllm_serve`.
+  There is no fork to rebase against upstream and no patched vLLM to rebuild.
+- **The delta from upstream is explicit and small.** Everything we change
+  lives in `src/fp8_w8a16_sm70/`, so it's easy to audit exactly what differs
+  from stock vLLM.
+- **Trivially removable.** Drop the wrapper and you're back to stock vLLM —
+  that is literally the `serve` subcommand. The FP16/GPTQ paths are unmodified
+  upstream code.
+
+Honest limitation: the patches propagate to TP workers via vLLM 0.18's worker
+re-exec, which is verified here but not guaranteed robust across other vLLM
+launch styles (Ray executor, forkserver). If a future vLLM breaks that, the
+migration path is a vLLM plugin or `sitecustomize.py` — not a fork. This is
+part of why the project is pinned to 0.18 (see `REQUIREMENTS.md`).
 
 ## Development
 
