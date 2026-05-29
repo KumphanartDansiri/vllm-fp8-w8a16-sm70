@@ -1835,3 +1835,286 @@ not as the next patch inside the FP8 package. For the current production
 MoE+GDN targets, `TRITON_ATTN` remains the serving default; previous cross-stack
 data showed FA2-v100 can help pure dense-attention models but can hurt hybrid
 GDN models badly.
+
+### Dense 27B-FP8 diagnosis and custom-op implication
+
+Follow-up diagnosis on Qwen3.6-27B dense+GDN clarified the slow FP8 result.
+
+Eager Stage 2D breakdown with dense-MLP hooks showed both FP8 and FP16 are
+slow under `--enforce-eager` and dominated by row-parallel all-reduce:
+
+| Path | Mode | Wall result | Notes |
+|---|---|---:|---|
+| 27B-FP8 TP=4 | eager + breakdown | `200 tok / 53.5s` = `3.74 tok/s` | Dense MLP ~106 ms/token, GDN ~94 ms/token, row_parallel_ar ~150 ms/token. |
+| 27B FP16 TP=4 | eager + breakdown | `200 tok / 60.3s` = `3.32 tok/s` | Same broad shape; row_parallel_ar often dominates. |
+| 27B FP16 TP=4 | `mode=0`, `FULL_DECODE_ONLY` | `200 tok / 4.874s` = `41.0 tok/s` | Clean run without breakdown envs; CUDA graph capture completed and serving was stable. |
+
+This proves that `mode=0` is not itself the bottleneck for FP16. CUDA graph
+replay supplies nearly all of the FP16 production speedup; Inductor/FULL_AND_PIECEWISE
+adds at most a small increment on this path.
+
+The dense-FP8 gap remains:
+
+- 27B FP16 `mode=0 + FULL_DECODE_ONLY`: about `41 tok/s`.
+- 27B-FP8 `mode=0 + FULL_DECODE_ONLY`: about `11-12 tok/s`.
+
+Interpretation:
+
+- The old "dense FP8 is slow because eager Python dispatch dominates" theory is
+  not supported; eager FP8 is not worse than eager FP16.
+- The remaining FP8 production gap is likely a mixture of:
+  - real dequant+GEMM kernel cost,
+  - pybind11 extension ops acting as opaque graph nodes,
+  - lost fusion / scheduling / communication overlap around row-parallel AR.
+- The current data does **not** prove custom-op registration would close the
+  whole 3.6x gap. It does make custom-op registration the next credible lever
+  if we want to chase graph-level optimization.
+
+Deployment rule is unchanged:
+
+- Dense+GDN 27B-class models should use GPTQ-Int4 or FP16, not this FP8 path.
+- Do not invest in dense 27B-FP8 as a product target while GPTQ-Int4 and FP16
+  already win.
+
+Strategic implication for the real MoE+GDN targets:
+
+- 122B-A10B-FP8 and 35B-A3B-FP8 already run well under `mode=0 + FULL_DECODE_ONLY`.
+- If `torch.library.custom_op` registration with fake/meta impls lets the FP8
+  extension participate in `mode=3 + FULL_AND_PIECEWISE`, the MoE targets may
+  gain substantially.
+- Treat this as a Stage 4 candidate and measure first on 122B-A10B-FP8, not on
+  dense 27B-FP8.
+
+Profiler cleanup note:
+
+- CUDA-event breakdown hooks are eager-only by construction.
+- Running `VLLM_V100_FP8_DECODE_BREAKDOWN=1` under cudagraph crashed at
+  `torch.cuda.Event.elapsed_time()` during graph replay. The local tree now has
+  a fail-closed guard so profiling disables itself instead of killing the
+  engine, but useful attribution still requires `--enforce-eager`.
+
+
+## Stage 4 — MTP speculative decoding (v0.4.1 opt-in, 2026-05-28)
+
+### Investigation arc
+
+Started from a different question: should we patch and pivot to the 1catai-vllm fork to gain Multi-Token Prediction (MTP) speculative decoding on Qwen3.5/3.6 MoE+GDN serving?
+
+Three discoveries during the session collapsed that question entirely:
+
+1. **MTP is upstream in vLLM 0.18.0.** The installed wheel includes
+   `vllm/model_executor/models/qwen3_5_mtp.py` defining `Qwen3_5MultiTokenPredictor`, registers
+   `Qwen3_5MTP` and `Qwen3_5MoeMTP` in [`registry.py:573-574`](../../../vllm/vllm/model_executor/models/registry.py), and
+   `config/speculative.py:311` auto-rewrites `qwen3_5_moe` model_type to
+   `qwen3_5_mtp`. No 1catai-specific code is required.
+
+2. **Production checkpoints ship MTP weights baked in.** Both
+   `/mnt/models/Qwen3.5-122B-A10B-FP8` and `/mnt/models/Qwen3.6-35B-A3B-FP8` have
+   `text_config.mtp_num_hidden_layers=1` and ~1,560 `mtp.*` weight keys in their
+   safetensors indices, FP8-quantized, MoE-structured matching the main body.
+
+3. **The MTP head uses the same `QwenNextMixtureOfExperts` class as the main
+   body.** Our existing `Fp8MoEMethod` monkey-patches intercept it transparently;
+   no patch extension is needed.
+
+Result: enabling MTP is a one-flag change to the launcher
+(`--speculative-config '{"method":"mtp","num_speculative_tokens":1}'`), nothing
+else.
+
+### Initial throughput measurement (steady-state decode bench)
+
+| Model | TP | v0.4.0 baseline | v0.4.0 + MTP | Speedup |
+|---|---:|---:|---:|---:|
+| Qwen3.6-27B-Dense FP16 | 4 | 39.60 | 43.18 | 1.09× |
+| Qwen3.6-35B-A3B-FP8 | 4 | 52.87 | 65.14 | 1.23× |
+| **Qwen3.5-122B-A10B-FP8** | **8** | **34.76** | **47.32** | **1.36×** |
+
+Cross-hardware anchor: the 122B + MTP number is within ~80% of sustained
+2×A100 performance on the same model. **These are the citation-grade
+performance numbers**; they come from the dedicated steady-state bench, not
+the exactness harness (see methodology note below).
+
+### 1catai chapter closed (with prejudice)
+
+Side investigation during the day, independently of MTP discovery:
+
+- **FA2-V100 on hybrid attn+GDN**: 1catai-vllm v1.0.0 + FA2-V100 + cudagraph on
+  Qwen3.6-27B Dense FP16 (hybrid GDN-dense) runs at 35.01 tok/s; our v0.4.0
+  + TRITON_ATTN + cudagraph + MTP runs at 43.18 tok/s on the same model and
+  config. FA2-V100 is a **net loss** on GDN-hybrid models. Earlier projection
+  (memory: "2.65× slower on hybrid") reproduced.
+- **1catai loader bug**: `Qwen3_5MoeForConditionalGeneration` in 1catai's tree
+  has a `language_model.` prefix + per-expert key mapping mismatch with current
+  Qwen3.5/3.6 MoE checkpoints. Dense models load; MoE models fail. Affects the
+  entire production-target family. ~2-4 hours to patch.
+- **1catai FP8 gate**: their `Fp8Config.get_min_capability()` is env-var-gated
+  (`VLLM_SM70_FP8_DEQUANT_FALLBACK=1`, `VLLM_SM70_FP8_TURBOMIND=1`) — not hard-
+  blocked as previously believed. Engineered but unreachable from default config.
+- **1catai TRITON+MTP correctness regression**: when forced to TRITON_ATTN +
+  MTP for an apples-to-apples comparison against our stack, 1catai produced
+  `" the the the the ..."` for 200 tokens with `mean_acceptance_length=1.97`
+  and `draft_accept_rate=97.5%`. **High acceptance rate alone is not evidence
+  of correctness** — same diagnostic signature pattern as a verifier-alignment
+  failure where the verify path is comparing the wrong positions/logits/KV
+  state. Discovery itself is a methodology lesson worth keeping.
+
+Combined: 1catai is uninteresting for our production family at every axis we
+care about. **Not revisiting for production.** Their main unique value-add
+(MTP) is already in stock vLLM 0.18.
+
+### Exactness validation — methodology evolution
+
+GPT peer-review checkpoint flagged "exactness check FIRST given today's
+broken-output finding". We built an 11-prompt suite covering short factual,
+code (Python + C), reasoning, repeated text, stop+EOS, ignore-EOS sustained
+(500 tokens), long prose (1k token prompt), long code (1k token prompt). Each
+prompt run at temperature=0 against both a baseline serve (no MTP) and an
+MTP-enabled serve; token-string lists compared via Python list equality.
+
+Mid-investigation, after the 35B-A3B FP16 test failed (5/11 identical), we
+added a **baseline-vs-baseline self-test** — same serve called twice, compared
+against itself. That distinguishes "MTP-introduced divergence" from "FP8 path
+intrinsic nondeterminism". Without this control the FP8 result would have
+been ambiguous.
+
+Sequential testing for 122B: TP=8 fills all 8 GPUs, so baseline and MTP
+serves cannot run concurrently. Extended the script with `--record-only` +
+`--baseline-from-file` flags: phase 1 records baseline tokens to JSON while
+the baseline serve is up; phase 2 reads from JSON and only hits the MTP serve.
+
+### Validation matrix (final)
+
+| Model | Baseline self | MTP vs baseline | MTP accept | Read |
+|---|:---:|:---:|:---:|---|
+| 27B Dense FP16 | (assumed ✓) | **11/11 ✓** | 91.9% | MTP itself is mathematically correct |
+| 35B-A3B FP16 | **11/11 ✓** | 5/11 ✗ | 98.1% | MoE batch-shape FP-order makes MTP-vs-baseline non-bit-exact |
+| 35B-A3B-FP8 | 8/11 | 7/11 | 96.1% | MTP adds 1 extra divergent prompt vs baseline's own noise; same-positions overlap |
+| **122B-A10B-FP8 (prod target)** | **6/11** | **7/11** | **91.4%** | **MTP introduces NO additional divergence beyond baseline self-noise** |
+
+Notable per-prompt detail on 122B: of the 4 prompts that diverge in phase 2,
+two diverge at the *exact same position* as the phase 1 baseline-self-test
+(short_factual_2 @ pos 26, reasoning_1 @ pos 13 — both with the same length-
+mismatch pattern). MTP is exposing the same intrinsically-borderline positions
+the FP8 baseline has, not new ones.
+
+### Quality-equivalence verification (hand-inspected)
+
+Pulled actual divergent text from result JSONs:
+
+- 35B-A3B FP16 "capital of France": baseline says Paris is "famous for its
+  vibrant culture, art, fashion..."; MTP says Paris is "famous for its fashion,
+  cuisine, and art scene...". Both are factually correct, well-formed
+  same-distribution prose continuations.
+- 35B-A3B FP16 Fibonacci-memo: the entire Python function body is bit-identical
+  for 87 tokens; divergence is purely the explanatory prose after the code
+  ("It starts with a base case..." vs "The base cases are n =..."). For code
+  generation, the actual code is preserved exactly.
+- 35B-A3B-FP8 code_c reverse-string: after completing the requested function,
+  one stack continues into a palindrome helper; the other into a vowel-reversal
+  helper. Different completion, not an error.
+
+GPT independently reviewed the raw result JSONs and concurred:
+"I do not see broken-model behavior like loops, malformed text, or obvious
+factual collapse." Quality-equivalence is established for the inspected
+divergences.
+
+### Performance methodology caveat (important)
+
+The exactness harness aggregates wall time across single-sample timings
+mixed with warmup-cold-cache effects. On 122B specifically, two prompts
+(code_python, reasoning_1) hit cold-shape paths the script's 16-token
+warmup didn't cover, dropping individual baselines to 1.83 and 0.89 tok/s.
+These outliers dominate the aggregate, producing a misleading 1.02× headline.
+
+**Use the exactness harness for output validation only; performance claims
+should cite the dedicated steady-state bench numbers** above (1.36× on 122B,
+1.23× on 35B-A3B-FP8, 1.09× on 27B Dense). Adding all-runs storage + a real
+warmup sweep to the harness is on the v0.4.2 list.
+
+### GPT peer-review checkpoints
+
+Three rounds during the session, all converging:
+
+1. **Round 1** (post 1catai brief): flagged that MTP is upstream in vLLM
+   (`qwen3_next_mtp` reference in docs.vllm.ai), reorienting the investigation
+   from 1catai-pivot to upstream-MTP-enablement. Decisive course correction.
+2. **Round 2** (post 27B+35B exactness): recommended opt-in shipping with
+   workload-shape caveats; tempered "acceptance proves correctness" framing
+   ("after 1catai, acceptance alone should never be treated as proof"); listed
+   six items needed before default-on (multi-sample, all-runs storage,
+   production prompt mix, streaming, routing, 122B validation).
+3. **Round 3** (independent read of raw result JSONs + 122B sequential
+   results): confirmed methodology, confirmed quality-equivalence on hand-
+   inspected divergent outputs, confirmed 122B exactness gate is closed for
+   opt-in. Performance-from-exactness-harness flagged as unreliable; redirected
+   to dedicated bench numbers. Softened the long-prompt warning since 122B
+   did not show the regression that 35B-A3B-FP8 showed.
+
+### Ship decision
+
+**v0.4.1: `ENABLE_QWEN_MTP=1` opt-in, default OFF.**
+
+What we claim:
+- Adds optional Qwen3.5 MTP speculative decoding support.
+- Improves decode-heavy workloads in measured tests.
+- May regress long-prompt-short-output workloads (observed on 35B-A3B-FP8;
+  not observed on 122B-A10B-FP8 in this probe).
+- MoE/FP8 outputs are not guaranteed bit-identical to baseline.
+- Observed divergences were quality-equivalent in the validation suite.
+
+What we don't claim:
+- Bit-exactness on MoE or FP8.
+- Universal speedup.
+- Long-prompt-short-output safety as a general guarantee.
+- Default-on validation.
+- Acceptance rate alone as proof of correctness.
+
+### v0.4.2 backlog (default-on promotion gate)
+
+Per GPT round-3 checklist:
+
+1. Multi-sample self-tests at higher N to estimate baseline noise rate
+   statistically (current data is single-sample).
+2. More prompts, especially production chat/code/tool-use traffic.
+3. Streaming and `/v1/chat/completions` endpoint sanity checks.
+4. Per-workload routing decision: per-request `--speculative-config` (if
+   vLLM supports), or operationally a two-service split (port A baseline,
+   port B MTP).
+5. Long-prompt-short-gen confirmation at higher N on the production target
+   (single-sample 122B data was favorable but not proven).
+6. Exactness script improvements:
+   - Store integer token IDs (currently stores token strings only).
+   - Store ALL runs when `measure-runs > 1` (currently keeps only last
+     run's tokens for exactness; averages timings).
+   - Record provenance metadata in output JSON (CLI args, model path,
+     ports, monkey-patch env vars).
+   - Fix `--baseline-from-file` warmup path: currently hits both
+     endpoints during warmup, will fail when one is down for sequential
+     tests.
+
+### Files touched in v0.4.1
+
+- `docker/run_docker_vllm018_py312.sh` — added `ENABLE_QWEN_MTP=1` env var
+  support; appends `--speculative-config` to both `serve` and `serve-fp8`
+  modes when set.
+- `README.md` — added "Optional: MTP Speculative Decoding (v0.4.1)" section
+  with workload guidance, exactness matrix, and DO/DON'T claims.
+- `REQUIREMENTS.md` — added Qwen3.5 MTP as a Layer-3 deployment choice.
+- `docs/SESSION_LOG.md` — this entry.
+
+### Provenance and reproducibility
+
+Raw exactness results (live during dev, not committed):
+- `/tmp/v100_bench/exactness_27b_results.json`
+- `/tmp/v100_bench/exactness_35b_a3b_fp16_results.json`
+- `/tmp/v100_bench/exactness_35b_a3b_fp16_self_test.json`
+- `/tmp/v100_bench/exactness_35b_a3b_fp8_results.json`
+- `/tmp/v100_bench/exactness_35b_a3b_fp8_self_test.json`
+- `/tmp/v100_bench/exactness_122b_baseline_phase1.json` (122B baseline self-test)
+- `/tmp/v100_bench/exactness_122b_mtp_phase2.json` (122B MTP vs phase 1 baseline)
+
+Test infrastructure (also under `/tmp`, not committed; archived to
+`tools/exactness_harness/` in v0.4.2 with the script improvements above):
+- `/tmp/exactness_prompts.json` — 11-prompt suite
+- `/tmp/run_exactness.py` — comparison script with `--record-only` and
+  `--baseline-from-file` flags added during the 122B sequential test.

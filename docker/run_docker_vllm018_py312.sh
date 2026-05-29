@@ -106,6 +106,19 @@ FP8_ENV=(
     -e VLLM_V100_FP8_ROW_PARALLEL_AR_PROFILE="${VLLM_V100_FP8_ROW_PARALLEL_AR_PROFILE:-0}"
 )
 
+# v0.4.1: optional Qwen3.5 MTP speculative decoding. Opt-in via
+# ENABLE_QWEN_MTP=1. Default OFF. When enabled, appends
+#   --speculative-config '{"method":"mtp","num_speculative_tokens":1}'
+# to the forwarded vllm serve args. See README.md "v0.4.1: Optional
+# MTP speculative decoding" and docs/SESSION_LOG.md Stage 4 for
+# workload-shape guidance, exactness caveats, and validation matrix.
+SPECULATIVE_ARGS=()
+if [[ "${ENABLE_QWEN_MTP:-0}" == "1" ]]; then
+    SPECULATIVE_ARGS=(
+        --speculative-config '{"method":"mtp","num_speculative_tokens":1}'
+    )
+fi
+
 case "${1:-help}" in
     build)
         docker build -t "$IMAGE" -f "$HERE/Dockerfile.vllm018_py312" "$PROJECT_ROOT"
@@ -123,7 +136,8 @@ case "${1:-help}" in
         ;;
     serve)
         # Plain `vllm serve` — no monkey-patches. Useful for FP16/GPTQ
-        # baselines and stock-vLLM comparisons.
+        # baselines and stock-vLLM comparisons. ENABLE_QWEN_MTP=1 adds
+        # spec-decode config; see top-of-file note.
         shift || true
         docker run --rm -i "${GPU_FLAG[@]}" \
             "${MODEL_MOUNT[@]}" \
@@ -133,7 +147,7 @@ case "${1:-help}" in
             --shm-size=8g \
             "${RUNTIME_ENV[@]}" \
             "$IMAGE" \
-            vllm serve "$@"
+            vllm serve "${SPECULATIVE_ARGS[@]}" "$@"
         ;;
     serve-fp8)
         # FP8 W8A16 sm_70 serve: imports the fp8_w8a16_sm70 monkey-patches
@@ -142,6 +156,7 @@ case "${1:-help}" in
         # on first launch and lives in the torch_extensions cache mount.
         # Same arg-forwarding shape as `serve`; the patches handle FP8
         # capability gate bypass + W8A16 dequant + MoE optimizations.
+        # ENABLE_QWEN_MTP=1 adds spec-decode config; see top-of-file note.
         shift || true
         docker run --rm -i "${GPU_FLAG[@]}" \
             "${MODEL_MOUNT[@]}" \
@@ -152,7 +167,7 @@ case "${1:-help}" in
             "${RUNTIME_ENV[@]}" \
             "${FP8_ENV[@]}" \
             "$IMAGE" \
-            python3 -m fp8_w8a16_sm70.vllm_serve "$@"
+            python3 -m fp8_w8a16_sm70.vllm_serve "${SPECULATIVE_ARGS[@]}" "$@"
         ;;
     py)
         shift || true
@@ -176,10 +191,13 @@ usage: $0 <mode> [args...]
   py         run an arbitrary python script in the image
 
 env vars:
-  GPUS="0"        restrict to device indices (default: all)
-  PORT=8002       host port for serve/shell (default: 8002 — distinct from
-                  the cu128 image's 8000 and 1catai's 8001 so all three
-                  can run in parallel on different GPUs)
+  GPUS="0"             restrict to device indices (default: all)
+  PORT=8002            host port for serve/shell (default: 8002 — distinct from
+                       the cu128 image's 8000 and 1catai's 8001 so all three
+                       can run in parallel on different GPUs)
+  ENABLE_QWEN_MTP=1    v0.4.1 opt-in: enable Qwen3.5 MTP speculative decoding.
+                       Default OFF. Appends --speculative-config to forwarded args.
+                       See README.md and docs/SESSION_LOG.md Stage 4.
 USAGE
         exit 1
         ;;

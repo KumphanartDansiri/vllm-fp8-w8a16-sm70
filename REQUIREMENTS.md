@@ -50,6 +50,7 @@ on this hardware — not a project bug.
 | numpy, safetensors, etc. | Aiagent-mirrored | Convenience; not load-bearing. |
 | Python distribution | system Python 3.12 in Ubuntu 24.04 | Current v0.4.0 baseline. Python 3.10 remains a fallback only. |
 | NVIDIA driver | Host-provided; previously observed `535.288.01` | Whatever the host has. cu128/cu129 wheels both run via NVIDIA forward-compat shim. Driver upgrade is the first rung in the post-v0.4.0 ladder. |
+| Qwen3.5 MTP speculative decoding | Opt-in via `ENABLE_QWEN_MTP=1` (default OFF); v0.4.1 | Upstream-supported path in vLLM 0.18.0 (`qwen3_5_mtp.py`, `Qwen3_5MoeMTP` arch). Qwen3.5/3.6-A*B-FP8 checkpoints ship MTP head weights baked in. Default off pending v0.4.2 validation (multi-sample, production prompt mix, streaming). See README.md "Optional: MTP Speculative Decoding (v0.4.1)" and `docs/SESSION_LOG.md` Stage 4. |
 
 ## Layer 4 — Observed-but-not-enforced (informational)
 
