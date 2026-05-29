@@ -1,0 +1,110 @@
+name: Bug report
+description: Report a problem serving block-FP8 on V100 (sm_70)
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. This project is narrow on purpose, and most issues
+        turn out to be environment mismatches — so the stack details below are what
+        we need to reproduce anything. Please fill them in.
+
+        **Before filing**, skim
+        [Is this for me?](https://github.com/KumphanartDansiri/vllm-fp8-w8a16-sm70#is-this-for-me)
+        and [Status](https://github.com/KumphanartDansiri/vllm-fp8-w8a16-sm70#status).
+        Dense models, non-Volta GPUs, CUDA 13, and vLLM ≥0.20 are out of scope.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Pre-flight
+      description: Confirm the supported stack (see Status).
+      options:
+        - label: My model is a **sparse MoE block-FP8** checkpoint (not dense, not GPTQ/GGUF).
+          required: true
+        - label: I'm on **vLLM 0.18.0**, **Python 3.12**, **CUDA 12.x**, **NVIDIA V100 (sm_70)**.
+          required: true
+        - label: I'm using **`serve-fp8`** (not plain `serve`) with the documented flags.
+          required: true
+        - label: I searched existing issues.
+          required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What went wrong, and what you expected instead.
+    validations:
+      required: true
+
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU(s)
+      placeholder: "e.g. 8x Tesla V100-SXM2-32GB"
+    validations:
+      required: true
+
+  - type: input
+    id: versions
+    attributes:
+      label: vLLM / torch / Python / CUDA toolkit / driver
+      placeholder: "vllm 0.18.0, torch 2.10.0+cu128, py3.12, CUDA 12.8, driver 535.x"
+    validations:
+      required: true
+
+  - type: input
+    id: model
+    attributes:
+      label: Model
+      placeholder: "e.g. Qwen3.5-122B-A10B-FP8 (HF id or how you obtained it)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: exec-mode
+    attributes:
+      label: Execution mode
+      options:
+        - cudagraph (mode=0 + FULL_DECODE_ONLY) — the baseline
+        - --enforce-eager (fallback / profiling)
+        - not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mtp
+    attributes:
+      label: MTP (ENABLE_QWEN_MTP)
+      options:
+        - "off (default)"
+        - "on (=1)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: serve-cmd
+    attributes:
+      label: Exact serve command
+      description: The full `run_docker_vllm018_py312.sh serve-fp8 ...` (or `tools/bench_v100.sh`) invocation.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant serve log
+      description: Paste the error plus surrounding lines (startup banner, traceback, MoE/patch lines). Trim any secrets or private paths.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Did eager mode work? A smaller model? `tools/bench_v100.sh` output? Optional but helpful.
+    validations:
+      required: false

@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Is this for me? (README)
+    url: https://github.com/KumphanartDansiri/vllm-fp8-w8a16-sm70#is-this-for-me
+    about: Dense models, non-Volta GPUs, CUDA 13, and vLLM ≥0.20 are out of scope — check here before filing.
+  - name: Why is it slow? (Performance notes)
+    url: https://github.com/KumphanartDansiri/vllm-fp8-w8a16-sm70#performance-notes
+    about: cudagraph is mandatory; --enforce-eager is ~7x slower; dense FP8 is slower than Int4/FP16.
