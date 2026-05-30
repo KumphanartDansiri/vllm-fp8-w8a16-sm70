@@ -139,7 +139,7 @@ PORT=8002 GPUS=all ./docker/run_docker_vllm018_py312.sh serve-fp8 \
     --dtype float16 \
     --attention-backend TRITON_ATTN \
     --tensor-parallel-size 8 \
-    --max-num-seqs 1 \
+    --max-num-seqs 8 \
     --max-num-batched-tokens 32768 \
     --gpu-memory-utilization 0.80 \
     --max-model-len 32768 \
@@ -159,6 +159,10 @@ The launcher defaults the v0.4.0 MoE knobs:
 - `VLLM_V100_FP8_MOE_GROUPED_K_SPLIT=auto`
 - `VLLM_V100_FP8_MOE_FAST_ROUTE_PREP=1`
 
+> **Use `--max-num-seqs 8`, not `1`.** On these hybrid (attention + GDN/mamba)
+> models, `--max-num-seqs 1` under cudagraph crashes at init — an upstream vLLM
+> 0.18 issue, not this package. See **Known limitations** below.
+
 ## Serve a plain FP16 / GPTQ model (no wrapper)
 
 FP16/BF16 and GPTQ-Int4 models do **not** need this package — they run on
@@ -173,7 +177,7 @@ PORT=8002 GPUS=all ./docker/run_docker_vllm018_py312.sh serve \
     --tensor-parallel-size 4 \
     --no-enable-chunked-prefill \
     --disable-custom-all-reduce \
-    --compilation-config '{"mode":0,"cudagraph_mode":"FULL_AND_PIECEWISE"}' \
+    --compilation-config '{"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY"}' \
     --host 0.0.0.0 --port 8002
 ```
 
@@ -182,9 +186,11 @@ Note the differences from the FP8 launch:
 - **`serve`, not `serve-fp8`** — no wrapper is loaded.
 - **No `--quantization fp8`** — let vLLM read the checkpoint's own config
   (GPTQ-Int4 is auto-detected; FP16 needs no quant flag).
-- **`FULL_AND_PIECEWISE` cudagraph** is available here. The FP8 path is
-  restricted to `FULL_DECODE_ONLY` by its static-shape MoE route prep; stock
-  FP16/GPTQ has no such restriction, so it can use the fuller graph mode.
+- **Use `cudagraph_mode: FULL_DECODE_ONLY`** (same as the FP8 path). Do **not**
+  use `FULL_AND_PIECEWISE` with `mode:0` — vLLM treats that combination as
+  incompatible and silently overrides cudagraph to `NONE`, so you get
+  eager speed (~7 tok/s on 27B instead of ~40). Piecewise graphs would require
+  a non-zero compilation mode, outside this project's tested envelope.
 
 The sm_70 viability flags (TRITON_ATTN, no chunked prefill, disabled custom
 all-reduce, cudagraph) still apply — those are V100 constraints, not FP8 ones.
@@ -229,16 +235,36 @@ traffic gains most (up to 1.36×) and long-prompt/short-output can regress.
 **This path is for sparse MoE, not dense models.** On dense Qwen3.6-27B
 (TP=4), block-FP8 W8A16 is the *slowest* option:
 
-| 27B variant (TP=4) | tok/s | vs FP16 |
+| 27B variant (TP=4) | tok/s (ns=8, measured) | vs FP16 |
 |---|---|---|
-| GPTQ-Int4 | **47.61** | 1.20× faster |
-| FP16 | 39.60 | 1.00× baseline |
-| our block-FP8 W8A16 | **11.44** | **0.29× — 3.46× slower** |
+| GPTQ-Int4 | **55.99** | 1.47× faster |
+| FP16 (cudagraph) | 38.06 | 1.00× baseline |
+| our block-FP8 W8A16 | **11.81** | **0.31× — ~3.2× slower** |
 
 Dense models touch every weight each token, so the per-GEMM dequant/dispatch
-overhead never amortizes. The same FP8 path *wins* on MoE (35B-A3B-FP8: 52.87,
-122B-A10B-FP8: 34.76 tok/s) because only ~3B params are active per token. See
-`docs/STAGE_3.1_NEXT_STEPS.md` for the dense-FP8 diagnosis.
+overhead never amortizes. The same FP8 path *wins* on sparse MoE (where only
+~3B params are active per token). See `docs/STAGE_3.1_NEXT_STEPS.md` for the
+dense-FP8 diagnosis. (Qwen3.6-27B is itself hybrid GDN; these are `ns=8`
+figures. Note FP16 here needs `cudagraph_mode: FULL_DECODE_ONLY` — with `mode:0`,
+`FULL_AND_PIECEWISE` is silently disabled and FP16 drops to ~7 tok/s.)
+
+## Known limitations
+
+**`--max-num-seqs 1` crashes on hybrid (attention + GDN/mamba) models under
+cudagraph — this is upstream vLLM 0.18, not this package.** The Qwen3.5/3.6-A\*B
+checkpoints (and the 27B) are hybrid models. At `--max-num-seqs 1`, vLLM's
+cudagraph memory profiler allocates a minimal 2-block KV cache, and its
+attention/mamba layout check can't disambiguate the resulting `[2, 2, …]`
+tensor (`assert shape[1] != 2`) — so the engine aborts at init. This reproduces
+on **stock `vllm serve` with an FP16 checkpoint**, so neither the wrapper nor
+FP8 is involved.
+
+- **Supported config: `--max-num-seqs 8`** — more cudagraph capture blocks, so
+  the profiling cache is wider than 2 and the ambiguity never arises. It's also
+  faster than `ns=1`.
+- Non-hybrid / dense-attention models are unaffected at `ns=1`.
+- If you specifically need `ns=1` (e.g. lowest-latency streaming), run
+  `--enforce-eager` (no cudagraph) — correct, but ~7× slower.
 
 ## Optional: MTP Speculative Decoding (v0.4.1)
 
@@ -328,15 +354,16 @@ the investigation arc.
 
 ## Benchmarking
 
-The figures below were measured on the **Serve FP8** cudagraph launch above
-(py3.12, TRITON_ATTN, `mode=0 + FULL_DECODE_ONLY`, the v0.4.0 MoE knobs),
-steady-state decode at temperature=0:
+Measured on the **Serve FP8** cudagraph launch above (py3.12, TRITON_ATTN,
+`mode=0 + FULL_DECODE_ONLY`, the v0.4.0 MoE knobs) at the supported
+`--max-num-seqs 8`, single-stream, temperature=0, steady-state decode (5 timed
+requests, `ignore_eos`, 200 tokens each):
 
 | Model | Hardware | tok/s | Notes |
 |---|---|---|---|
-| Qwen3.5-122B-A10B-FP8 | 8× V100, TP=8 | 34.76 | v0.4.0 baseline |
-| Qwen3.5-122B-A10B-FP8 | 8× V100, TP=8 | 47.32 | with `ENABLE_QWEN_MTP=1` |
-| Qwen3.6-35B-A3B-FP8 | 4× V100, TP=4 | 52.87 | v0.4.0 baseline |
+| Qwen3.6-35B-A3B-FP8 | 4× V100, TP=4 | **52.4** | |
+| Qwen3.5-122B-A10B-FP8 | 8× V100, TP=8 | **34.6** | |
+| Qwen3.5-122B-A10B-FP8 | 8× V100, TP=8 | **45–47** | + `ENABLE_QWEN_MTP=1`; workload-dependent (1.3–1.37×), see MTP section |
 
 **Reproduce with `tools/bench_v100.sh`** — it launches that exact cudagraph
 `serve-fp8` config by default and captures the resolved config, git commit,

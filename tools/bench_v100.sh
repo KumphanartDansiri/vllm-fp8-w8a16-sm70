@@ -133,6 +133,13 @@ case "$mode" in
         TP_SIZE="${TP_SIZE:-8}"
         QUANT="${QUANT:-fp8}"
         MAX_MODEL_LEN="${MAX_MODEL_LEN:-32768}"
+        # max-num-seqs defaults to 8, NOT 1. At ns=1 the cudagraph memory
+        # profiler builds a 2-block KV cache, and vLLM 0.18's hybrid
+        # attention+mamba layout check can't disambiguate the [2,2,...] shape
+        # -> crash at init on Qwen3.5/3.6 hybrid (GDN) models. ns>=2 (we use 8)
+        # gives more profiling blocks and sidesteps it; 8 is also faster.
+        # Upstream vLLM bug, not the wrapper -- stock `vllm serve` crashes too.
+        MAX_NUM_SEQS="${MAX_NUM_SEQS:-8}"
         # Default is the v0.4.0 cudagraph baseline (py3.12 serve-fp8 +
         # FULL_DECODE_ONLY) — the path that produces the documented headline
         # tok/s. Set ENFORCE_EAGER=1 for the legacy eager fallback (~6.8-8x
@@ -170,7 +177,7 @@ case "$mode" in
             echo "GPUS=\"$GPUS\" PORT=\"$PORT\" ./docker/run_docker_vllm018_py312.sh serve-fp8 \\"
             echo "    --model $MODEL $QUANT_DESC --dtype float16 $EXEC_DESC \\"
             echo "    --attention-backend TRITON_ATTN --tensor-parallel-size $TP_SIZE \\"
-            echo "    --max-num-seqs 1 --max-num-batched-tokens 32768 --gpu-memory-utilization 0.80 \\"
+            echo "    --max-num-seqs $MAX_NUM_SEQS --max-num-batched-tokens 32768 --gpu-memory-utilization 0.80 \\"
             echo "    --max-model-len $MAX_MODEL_LEN --no-enable-chunked-prefill \\"
             # NOTE: --disable-custom-all-reduce was historically passed for
             # sm_70 safety. Source-read in Stage 2D Step 2C.1 found that vLLM
@@ -196,7 +203,7 @@ case "$mode" in
                 "${EAGER_ARGS[@]}" "${COMPILE_ARGS[@]}" \
                 --attention-backend TRITON_ATTN \
                 --tensor-parallel-size "$TP_SIZE" \
-                --max-num-seqs 1 --max-num-batched-tokens 32768 \
+                --max-num-seqs "$MAX_NUM_SEQS" --max-num-batched-tokens 32768 \
                 --gpu-memory-utilization 0.80 \
                 --max-model-len "$MAX_MODEL_LEN" --no-enable-chunked-prefill \
                 --host 0.0.0.0 --port "$PORT" \

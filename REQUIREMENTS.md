@@ -35,6 +35,7 @@ do" when invoking the serve:
 | `--no-enable-chunked-prefill` | Chunked prefill has known instability on V100 in this vllm version |
 | `--disable-custom-all-reduce` | vLLM's custom all-reduce uses sm_75+ features in some paths |
 | `--quantization fp8` | Requires the monkey-patches in `fp8_w8a16_sm70.vllm_serve` (vLLM 0.18 would reject sm_70 otherwise) |
+| `--max-num-seqs 8` (≥2; **not 1**) | On hybrid attention+GDN models (Qwen3.5/3.6-A\*B, 27B), `--max-num-seqs 1` under cudagraph crashes at init: vLLM 0.18's minimal cudagraph-profiling KV cache is 2 blocks wide and its attention/mamba layout check can't disambiguate the `[2,2,…]` shape (`assert shape[1] != 2`). Upstream vLLM bug — reproduces on stock `vllm serve` with FP16. `ns=8` sidesteps it (wider profiling cache) and is faster. For `ns=1` (low-latency streaming) use `--enforce-eager`. |
 
 If a future workload needs a feature that *requires* sm_80+ (e.g. FP8
 activation compute, native FA2), that capability is simply unavailable to us
