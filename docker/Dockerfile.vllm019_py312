@@ -1,0 +1,101 @@
+# vLLM 0.19.0 built FROM SOURCE for Tesla V100 (sm_70), Python 3.12 + torch 2.10.
+#
+# WHY A SOURCE BUILD (not `pip install vllm==0.19.0` like the 0.18 image):
+#   The official 0.19.0 release wheel is built with
+#     torch_cuda_arch_list='8.7 8.9 9.0 10.0+PTX 12.0'
+#   (.buildkite/release-pipeline.yaml in the vllm-0.19 tree) — it DROPPED 7.0.
+#   So the PyPI wheel has no sm_70 SASS and no backward-compatible PTX; it dies
+#   on V100 with "no kernel image is available for execution on the device".
+#   The 0.18 wheel still shipped 7.0, which is why Dockerfile.vllm018_py312
+#   could use the wheel. 0.19 cannot.
+#   The vLLM *source* still fully supports 7.0 (CMakeLists.txt CUDA_SUPPORTED_ARCHS
+#   keeps "7.0"), so we compile from the local ~/vllm-0.19 checkout with
+#   TORCH_CUDA_ARCH_LIST=7.0 to get real sm_70 kernels.
+#
+# HELD CONSTANT vs Dockerfile.vllm018_py312 (so the fp8_w8a16_sm70 monkey-patches
+# and their JIT-compiled fp8_dequant.cu stay ABI-compatible):
+#   * Python 3.12, torch 2.10.0+cu128, CUDA 12.8.1 devel base.
+# CHANGED:
+#   * vllm 0.18.0 (wheel)  ->  0.19.0 (source build, sm_70 only).
+#
+# BUILD CONTEXT IS THE VLLM SOURCE TREE, NOT THE PROJECT ROOT:
+#   docker build -f docker/Dockerfile.vllm019_py312 ~/vllm-0.19
+#   (run_docker_vllm019_py312.sh build does this for you.)
+#   The fp8_w8a16_sm70 package is NOT copied in — it is mounted at /work at
+#   run time (PYTHONPATH=/work/src), exactly like the 0.18 serve-fp8 flow.
+#
+# Build:   ./docker/run_docker_vllm019_py312.sh build      # ~30-90 min, one-time
+# Serve:   ./docker/run_docker_vllm019_py312.sh serve      <vllm serve args...>
+# FP8:     ./docker/run_docker_vllm019_py312.sh serve-fp8  <vllm serve args...>
+
+# devel base: nvcc required both to compile vllm here AND to JIT-build our
+# fp8_dequant.cu at first serve-fp8 launch.
+FROM nvidia/cuda:12.8.1-devel-ubuntu24.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_ROOT_USER_ACTION=ignore \
+    PIP_BREAK_SYSTEM_PACKAGES=1
+
+# Ubuntu 24.04 ships python3.12 as the system python. git is needed because
+# vllm's setup imports setuptools-scm; cmake/ninja drive the C++/CUDA build.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3 python3-dev python3-pip \
+        gcc g++ git cmake ninja-build \
+        curl ca-certificates libgomp1 && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Torch 2.10.0+cu128 — matches requirements/cuda.txt (torch==2.10.0) and the
+# 0.18 image's ABI, so the mounted fp8 patches + JIT kernel stay compatible.
+RUN python3 -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu128 \
+        torch==2.10.0
+
+# vLLM source. Context root is the ~/vllm-0.19 checkout (see header).
+WORKDIR /vllm-src
+COPY . /vllm-src
+
+# Build deps that vllm's pyproject build-system expects, installed up-front so
+# we can build with --no-build-isolation (which reuses the torch pinned above
+# instead of letting pip pull a fresh, possibly-mismatched torch into an
+# isolated build env).
+RUN python3 -m pip install --no-cache-dir -r requirements/build.txt
+
+# Compile vllm for sm_70 ONLY. Kernels gated to >=8.x in CMakeLists
+# (cutlass scaled_mm, marlin-fp8, etc.) are simply skipped via
+# cuda_archs_loose_intersection — they are unused on the V100 FP8 W8A16 path.
+# SETUPTOOLS_SCM_PRETEND_VERSION avoids any dependence on .git metadata.
+# MAX_JOBS caps nvcc parallelism so a concurrent training job (shared box)
+# isn't starved; override with --build-arg MAX_JOBS=N.
+ARG MAX_JOBS=8
+ENV TORCH_CUDA_ARCH_LIST="7.0" \
+    VLLM_TARGET_DEVICE=cuda \
+    SETUPTOOLS_SCM_PRETEND_VERSION=0.19.0 \
+    MAX_JOBS=${MAX_JOBS} \
+    CMAKE_BUILD_TYPE=Release \
+    NVCC_THREADS=2
+RUN python3 -m pip install --no-cache-dir --no-build-isolation -v .
+
+# OPTIONAL transformers override. vLLM 0.19 pins transformers<5, which is fine
+# for the Qwen3.5/3.6 FP8 MoE path (vLLM bundles those configs). But the
+# google/gemma-4-31B-it checkpoint was saved with transformers 5.5.0.dev0 and
+# `model_type: gemma4` only exists in transformers 5.x — so loading Gemma 4
+# requires overriding the pin into officially-unsupported territory:
+#   --build-arg TRANSFORMERS_VERSION=5.5.4
+# Leave empty (default) to keep vLLM's pinned transformers for the FP8 path.
+# Tag such an image distinctly (e.g. vllm-v100-py312:vllm019-tf5) so it does
+# not clobber the FP8-validated image. vLLM 0.19 IMPORTS cleanly under 5.x and
+# 5.x parses the gemma4 config; runtime is unproven (smoke it).
+ARG TRANSFORMERS_VERSION=
+RUN if [ -n "$TRANSFORMERS_VERSION" ]; then \
+        echo "Overriding transformers -> $TRANSFORMERS_VERSION (unsupported by vLLM pin; for Gemma 4)"; \
+        python3 -m pip install --no-cache-dir "transformers==$TRANSFORMERS_VERSION"; \
+    fi
+
+# Fail the build fast if version/arch is wrong. (Real sm_70 kernel execution is
+# verified later by tools/smoke_vllm019.sh on an actual GPU — Docker build has
+# no GPU, so we can only confirm the import + version here.)
+RUN python3 -c "import torch, vllm, transformers; print('vllm:', vllm.__version__, '| torch:', torch.__version__, '| transformers:', transformers.__version__, '| py:', __import__('sys').version.split()[0])"
+
+WORKDIR /work

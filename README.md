@@ -40,9 +40,9 @@ accounting of where it lands.
 
 | Tier | What |
 |---|---|
-| **Known good** | vLLM 0.18.0, torch 2.10.0, CUDA 12.x, Python 3.12, NVIDIA V100 (`sm_70`); Qwen3.5/Qwen3.6 **MoE** block-FP8 checkpoints (122B-A10B-FP8, 35B-A3B-FP8). |
+| **Known good** | vLLM 0.18.0 (and **0.19 via source build** for the Qwen 3.5/3.6 family — see [vLLM 0.19 compatibility](#vllm-019-compatibility)), torch 2.10.0, CUDA 12.x, Python 3.12, NVIDIA V100 (`sm_70`); Qwen3.5/Qwen3.6 **MoE** block-FP8 checkpoints (122B-A10B-FP8, 35B-A3B-FP8). |
 | **Optional** | MTP speculative decoding (`ENABLE_QWEN_MTP=1`, default OFF). |
-| **Experimental / untested** | vLLM 0.19 (forward-compat unverified), dense-FP8 optimization, flash-attention-v100. |
+| **Experimental / untested** | dense-FP8 optimization, flash-attention-v100, Gemma 4 on 0.19 (blocked on a transformers-5.x pin — see [vLLM 0.19 compatibility](#vllm-019-compatibility)). |
 | **Unsupported here** | CUDA 13 and vLLM ≥0.20 (both drop `sm_70`, so V100 stops working); native FP8 hardware compute (V100 has none); non-Volta GPUs (A100/H100/etc. — use upstream vLLM, which has native FP8). |
 
 ## Is this for me?
@@ -119,6 +119,64 @@ Speculative Decoding"); nothing else changes:
 > `--enforce-eager` — a correctness fallback that runs **~6.8–8× slower** (see
 > [Performance notes](#performance-notes)). Use Python 3.12 for the baseline
 > numbers; treat 3.10 as a debugging/correctness fallback only.
+
+## vLLM 0.19 compatibility
+
+vLLM 0.19 is **validated as an alternate baseline for the Qwen 3.5 / 3.6 family
+on V100**, with one important build difference from 0.18 and one open model gap.
+
+**You must build vLLM 0.19 from source for `sm_70`.** Unlike 0.18, the official
+0.19 PyPI wheel is compiled without `7.0` in its CUDA arch list (the release
+build uses `8.7 8.9 9.0 10.0+PTX 12.0`), so `pip install vllm==0.19.0` dies on
+V100 with *"no kernel image is available for execution on the device."* The
+vLLM **source** still supports `7.0` (`CMakeLists.txt` keeps it), so we compile
+from a local checkout with `TORCH_CUDA_ARCH_LIST=7.0`. Same Python 3.12 + torch
+2.10.0+cu128 ABI as the 0.18 image, so the monkey-patches and the JIT-compiled
+`fp8_dequant.cu` stay binary-compatible.
+
+| Component | 0.19 baseline |
+|---|---|
+| Dockerfile | `docker/Dockerfile.vllm019_py312` (source build, `sm_70` only) |
+| Launcher | `docker/run_docker_vllm019_py312.sh` (`build` / `shell` / `serve` / `serve-fp8`) |
+| Smoke driver | `tools/smoke_vllm019.sh` (clean-box-guarded load matrix → `/tmp/v100_smoke019/`) |
+| Image tag | `vllm-v100-py312:vllm019` |
+
+**Validation (correctness, `--enforce-eager`): 6/6 Qwen models load and generate
+coherent text.** The FP8 W8A16 monkey-patches port to 0.19 with no code changes
+— every patch target is signature-identical, the patches engage in every TP
+worker (`volta=True`, `min_cap=70`, MoE fallback on), and no fallback fault
+(`get_fused_moe_quant_config` / `NotImplementedError`) appears in any log.
+
+| Model | Mode | TP | Result |
+|---|---|---|---|
+| Qwen3.6-35B-A3B-FP8 | `serve-fp8` | 4 | PASS |
+| Qwen3.6-35B-A3B (FP16) | `serve` | 4 | PASS |
+| Qwen3.6-27B-FP8 (dense) | `serve-fp8` | 4 | PASS |
+| Qwen3.6-27B (FP16) | `serve` | 4 | PASS |
+| Qwen3.5-122B-A10B-FP8 | `serve-fp8` | 8 | PASS |
+| Qwen3.5-122B-A10B-GPTQ-Int4 | `serve` | 8 | PASS |
+
+> These are **load + generation-correctness** smokes (`--enforce-eager`).
+> Cudagraph/`ns=8` **performance** on 0.19 has not yet been re-measured against
+> the 0.18 headline numbers — do that before any production cutover.
+
+**Open gap — Gemma 4.** vLLM 0.19 ships the `gemma4` model code, but the
+`google/gemma-4-31B-it` checkpoint is `transformers_version 5.5.0.dev0` and
+`model_type: gemma4` exists only in transformers 5.x. vLLM 0.19 pins
+`transformers < 5`, so Gemma 4 will not load on the supported stack. vLLM 0.19
+*imports* cleanly under transformers 5.5.x and 5.x parses the gemma4 config, but
+that override is officially unsupported (vLLM and `compressed-tensors` both
+require `< 5`) and is **not yet runtime-validated**. The launcher exposes a
+`--build-arg TRANSFORMERS_VERSION=` lever (and `tools/smoke_vllm019.sh
+build-gemma` / `gemma`) to test it on a separate `vllm-v100-py312:vllm019-tf5`
+image without disturbing the FP8-validated one.
+
+Build and verify:
+
+```bash
+./tools/smoke_vllm019.sh build   # one-time source build (~30–90 min)
+./tools/smoke_vllm019.sh qwen    # full Qwen load-matrix → /tmp/v100_smoke019/SUMMARY.txt
+```
 
 ## Build
 
