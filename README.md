@@ -42,7 +42,7 @@ accounting of where it lands.
 |---|---|
 | **Known good** | vLLM 0.18.0 (and **0.19 via source build** for the Qwen 3.5/3.6 family — see [vLLM 0.19 compatibility](#vllm-019-compatibility)), torch 2.10.0, CUDA 12.x, Python 3.12, NVIDIA V100 (`sm_70`); Qwen3.5/Qwen3.6 **MoE** block-FP8 checkpoints (122B-A10B-FP8, 35B-A3B-FP8). |
 | **Optional** | MTP speculative decoding (`ENABLE_QWEN_MTP=1`, default OFF). |
-| **Experimental / untested** | dense-FP8 optimization, flash-attention-v100, Gemma 4 on 0.19 (blocked on a transformers-5.x pin — see [vLLM 0.19 compatibility](#vllm-019-compatibility)). |
+| **Experimental / untested** | dense-FP8 optimization, flash-attention-v100. |
 | **Unsupported here** | CUDA 13 and vLLM ≥0.20 (both drop `sm_70`, so V100 stops working); native FP8 hardware compute (V100 has none); non-Volta GPUs (A100/H100/etc. — use upstream vLLM, which has native FP8). |
 
 ## Is this for me?
@@ -123,7 +123,8 @@ Speculative Decoding"); nothing else changes:
 ## vLLM 0.19 compatibility
 
 vLLM 0.19 is **validated as an alternate baseline for the Qwen 3.5 / 3.6 family
-on V100**, with one important build difference from 0.18 and one open model gap.
+on V100**, at performance parity with the 0.18 baseline. One important build
+difference from 0.18:
 
 **You must build vLLM 0.19 from source for `sm_70`.** Unlike 0.18, the official
 0.19 PyPI wheel is compiled without `7.0` in its CUDA arch list (the release
@@ -156,26 +157,24 @@ worker (`volta=True`, `min_cap=70`, MoE fallback on), and no fallback fault
 | Qwen3.5-122B-A10B-FP8 | `serve-fp8` | 8 | PASS |
 | Qwen3.5-122B-A10B-GPTQ-Int4 | `serve` | 8 | PASS |
 
-> These are **load + generation-correctness** smokes (`--enforce-eager`).
-> Cudagraph/`ns=8` **performance** on 0.19 has not yet been re-measured against
-> the 0.18 headline numbers — do that before any production cutover.
+**Performance (cudagraph, `mode=0`+`FULL_DECODE_ONLY`, ns=8): parity with the
+0.18 baseline, MTP included.** Measured on Qwen3.6-35B-A3B-FP8 (FP16 activations,
+TP=4, steady-state):
 
-**Open gap — Gemma 4.** vLLM 0.19 ships the `gemma4` model code, but the
-`google/gemma-4-31B-it` checkpoint is `transformers_version 5.5.0.dev0` and
-`model_type: gemma4` exists only in transformers 5.x. vLLM 0.19 pins
-`transformers < 5`, so Gemma 4 will not load on the supported stack. vLLM 0.19
-*imports* cleanly under transformers 5.5.x and 5.x parses the gemma4 config, but
-that override is officially unsupported (vLLM and `compressed-tensors` both
-require `< 5`) and is **not yet runtime-validated**. The launcher exposes a
-`--build-arg TRANSFORMERS_VERSION=` lever (and `tools/smoke_vllm019.sh
-build-gemma` / `gemma`) to test it on a separate `vllm-v100-py312:vllm019-tf5`
-image without disturbing the FP8-validated one.
+| Config | vLLM 0.19 tok/s | 0.18 baseline |
+|---|---|---|
+| cudagraph | **52.27** | 52.4 |
+| cudagraph + MTP (`ENABLE_QWEN_MTP=1`) | **62.54** (1.20×) | — |
 
-Build and verify:
+So the FP8 W8A16 + cudagraph + MTP stack ports to 0.19 with no regression.
+
+Build, verify, and measure:
 
 ```bash
-./tools/smoke_vllm019.sh build   # one-time source build (~30–90 min)
-./tools/smoke_vllm019.sh qwen    # full Qwen load-matrix → /tmp/v100_smoke019/SUMMARY.txt
+./tools/smoke_vllm019.sh build              # one-time source build (~30–90 min)
+./tools/smoke_vllm019.sh qwen               # full Qwen load-matrix → /tmp/v100_smoke019/
+./tools/measure_qwen35b_vllm019.sh          # cudagraph tok/s
+MTP=1 ./tools/measure_qwen35b_vllm019.sh    # cudagraph + MTP
 ```
 
 ## Build
