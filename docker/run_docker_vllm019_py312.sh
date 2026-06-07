@@ -102,6 +102,13 @@ FP8_ENV=(
     -e VLLM_V100_FP8_ROW_PARALLEL_AR_PROFILE="${VLLM_V100_FP8_ROW_PARALLEL_AR_PROFILE:-0}"
 )
 
+# v0.4.1 MTP: ENABLE_QWEN_MTP=1 appends Qwen3.5 MTP speculative-decode config to
+# the forwarded serve args (mirrors run_docker_vllm018_py312.sh). Default OFF.
+SPECULATIVE_ARGS=()
+if [[ "${ENABLE_QWEN_MTP:-0}" == "1" ]]; then
+    SPECULATIVE_ARGS=(--speculative-config '{"method":"mtp","num_speculative_tokens":1}')
+fi
+
 case "${1:-help}" in
     build)
         if [[ ! -d "$VLLM_SRC" ]]; then
@@ -139,7 +146,7 @@ case "${1:-help}" in
             -v "$PROJECT_ROOT":/work -w /work \
             -p ${PORT}:${PORT} --shm-size=8g \
             "${RUNTIME_ENV[@]}" "$IMAGE" \
-            vllm serve "$@"
+            vllm serve "${SPECULATIVE_ARGS[@]}" "$@"
         ;;
     serve-fp8)
         # FP8 W8A16 sm_70 serve: imports the fp8_w8a16_sm70 monkey-patches from
@@ -152,7 +159,7 @@ case "${1:-help}" in
             -v "$PROJECT_ROOT":/work -w /work \
             -p ${PORT}:${PORT} --shm-size=8g \
             "${RUNTIME_ENV[@]}" "${FP8_ENV[@]}" "$IMAGE" \
-            python3 -m fp8_w8a16_sm70.vllm_serve "$@"
+            python3 -m fp8_w8a16_sm70.vllm_serve "${SPECULATIVE_ARGS[@]}" "$@"
         ;;
     py)
         shift || true
