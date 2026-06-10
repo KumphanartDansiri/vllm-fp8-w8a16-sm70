@@ -133,6 +133,7 @@ docker run --rm -i --name "$cname" --gpus '"device=0,1,2,3,4,5,6,7"' \
     -e VLLM_V100_FP8_COALESCED_UNROLL="${VLLM_V100_FP8_COALESCED_UNROLL:-4}" \
     -e VLLM_V100_FP8_COALESCED_M_UNROLL="${VLLM_V100_FP8_COALESCED_M_UNROLL:-4}" \
     -e VLLM_V100_FP8_COALESCED_GEMV_M_MAX="${VLLM_V100_FP8_COALESCED_GEMV_M_MAX:-8}" \
+    -e VLLM_V100_CT_MOE_W13_COALESCED="${VLLM_V100_CT_MOE_W13_COALESCED:-1}" \
     -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 \
     "$IMAGE" \
     python3 -m fp8_w8a16_sm70.vllm_serve --model "$MODEL" --served-model-name "$SERVED" \

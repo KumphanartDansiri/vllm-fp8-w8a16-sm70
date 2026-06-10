@@ -779,6 +779,95 @@ __global__ void fp8_w8a16_gemv_coalesced_m_kernel(
     }
 }
 
+// ─── Stage G1: GROUPED coalesced routed GEMV (MoE w13 decode) ─────────────────
+//
+// The grouped routed decode kernel (fp8_w8a16_grouped_routed_gemm_a3) maps one
+// THREAD to one output column n, so a warp reads W rows K bytes apart (NCU: 28
+// sectors/request, 7.16% DRAM — the A.3 pathology). This flips it the same way
+// the dense coalesced GEMV did: one WARP owns one (routed-row r, column n), lanes
+// stride consecutive K, warp-reduce. Each routed row picks its expert via
+// expert_ids[r]; the R dimension (gridDim.y) supplies occupancy even at the small
+// MoE N (=352), so no k-slicing is needed. Channel scale (block_h=1) or block
+// (block_h=128). M==1 per routed row (decode). Falls back to the grouped a3
+// kernel for prefill (large R) via the Python gate.
+template<int UNROLL_K>
+__global__ void fp8_w8a16_grouped_gemv_coalesced_kernel(
+        const __half*  __restrict__ A,           // [R, K] routed activations
+        const int64_t* __restrict__ expert_ids,  // [R]
+        const uint8_t* __restrict__ W,           // [E, N, K] fp8 bytes
+        const __half*  __restrict__ scales,      // [E, Nb, Kb]
+        __half*        __restrict__ C,           // [R, N]
+        int R, int E, int N, int K, int block_h, int Nb, int Kb) {
+    const int r       = blockIdx.y;              // uniform across CTA
+    const int tid     = threadIdx.x;
+    const int lane    = tid & 31;
+    const int warp_id = tid >> 5;
+    const int n       = blockIdx.x * GEMV_COAL_WARPS_PER_CTA + warp_id;
+
+    const int64_t e64 = expert_ids[r];
+    if (e64 < 0 || e64 >= E) {                   // invalid route -> zero the row (uniform)
+        if (n < N && lane == 0) C[(int64_t)r * N + n] = __float2half(0.f);
+        return;
+    }
+    const int     e      = (int)e64;
+    const bool    active = (n < N);
+    const int     scale_row = active ? (n / block_h) : 0;
+    const int64_t w_base = (int64_t)e * N * K;
+    const int64_t s_base = (int64_t)e * Nb * Kb;
+    const int64_t a_base = (int64_t)r * K;
+
+    __shared__ __half a_shared[UNROLL_K][GEMV_COAL_BLOCK_K];
+    float acc = 0.0f;
+
+    for (int k_base = 0; k_base < K; k_base += UNROLL_K * GEMV_COAL_BLOCK_K) {
+        if (tid < GEMV_COAL_BLOCK_K) {
+            #pragma unroll
+            for (int u = 0; u < UNROLL_K; ++u) {
+                const int kk = k_base + u * GEMV_COAL_BLOCK_K + tid;
+                a_shared[u][tid] = (kk < K) ? A[a_base + kk] : __float2half(0.f);
+            }
+        }
+        __syncthreads();
+
+        if (active) {
+            uint32_t wv[UNROLL_K];
+            float    scale_f[UNROLL_K];
+            bool     has_block[UNROLL_K];
+            #pragma unroll
+            for (int u = 0; u < UNROLL_K; ++u) {
+                const int block_base = k_base + u * GEMV_COAL_BLOCK_K;
+                has_block[u] = block_base < K;
+                wv[u] = 0; scale_f[u] = 0.0f;
+                if (has_block[u]) {
+                    const int scale_col = block_base / GEMV_COAL_BLOCK_K;
+                    scale_f[u] = __half2float(scales[s_base + scale_row * Kb + scale_col]);
+                    const int k_lane = block_base + lane * GEMV_COAL_ELEMS_PER_LANE;
+                    wv[u] = *reinterpret_cast<const uint32_t*>(
+                        &W[w_base + (int64_t)n * K + k_lane]);
+                }
+            }
+            #pragma unroll
+            for (int u = 0; u < UNROLL_K; ++u) {
+                if (has_block[u]) {
+                    const uint8_t* wb = reinterpret_cast<const uint8_t*>(&wv[u]);
+                    #pragma unroll
+                    for (int j = 0; j < GEMV_COAL_ELEMS_PER_LANE; ++j) {
+                        const float w_f = __half2float(__ushort_as_half(
+                            fp8_e4m3_to_fp16_bits(wb[j])));
+                        const float a_f = __half2float(
+                            a_shared[u][lane * GEMV_COAL_ELEMS_PER_LANE + j]);
+                        acc += a_f * w_f * scale_f[u];
+                    }
+                }
+            }
+        }
+        __syncthreads();
+    }
+
+    acc = warp_sum(acc);
+    if (active && lane == 0) C[(int64_t)r * N + n] = __float2half(acc);
+}
+
 static int gemv_coalesced_unroll_from_env() {
     const char* env = std::getenv("VLLM_V100_FP8_COALESCED_UNROLL");
     if (!env) {
@@ -847,6 +936,68 @@ static void launch_fp8_w8a16_gemv_coalesced_m(
         fp8_w8a16_gemv_coalesced_m_kernel<2><<<grid, block, 0, V100_FP8_STREAM>>>(
             A, W, scales, C, M, N, K, block_h, Kb);
     }
+}
+
+static void launch_fp8_w8a16_grouped_gemv_coalesced(
+        const __half* A, const int64_t* expert_ids, const uint8_t* W,
+        const __half* scales, __half* C,
+        int R, int E, int N, int K, int block_h, int Nb, int Kb,
+        dim3 grid, dim3 block) {
+    const int unroll = gemv_coalesced_unroll_from_env();
+    if (unroll >= 8) {
+        fp8_w8a16_grouped_gemv_coalesced_kernel<8><<<grid, block, 0, V100_FP8_STREAM>>>(
+            A, expert_ids, W, scales, C, R, E, N, K, block_h, Nb, Kb);
+    } else if (unroll >= 4) {
+        fp8_w8a16_grouped_gemv_coalesced_kernel<4><<<grid, block, 0, V100_FP8_STREAM>>>(
+            A, expert_ids, W, scales, C, R, E, N, K, block_h, Nb, Kb);
+    } else {
+        fp8_w8a16_grouped_gemv_coalesced_kernel<2><<<grid, block, 0, V100_FP8_STREAM>>>(
+            A, expert_ids, W, scales, C, R, E, N, K, block_h, Nb, Kb);
+    }
+}
+
+torch::Tensor fp8_w8a16_grouped_gemv_coalesced(
+        torch::Tensor input,        // [R, K] fp16
+        torch::Tensor expert_ids,   // [R] int64
+        torch::Tensor weight,       // [E, N, K] uint8
+        torch::Tensor scales,       // [E, Nb, Kb] fp16
+        int64_t N, int64_t K, int64_t block_h, int64_t block_w) {
+    TORCH_CHECK(input.is_cuda() && expert_ids.is_cuda() && weight.is_cuda() && scales.is_cuda(),
+                "inputs must be CUDA");
+    TORCH_CHECK(input.dtype() == torch::kFloat16, "input must be float16");
+    TORCH_CHECK(expert_ids.dtype() == torch::kInt64, "expert_ids must be int64");
+    TORCH_CHECK(weight.dtype() == torch::kUInt8, "weight must be uint8");
+    TORCH_CHECK(scales.dtype() == torch::kFloat16, "scales must be float16");
+    TORCH_CHECK(input.is_contiguous() && expert_ids.is_contiguous()
+                && weight.is_contiguous() && scales.is_contiguous(), "inputs must be contiguous");
+    TORCH_CHECK(input.dim() == 2 && input.size(1) == K, "input must be [R, K]");
+    TORCH_CHECK(expert_ids.dim() == 1 && expert_ids.size(0) == input.size(0), "expert_ids [R]");
+    TORCH_CHECK(weight.dim() == 3 && weight.size(1) == N && weight.size(2) == K, "weight [E,N,K]");
+    TORCH_CHECK(block_w == GEMV_COAL_BLOCK_K, "block_w must be 128");
+    TORCH_CHECK(K % GEMV_COAL_BLOCK_K == 0, "K must be divisible by 128");
+    TORCH_CHECK(block_h == 1 || block_h == 128, "block_h must be 1 (channel) or 128 (block)");
+
+    const int R = (int)input.size(0);
+    const int E = (int)weight.size(0);
+    const int Nb = (int)((N + block_h - 1) / block_h);
+    const int Kb = (int)((K + block_w - 1) / block_w);
+    TORCH_CHECK(scales.numel() == (int64_t)E * Nb * Kb, "scales must be [E, Nb, Kb]");
+
+    auto C = torch::empty({(int64_t)R, (int64_t)N},
+                          torch::TensorOptions().dtype(torch::kFloat16).device(input.device()));
+    if (R == 0) return C;
+
+    dim3 block(GEMV_COAL_THREADS);
+    dim3 grid(((int)N + GEMV_COAL_WARPS_PER_CTA - 1) / GEMV_COAL_WARPS_PER_CTA, R);
+    launch_fp8_w8a16_grouped_gemv_coalesced(
+        reinterpret_cast<__half*>(input.data_ptr<at::Half>()),
+        expert_ids.data_ptr<int64_t>(),
+        weight.data_ptr<uint8_t>(),
+        reinterpret_cast<__half*>(scales.data_ptr<at::Half>()),
+        reinterpret_cast<__half*>(C.data_ptr<at::Half>()),
+        R, E, (int)N, (int)K, (int)block_h, Nb, Kb, grid, block);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    return C;
 }
 
 torch::Tensor fp8_w8a16_gemv_coalesced_m(torch::Tensor input,
@@ -1756,6 +1907,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("fp8_w8a16_gemv_coalesced_m",    &fp8_w8a16_gemv_coalesced_m,
           "Prototype M<=8 FP8 W8A16 GEMV with coalesced K-lane weight loads. "
           "Separate proof kernel; block_w=128 only.");
+    m.def("fp8_w8a16_grouped_gemv_coalesced", &fp8_w8a16_grouped_gemv_coalesced,
+          "Stage G1: GROUPED coalesced routed GEMV for MoE w13 decode. Warp owns "
+          "one (routed-row, column); lanes coalesce over K; expert via "
+          "expert_ids[R]. Fixes the grouped-a3 N-strided read (28 sectors/req).");
     m.def("fp8_w8a16_grouped_routed_gemm_a3",
           &fp8_w8a16_grouped_routed_gemm_a3,
           "Stage 2B grouped routed A.3 GEMM for MoE decode. Each routed row "

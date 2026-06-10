@@ -194,6 +194,15 @@ _CT_MOE_PREFILL_ENGAGED = [False]
 _CT_MOE_PREFILL_FUSED = os.environ.get(
     "VLLM_V100_CT_MOE_PREFILL_FUSED", "1").lower() not in ("0", "off", "false", "")
 _CT_MOE_FUSED_ENGAGED = [False]
+# Stage G1: route the DECODE w13 (small R) through the GROUPED COALESCED GEMV
+# (warp->output-column, lanes->consecutive K) instead of the grouped a3 kernel
+# (thread->column, N-strided, 28 sectors/req). NCU: 28->2.38 sectors/req, kernel
+# 2.25x faster (187->83us). Only the small-R DECODE path — prefill (large R) uses
+# the fused/tiled kernels (per-row GEMV is wrong for prefill). Default on
+# (correctness-proven cos=1.0 vs a3+FP32); kill switch =0.
+_CT_MOE_W13_COALESCED = os.environ.get(
+    "VLLM_V100_CT_MOE_W13_COALESCED", "1").lower() not in ("0", "off", "false", "")
+_CT_MOE_W13_COAL_ENGAGED = [False]
 # Max routed rows (R) per grouped-w13 kernel launch. CUDA caps gridDim.y at
 # 65535 and the kernel uses gridDim.y = R, so R must stay under it at long prefill
 # (R = M*topk). Env-tunable mainly so the offline numtest can force chunking with
@@ -779,8 +788,17 @@ def _v100_ct_mixed_moe_routed(layer, x, topk_weights, topk_ids,
     k_split = 8 if (H % 1024 == 0) else 4 if (H % 512 == 0) else 1
     _W13_CHUNK = _CT_MOE_W13_CHUNK
     if R <= _W13_CHUNK:
-        w13 = ext.fp8_w8a16_grouped_routed_gemm_a3(
-            route_x, expert_ids, mix["u8"], mix["scale"], N13, H, 1, 128, k_split)
+        if (_CT_MOE_W13_COALESCED and H % 128 == 0
+                and hasattr(ext, "fp8_w8a16_grouped_gemv_coalesced")):
+            if not _CT_MOE_W13_COAL_ENGAGED[0] and _ct_rank() in (0, -1):
+                _CT_MOE_W13_COAL_ENGAGED[0] = True
+                print("[serve_fp8_v100 ct-moe-w13] decode w13 = grouped COALESCED "
+                      "GEMV (warp->col, lanes->K); first call", flush=True)
+            w13 = ext.fp8_w8a16_grouped_gemv_coalesced(
+                route_x, expert_ids, mix["u8"], mix["scale"], N13, H, 1, 128)
+        else:
+            w13 = ext.fp8_w8a16_grouped_routed_gemm_a3(
+                route_x, expert_ids, mix["u8"], mix["scale"], N13, H, 1, 128, k_split)
     else:
         _parts = []
         for _i in range(0, R, _W13_CHUNK):

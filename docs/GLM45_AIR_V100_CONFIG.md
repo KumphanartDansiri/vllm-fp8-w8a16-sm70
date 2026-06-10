@@ -31,7 +31,7 @@ inside the captured graph. TRITON_ATTN is `AttentionCGSupport.ALWAYS`, so
 
 | context | decode tok/s | KV cache | concurrency |
 |---|---:|---:|---:|
-| 2k (shallow) | **45.4** (was 30.7 pre-coalesced) | 563k tok | 275× |
+| 2k (shallow) | **56.6** (30.7 A.3 → 45.4 coalesced-attn → 56.6 +coalesced-MoE-w13) | 563k tok | 275× |
 | 6k depth | ~27 + coalesced lift | — | — |
 | 26k depth | ~18.6 + coalesced lift | — | — |
 
@@ -63,6 +63,7 @@ gains need an attention project (V100 FlashAttention / TP-overlap), not MoE work
 | `VLLM_V100_FP8_COALESCED_GEMV=1` | coalesced decode GEMV for attn/dense Linears (30.81→45.37, 1.47×) | `=0` → A.3 |
 | `VLLM_V100_FP8_COALESCED_UNROLL=4` | K-unroll depth (4 = the measured knee) | — |
 | `VLLM_V100_FP8_COALESCED_GEMV_M_MAX=8` | max batch on the coalesced path (8 = batched decode) | `=1` single-stream |
+| `VLLM_V100_CT_MOE_W13_COALESCED=1` | grouped coalesced GEMV for MoE w13 decode (45.4→56.6, +25%) | `=0` → grouped a3 |
 | `MODE=cudagraph` | mode=0 + FULL_DECODE_ONLY + TRITON_ATTN | `MODE=eager` |
 | `VLLM_V100_CT_PROFILE=0` | per-section prefill GPU+wall timers (use with `MODE=eager`) | `=1` to enable |
 
