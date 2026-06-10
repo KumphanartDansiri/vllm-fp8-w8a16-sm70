@@ -27,19 +27,22 @@ inside the captured graph. TRITON_ATTN is `AttentionCGSupport.ALWAYS`, so
 
 ## Measured numbers
 
-**Decode (single stream, cudagraph):**
+**Decode (single stream, cudagraph, coalesced GEMV default):**
 
 | context | decode tok/s | KV cache | concurrency |
 |---|---:|---:|---:|
-| 2k (shallow) | **30.7** | 563k tok | 275× |
-| 6k depth | 27.0 | — | — |
-| 26k depth | 18.6 | — | — |
+| 2k (shallow) | **45.4** (was 30.7 pre-coalesced) | 563k tok | 275× |
+| 6k depth | ~27 + coalesced lift | — | — |
+| 26k depth | ~18.6 + coalesced lift | — | — |
 
-Decode-at-depth falloff is the attention cost over a deeper KV (inherent to any
-model), not our FP8 kernels (O(1)/token). vs the FP16-fused-MoE cudagraph
-alternative (4.81 tok/s / 78× concurrency), mixed-FP8 wins **6.4× speed AND 3.5×
-concurrency** — it is the best GLM-Air config on this stack, not a memory-vs-speed
-tradeoff.
+The **coalesced FP8 GEMV** (default on) accelerates the attention/dense Linears:
+GLM-Air TP=8 A/B = a3 (old A.3) 30.81 → **coalesced 45.37 tok/s (1.47×)**, which is
+**95% of the FP16-attn ceiling (47.82)** at *full* FP8 residency (max KV). The
+1.47× (vs ~1.9× on lower-TP models) is tempered by TP=8 all-reduce being a larger
+fixed fraction. Decode-at-depth falloff is the attention-over-KV cost (inherent to
+any model), not our FP8 kernels (O(1)/token). vs the FP16-fused-MoE cudagraph
+alternative (4.81 tok/s / 78× concurrency), this config wins decisively on both
+speed and concurrency. See `docs/COALESCED_FP8_GEMV.md` for the kernel.
 
 **Prefill TTFT (26k-token prompt):** 60.2s (was 169s before Phase 4, **2.8×**).
 The remaining cost is ~70% self-attention + TP all-reduce (vLLM internals); the
@@ -57,6 +60,9 @@ gains need an attention project (V100 FlashAttention / TP-overlap), not MoE work
 | `VLLM_V100_CT_MOE_PREFILL_TILED=1` | at R≥256 (prefill), per-expert tiled GEMMs (weight reuse) | `=0` |
 | `VLLM_V100_CT_MOE_PREFILL_FUSED=1` | fused w13 (one launch, GPU-side offsets, no `.tolist()`) + cuBLAS w2 | `=0` → per-expert loop |
 | `VLLM_V100_CT_CHANNEL_WMMA=1` | channel Linears use WMMA (tensor cores) at prefill M | `=0` → A.2 |
+| `VLLM_V100_FP8_COALESCED_GEMV=1` | coalesced decode GEMV for attn/dense Linears (30.81→45.37, 1.47×) | `=0` → A.3 |
+| `VLLM_V100_FP8_COALESCED_UNROLL=4` | K-unroll depth (4 = the measured knee) | — |
+| `VLLM_V100_FP8_COALESCED_GEMV_M_MAX=8` | max batch on the coalesced path (8 = batched decode) | `=1` single-stream |
 | `MODE=cudagraph` | mode=0 + FULL_DECODE_ONLY + TRITON_ATTN | `MODE=eager` |
 | `VLLM_V100_CT_PROFILE=0` | per-section prefill GPU+wall timers (use with `MODE=eager`) | `=1` to enable |
 
