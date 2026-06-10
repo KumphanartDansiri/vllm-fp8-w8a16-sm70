@@ -102,14 +102,42 @@ _HAS_WMMA    = hasattr(_ext, "fp8_w8a16_gemm_wmma_poc")
 # Dispatch threshold for WMMA. Default = tile M (64). Set very high (e.g.,
 # FP8_WMMA_MIN_M=99999) to fully disable WMMA for A/B comparison.
 _WMMA_MIN_M  = int(os.environ.get("FP8_WMMA_MIN_M", str(_WMMA_TILE_M)))
+# Phase 4 Stage 2: route CHANNEL-scale (block_h=1) Linears through the WMMA
+# (tensor-core) kernel at prefill M too, not just block_h=128. The WMMA kernel now
+# applies per-output-row scale for block_h=1. This is the PREFILL lever for the CT
+# resident dense Linears (qkv/o_proj, N%64==0), which otherwise fall to A.2
+# (CUDA-core, ~1.75 TFLOP/s vs WMMA ~17). Decode (M<=8 -> A.3) is unaffected; only
+# prefill M>=_WMMA_MIN_M uses WMMA. Kill switch: VLLM_V100_CT_CHANNEL_WMMA=0.
+_CT_CHANNEL_WMMA = os.environ.get(
+    "VLLM_V100_CT_CHANNEL_WMMA", "1").lower() not in ("0", "off", "false", "")
+_HAS_COALESCED_GEMV = hasattr(_ext, "fp8_w8a16_gemv_coalesced")
+_HAS_COALESCED_GEMV_M = hasattr(_ext, "fp8_w8a16_gemv_coalesced_m")
+_COALESCED_GEMV = os.environ.get(
+    "VLLM_V100_FP8_COALESCED_GEMV", "0").lower() not in (
+        "0", "off", "false", "")
+try:
+    _COALESCED_GEMV_M_MAX = int(os.environ.get(
+        "VLLM_V100_FP8_COALESCED_GEMV_M_MAX", "1"))
+except ValueError:
+    _COALESCED_GEMV_M_MAX = 1
+_COALESCED_GEMV_M_MAX = max(1, min(8, _COALESCED_GEMV_M_MAX))
 
 # Per-process counters for per-variant call rate observability. Each TP
 # worker tracks its own counts; periodic summary printed every COUNTER_LOG_EVERY
 # calls on rank 0.
-_VARIANT_COUNTS = {"A.3 k=8": 0, "A.3 k=4": 0, "A.1": 0, "A.2": 0,
-                   "WMMA": 0, "WMMA+A.2(tail)": 0}
+_VARIANT_COUNTS = {"Coalesced GEMV": 0, "Coalesced GEMV-M": 0, "A.3 k=8": 0,
+                   "A.3 k=4": 0, "A.1": 0, "A.2": 0, "WMMA": 0,
+                   "WMMA+A.2(tail)": 0}
 _VARIANT_COUNTER_LOG_EVERY = int(os.environ.get("FP8_WMMA_COUNTER_LOG_EVERY", "1000"))
 _VARIANT_TOTAL = 0
+_PREFIX_VARIANT_PROFILE = os.environ.get(
+    "VLLM_V100_FP8_PREFIX_VARIANT_PROFILE", "0").lower() not in (
+        "0", "off", "false", "")
+_PREFIX_VARIANT_FILTERS = tuple(
+    s.strip() for s in os.environ.get(
+        "VLLM_V100_FP8_PREFIX_VARIANT_FILTER", "shared_expert").split(",")
+    if s.strip())
+_PREFIX_VARIANT_COUNTS = defaultdict(lambda: defaultdict(int))
 
 
 # Per-(prefix, rank) state tracking for the apply-stats instrumentation.
@@ -1009,9 +1037,24 @@ def _v100_fp8_gemm(
         _HAS_WMMA
         and (N % _WMMA_TILE_N) == 0
         and (K % _WMMA_TILE_K) == 0
-        and block_h == 128 and block_w == 128
+        and block_w == 128
+        and (block_h == 128 or (block_h == 1 and _CT_CHANNEL_WMMA))
+    )
+    coalesced_gemv_ok = (
+        _COALESCED_GEMV
+        and _HAS_COALESCED_GEMV
+        and block_w == 128
+        and block_h in (1, 128)
+        and K % 128 == 0
+        and M <= _COALESCED_GEMV_M_MAX
     )
 
+    if coalesced_gemv_ok and M == 1:
+        return _ext.fp8_w8a16_gemv_coalesced(
+            x2d, weight_u8, scales, N, K, block_h, block_w), "Coalesced GEMV"
+    if coalesced_gemv_ok and M <= 8 and _HAS_COALESCED_GEMV_M:
+        return _ext.fp8_w8a16_gemv_coalesced_m(
+            x2d, weight_u8, scales, N, K, block_h, block_w), "Coalesced GEMV-M"
     if M <= _DISPATCH_M_A3_K8 and k_split_ok(8):
         return _ext.fp8_w8a16_gemm_a3(
             x2d, weight_u8, scales, N, K, block_h, block_w, 8), "A.3 k=8"
@@ -1182,6 +1225,9 @@ def _our_apply(self, layer, x, bias=None):
     global _VARIANT_TOTAL
     _VARIANT_COUNTS[variant] = _VARIANT_COUNTS.get(variant, 0) + 1
     _VARIANT_TOTAL += 1
+    prefix = getattr(layer, "prefix", "<?>")
+    if _PREFIX_VARIANT_PROFILE:
+        _PREFIX_VARIANT_COUNTS[prefix][variant] += 1
     if _VARIANT_TOTAL % _VARIANT_COUNTER_LOG_EVERY == 0:
         rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
         if rank == 0:
@@ -1190,6 +1236,18 @@ def _our_apply(self, layer, x, bias=None):
                      for k, v in _VARIANT_COUNTS.items() if v]
             print(f"[serve_fp8_v100 pid={os.getpid()}] kernel variant counts after "
                   f"{tot} calls: {', '.join(parts)}", flush=True)
+            if _PREFIX_VARIANT_PROFILE:
+                for pfx, counts in sorted(_PREFIX_VARIANT_COUNTS.items()):
+                    if (_PREFIX_VARIANT_FILTERS and
+                            not any(f in pfx for f in _PREFIX_VARIANT_FILTERS)):
+                        continue
+                    pfx_tot = sum(counts.values())
+                    pfx_parts = [f"{k}={v}" for k, v in sorted(counts.items())]
+                    print(
+                        f"[serve_fp8_v100 pid={os.getpid()}] prefix variants "
+                        f"{pfx}: total={pfx_tot} {', '.join(pfx_parts)}",
+                        flush=True,
+                    )
 
     # Reshape back to whatever rank the input had ([B, S, N] → reshape to that).
     out = out.reshape(orig_shape[:-1] + (N,))
@@ -2603,6 +2661,20 @@ def _patch_vllm_for_v100():
                 f"failed to install hooks: {type(exc).__name__}: {exc}",
                 flush=True,
             )
+
+    # Additive, feature-detected: enable compressed-tensors W8A16-FP8 (RedHatAI
+    # checkpoints) on sm_70. No-ops off-Volta or if the class is absent. Does NOT
+    # touch the `fp8` (Fp8LinearMethod) hooks above — separate entry point.
+    try:
+        from fp8_w8a16_sm70.compressed_tensors_v100 import (
+            patch_compressed_tensors_for_v100,
+            patch_compressed_tensors_moe_for_v100,
+        )
+        patch_compressed_tensors_for_v100()
+        patch_compressed_tensors_moe_for_v100()
+    except Exception as exc:
+        print(f"[serve_fp8_v100 pid={os.getpid()}] compressed-tensors patch "
+              f"skipped: {type(exc).__name__}: {exc}", flush=True)
 
     print(f"[serve_fp8_v100 pid={os.getpid()}] Patches applied: "
           "min_cap=70, use_marlin=False on V100, apply() routed to our kernel "

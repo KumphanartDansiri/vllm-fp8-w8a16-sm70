@@ -11,8 +11,8 @@ moving from CUDA 12.8 to 12.9, picking up flash-attention-v100) are obvious
 | Constraint | Value | Source / Why |
 |---|---|---|
 | Python | `>=3.10, <3.14` | vLLM 0.18 `pyproject.toml` |
-| vllm | `==0.18.0` (or 0.18.x) | **Project anchor.** vLLM `>=0.20` drops sm_70 support entirely. We stay on 0.18 because that's the last version that still tolerates V100. |
-| torch | `==2.10.0` (any `+cuXX` wheel variant) | vLLM 0.18 `requirements/cuda.txt` exact pin |
+| vllm | `==0.18.0` (or 0.18.x) | **FP8 production anchor.** vLLM 0.18 remains the validated FP8 W8A16 baseline. vLLM 0.19 also works via source build for Qwen 3.5/3.6 FP8; vLLM 0.21 is a validated stock FP16/GPTQ engine base, but the FP8 wrapper port is still in flight. |
+| torch | `==2.10.0` (any `+cuXX` wheel variant) | vLLM 0.18 `requirements/cuda.txt` exact pin for the current FP8 production baseline. The experimental vLLM 0.21 lane uses torch 2.11.0+cu126. |
 | torchaudio | `==2.10.0` | vLLM 0.18 |
 | torchvision | `==0.25.0` | vLLM 0.18 |
 | flashinfer-python | `==0.6.6` | vLLM 0.18 (pure-Python wheel; cuXX-agnostic) |
@@ -45,8 +45,8 @@ on this hardware — not a project bug.
 
 | Choice | Current value | Why we picked it, alternatives |
 |---|---|---|
-| torch wheel CUDA variant | `+cu128` | Mirrors aiagent's verified production baseline. `+cu129` is also valid (newer minor, same sm_70 retention, FA-V100 prefers it). Switching cu128↔cu129 is a Layer-3 move, not a Layer-1 change. |
-| Base docker image | `nvidia/cuda:12.8.1-devel-ubuntu24.04` | Current py3.12 baseline image. Devel image is required because `torch.utils.cpp_extension.load` JIT-compiles `fp8_dequant.cu`. Could try 12.9 as a Layer-3 move; avoid CUDA 13. |
+| torch wheel CUDA variant | `+cu128` for the 0.18/0.19 FP8 baseline; `+cu126` for the 0.21 experiment | `+cu128` mirrors aiagent's verified production baseline. For vLLM 0.21, torch 2.11.0+cu128 dropped Volta from the wheel, while torch 2.11.0+cu126 keeps `sm_70`; that makes cu126 mandatory for the 0.21 lane. |
+| Base docker image | `nvidia/cuda:12.8.1-devel-ubuntu24.04` for 0.18/0.19; `nvidia/cuda:12.6.3-devel-ubuntu24.04` for 0.21 | Devel images are required because `torch.utils.cpp_extension.load` JIT-compiles `fp8_dequant.cu`. The 0.21 source build intentionally stays on CUDA 12.6 so the torch/vLLM stack preserves Volta support. Avoid CUDA 13. |
 | transformers version | `4.57.6` | Matches aiagent. Any version in `[4.56.0, 5)` would satisfy vLLM. |
 | numpy, safetensors, etc. | Aiagent-mirrored | Convenience; not load-bearing. |
 | Python distribution | system Python 3.12 in Ubuntu 24.04 | Current v0.4.0 baseline. Python 3.10 remains a fallback only. |
@@ -68,8 +68,8 @@ pins.
 ## Forward-looking notes
 
 - **CUDA 13.0 drops sm_70.** If we ever move to CUDA 13 toolchain or runtime, V100 stops working. Stay in 12-series indefinitely.
-- **PyTorch 2.11+ may drop sm_70.** Currently 2.10.0 still includes sm_70 in `torch.cuda.get_arch_list()`. Watch the release notes.
-- **vLLM 0.19 → 0.20** is the next break point. 0.19 likely still tolerates sm_70 with capability fallbacks (untested by us); 0.20 explicitly drops it.
+- **PyTorch 2.11 wheel choice matters.** torch 2.11.0+cu128 dropped Volta, but torch 2.11.0+cu126 still includes `sm_70` and is validated for the vLLM 0.21 stock engine lane.
+- **vLLM 0.21 is viable from source for stock FP16/GPTQ on V100.** Eager and cudagraph are validated across Qwen3.6-27B FP16, Qwen3.6-35B-A3B FP16, Gemma 4 FP16, and Qwen3.5-122B-A10B GPTQ-Int4. FP8 W8A16 is not validated on 0.21 yet; treat that as the next port target.
 - **flash-attention-v100** is a candidate for accelerating attention beyond `TRITON_ATTN`. Wants cu129; that's a Layer-3 move, not blocked by Layer 1.
 
 ## How to update this document

@@ -42,8 +42,9 @@ accounting of where it lands.
 |---|---|
 | **Known good** | vLLM 0.18.0 (and **0.19 via source build** for the Qwen 3.5/3.6 family — see [vLLM 0.19 compatibility](#vllm-019-compatibility)), torch 2.10.0, CUDA 12.x, Python 3.12, NVIDIA V100 (`sm_70`); Qwen3.5/Qwen3.6 **MoE** block-FP8 checkpoints (122B-A10B-FP8, 35B-A3B-FP8). |
 | **Optional** | MTP speculative decoding (`ENABLE_QWEN_MTP=1`, default OFF). |
+| **Experimental / in flight** | vLLM 0.21.0 source build on `sm_70` is validated for stock FP16/GPTQ eager+cudagraph workloads; the FP8 W8A16 monkey-patch port is the next step. See [vLLM 0.21 sm_70 base](#vllm-021-sm_70-base). |
 | **Experimental / untested** | dense-FP8 optimization, flash-attention-v100. |
-| **Unsupported here** | CUDA 13 and vLLM ≥0.20 (both drop `sm_70`, so V100 stops working); native FP8 hardware compute (V100 has none); non-Volta GPUs (A100/H100/etc. — use upstream vLLM, which has native FP8). |
+| **Unsupported here** | CUDA 13; native FP8 hardware compute (V100 has none); non-Volta GPUs (A100/H100/etc. — use upstream vLLM, which has native FP8). |
 
 ## Is this for me?
 
@@ -177,6 +178,47 @@ Build, verify, and measure:
 MTP=1 ./tools/measure_qwen35b_vllm019.sh    # cudagraph + MTP
 ```
 
+## vLLM 0.21 sm_70 base
+
+vLLM 0.21.0 is **validated as a stock source-build base on V100** for FP16 and
+GPTQ-Int4 workloads. This does not yet mean the FP8 W8A16 wrapper is ported;
+it means the new engine base, cudagraph path, and model registry are viable on
+`sm_70`.
+
+The current 0.21 lane uses a CUDA 12.6 / torch 2.11.0+cu126 stack:
+
+| Component | 0.21 stock base |
+|---|---|
+| Dockerfile | `docker/Dockerfile.vllm021_cu126` (source build, `sm_70`) |
+| Smoke drivers | `tools/smoke_vllm021.sh`, `tools/smoke_vllm021_modes.sh` |
+| Image tag | `vllm-v100:vllm021-cu126` |
+| Artifacts | `/tmp/v100_smoke021/` |
+
+Why cu126: vLLM 0.21 pins torch 2.11.0, and the cu128 torch 2.11 wheel no
+longer includes Volta support. The cu126 torch 2.11 wheel keeps `sm_70` in
+`torch.cuda.get_arch_list()`.
+
+Validation summary, stock vLLM 0.21.0 with no FP8 patches:
+
+| Model | eager tok/s | cudagraph tok/s | cudagraph + MTP |
+|---|---:|---:|---|
+| Qwen3.6-27B FP16 dense GDN | 6.81 | 36.28 | 42.32, exact-match/lossless, 82.6% accept |
+| Qwen3.6-35B-A3B FP16 MoE | 6.61 | 15.34 | coherent but exact-diff, 86.0% accept |
+| gemma-4-31B-it FP16 dense | 8.11 | 28.50 | no MTP head |
+| Qwen3.5-122B-A10B GPTQ-Int4 TP8 | 5.31 | 52.01 | worker-init crash |
+
+Interpretation:
+
+- Gate 4 passed: vLLM 0.21.0 runs on V100 in eager and cudagraph across dense,
+  MoE, GPTQ-Int4, and Gemma 4 workloads.
+- MTP is validated on the dense 27B canary. The 35B-A3B MTP exact-diff appears
+  coherent and likely reflects MoE+FP16 nondeterminism, but exactness remains a
+  useful guardrail.
+- 122B-Int4 MTP is a separate GPTQ-on-Volta issue and is not on the FP8 path.
+- The FP8 insertion points were source-checked and appear intact in 0.21:
+  `Fp8Config.get_min_capability`, `Fp8LinearMethod` init/PWAL/apply, and
+  `Fp8MoEMethod` / `Fp8OnlineMoEMethod` init/PWAL/apply.
+
 ## Build
 
 ```bash
@@ -304,6 +346,16 @@ overhead never amortizes. The same FP8 path *wins* on sparse MoE (where only
 dense-FP8 diagnosis. (Qwen3.6-27B is itself hybrid GDN; these are `ns=8`
 figures. Note FP16 here needs `cudagraph_mode: FULL_DECODE_ONLY` — with `mode:0`,
 `FULL_AND_PIECEWISE` is silently disabled and FP16 drops to ~7 tok/s.)
+
+**Update — the coalesced decode GEMV closes the dense gap.** The dense penalty
+above was an *uncoalesced memory access* in the old `A.3` decode kernel, not an
+inherent FP8 cost. An opt-in coalesced GEMV
+(`VLLM_V100_FP8_COALESCED_GEMV=1 VLLM_V100_FP8_COALESCED_UNROLL=4`) fixes it:
+dense Qwen3.6-27B block-FP8 **11.75 → 37.24 tok/s (~0.98× FP16)**, dense
+Gemma-4-31B channel-FP8 **6.54 → 28.24 (97.5% of FP16)** — FP8-resident at
+near-FP16 speed, at half the weight memory. This makes dense FP8 viable on V100
+**where FP16 doesn't fit** (16 GB cards, low TP). Full numbers, decision matrix,
+and flags: **[`docs/COALESCED_FP8_GEMV.md`](docs/COALESCED_FP8_GEMV.md)**.
 
 ## Known limitations
 

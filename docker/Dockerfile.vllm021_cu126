@@ -1,0 +1,67 @@
+# vLLM 0.21.0 built FROM SOURCE for Tesla V100 (sm_70), on the cu126 torch stack.
+#
+# WHY (the effort experiment): vLLM 0.21 dropped sm_70 like everyone else, BUT
+# its source still lists 7.0 on the CUDA<12.8 CMake else-branch, and — unlike
+# aphrodite — it has NO EXL3 kernels and registers Marlin CONDITIONALLY (no
+# hard-reg undefined-symbol trap). So the sm_70 patch kit should be SMALLER than
+# aphrodite's: essentially just the cu126 torch wheel + a CUDA 12.6 base. No
+# CMake arch patch needed (12.6 < 12.8 -> else-branch already has 7.0); no EXL3
+# exclude; no Marlin guard.
+#
+# KEY FIX (same as aphrodite): torch 2.11 from the **cu126** index. torch
+# 2.11+cu128 dropped Volta from the wheel (get_arch_list has no sm_70 ->
+# torch.zeros on V100 fails). 2.11+cu126 keeps sm_50/60/70 (verified). vLLM 0.21
+# pins torch==2.11.0, so cu126 is mandatory for V100.
+#
+# WATCH (per GPT's blocker list): the #1 risk is vllm-flash-attn (FA2/FA3)
+# failing to compile for sm_70. If the build dies there, that's the real cost —
+# we'd disable/guard the bundled FA build (it's unused on V100; TRITON_ATTN is
+# the attention path).
+#
+# BUILD CONTEXT = the vLLM 0.21 source tree:
+#   docker build -f docker/Dockerfile.vllm021_cu126 -t vllm-v100:vllm021-cu126 ~/vllm-0.21
+
+FROM nvidia/cuda:12.6.3-devel-ubuntu24.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_ROOT_USER_ACTION=ignore \
+    PIP_BREAK_SYSTEM_PACKAGES=1
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3 python3-dev python3-pip \
+        gcc g++ git cmake ninja-build \
+        curl ca-certificates libgomp1 && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# torch 2.11.0 stack from the cu126 index — the Volta-capable wheel.
+RUN python3 -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu126 \
+        torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0
+
+WORKDIR /vllm-src
+COPY . /vllm-src
+
+# Build deps up-front so we can build with --no-build-isolation (reuse the
+# cu126 torch above instead of letting pip pull a fresh cu128 one).
+# NOTE: vLLM 0.21 moved build reqs to per-platform requirements/build/<plat>.txt
+# (was requirements/build.txt in 0.18/0.19). cuda.txt pins torch==2.11.0, already
+# satisfied by the cu126 install above, so no cu128 wheel is pulled.
+RUN python3 -m pip install --no-cache-dir -r requirements/build/cuda.txt
+
+# Compile for sm_70 only. CUDA 12.6 -> CMake else-branch already lists 7.0, so
+# no arch patch. Kernels gated >=8.x skip via cuda_archs_loose_intersection.
+ARG MAX_JOBS=8
+ENV TORCH_CUDA_ARCH_LIST="7.0" \
+    VLLM_TARGET_DEVICE=cuda \
+    SETUPTOOLS_SCM_PRETEND_VERSION=0.21.0 \
+    MAX_JOBS=${MAX_JOBS} \
+    NVCC_THREADS=2 \
+    CMAKE_BUILD_TYPE=Release
+RUN python3 -m pip install --no-cache-dir --no-build-isolation -v .
+
+# Fail fast on import/version (real sm_70 kernel exec verified later on a GPU).
+RUN python3 -c "import torch, vllm; print('vllm:', vllm.__version__, '| torch:', torch.__version__, '| arch_list:', torch.cuda.get_arch_list())"
+
+WORKDIR /work

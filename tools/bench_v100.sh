@@ -102,12 +102,12 @@ write_config() {
         echo "git_branch       : $(git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'n/a')"
         echo "git_status_short : $(git -C "$PROJECT_ROOT" status --porcelain 2>/dev/null | wc -l) files modified"
         echo ""
-        echo "# resolved env (V100 FP8 vars only)"
+        echo "# resolved env (V100 FP8/CT vars only)"
         # `|| true`: grep returns 1 when no monkey-patch env vars are
         # exported (e.g. running a baseline against an unrelated model);
         # set -euo pipefail would otherwise abort write_config and the
         # whole script before the docker run command ever fires.
-        env | grep -E '^VLLM_V100_FP8_' | sort || true
+        env | grep -E '^VLLM_V100_(FP8|CT)_' | sort || true
         echo ""
         echo "# resolved bench vars"
         echo "MODEL          = ${MODEL:-/mnt/models/Qwen3.5-122B-A10B-FP8}"

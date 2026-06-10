@@ -2,6 +2,420 @@
 
 Cold-start summary for picking up in a new session. Read top to bottom.
 
+> **NEXT SESSION → Gemma-4 FP8.** GLM-4.5-Air-FP8 is DONE (decode 30.7 tok/s
+> cudagraph, prefill 169s→60s; validated envelope in `docs/GLM45_AIR_V100_CONFIG.md`).
+> Gemma-4 FP8 is a direct transfer of this whole stack (compressed-tensors FP8 +
+> FP8-resident Linears/MoE + grouped/fused prefill + cudagraph) — NO MLA blocker.
+> Start: point `MODEL=` at the Gemma-4 FP8 checkpoint in
+> `tools/glm45_air_fp8_load_vllm021.sh` (or a thin variant) + run the default
+> envelope. Watch the CT scale strategy — CHANNEL/TENSOR work today; BLOCK MoE
+> needs scale-block expansion (not yet built). See the Phase 1–4 handoffs below.
+
+---
+
+## Discussion note (2026-06-09) — FlashAttention V100 integration shape
+
+This is an architecture preference/handoff note, not a validated implementation.
+The useful mental model is three layers:
+
+1. Python/API layer: the caller-facing contract, like a public `.h` file
+   (`flash_attn_func`, `flash_attn_varlen_func`, `flash_attn_with_kvcache`,
+   argument order, return shape).
+2. C++/pybind extension layer: exported module/symbol names, e.g.
+   `flash_attn_2_cuda` / `flash_attn_v100_cuda` with `fwd`, `bwd`,
+   `varlen_fwd`, `fwd_kvcache`, etc.
+3. CUDA implementation layer: the actual Volta-specific launchers/kernels. This
+   may differ completely from upstream as long as it honors the contract.
+
+For a "lower the sm70 gate and work" experience, layers 1 and 2 must look like
+standard FlashAttention/vLLM FlashAttention. Layer 3 can be custom V100 code.
+If layer 1 or 2 diverges, the vLLM caller must be patched.
+
+Local reference read:
+- `/home/kumphanartd/flash-attention-v100` (ai-bond) keeps a more natural
+  FlashAttention-like outer shape: standard-ish Python functions and
+  `flash_attn_2_cuda` compatibility/symlink behavior.
+- `/home/kumphanartd/1catai-vllm/flash-attention-v100` exposes more
+  vLLM-serving-specific paths such as `flash_attn_decode_paged` and
+  `flash_attn_prefill_paged`, plus paged KV/decode workspace/partition helpers.
+  This may reflect intentional deterministic caller dispatch, an incremental
+  development checkpoint style, or both.
+- vLLM 0.21 stock `FLASH_ATTN` is sm80+ (`supports_compute_capability >= 8.0`).
+  It already uses a serving-shaped FlashAttention path, especially
+  `flash_attn_varlen_func(...)` with `block_table`, `seq_lens`, `cu_seqlens_q`,
+  max sequence lengths, scheduler metadata, and paged KV cache tensors.
+
+Preferred direction if we pursue FlashAttention V100: keep the public wrapper as
+standard as possible, then hide V100-specific dispatch under that wrapper. Use
+ai-bond as the API/package-compatibility reference and 1catai as the reference
+for serving cases (paged prefill, single-token decode, long-context partitioning,
+FP8 KV utilities). With Claude+Codex assisting, hidden dispatch is acceptable if
+it is observable.
+
+Debug/observability split:
+- Development-only inspection: tensor dumps, step traces, reference comparisons,
+  L2/cos checks, detailed intermediate timings. Useful while proving correctness;
+  remove or leave behind heavy debug flags once settled.
+- Runtime decision controls: path summaries, force/disable knobs, partition-size
+  selection, fallback gates, coarse counters/profiling. Keep these longer because
+  they affect routing, A/B testing, and emergency rollback.
+
+Suggested shape:
+- `FLASH_V100_DEBUG=0`: quiet
+- `=1`: path decisions (`paged_decode`, `paged_prefill`, fallback)
+- `=2`: shapes/layouts/dtypes
+- `=3`: kernel timings/counters
+- `=4`: correctness self-checks/reference comparisons
+- `=5`: tensor dumps/deep trace
+
+Keep behavior knobs separate from debug level, e.g. `FLASH_V100_FORCE_PATH`,
+`FLASH_V100_DISABLE_PAGED`, `FLASH_V100_DECODE_PARTITION_SIZE`.
+
+---
+
+## Session handoff (2026-06-09) — Phase 3: CUDAGRAPH WORKS, GLM-Air decode 30.7 tok/s
+
+The big unlock, immediately after Phase 2d. GLM-4.5-Air-FP8 mixed (w13 FP8-resident
++ freed, grouped w2) now decodes at **~31 tok/s single-stream with cudagraph**
+(eager was 2.68; the old w2 loop was 0.37). Coherent, KV/concurrency win intact.
+
+**Run it:** `MODE=cudagraph ./tools/glm45_air_fp8_load_vllm021.sh` (with the usual
+`VLLM_V100_CT_FP8_RESIDENT=1 VLLM_V100_CT_MOE_W13_RESIDENT=1
+VLLM_V100_CT_MOE_W13_FREE_FP16=1 VLLM_V100_CT_MOE_W2_GROUPED=1`). The `MODE`
+knob sets `--compilation-config {"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY"}` +
+pins `VLLM_ATTENTION_BACKEND=TRITON_ATTN`.
+
+**Why mode=0 is mandatory (the whole story):** vLLM 0.21's default `-O3
+VLLM_COMPILE + FULL_AND_PIECEWISE` runs a TorchDynamo **fullgraph** trace
+(`vllm/compilation/wrapper.py:150 fullgraph=True`) BEFORE cudagraph. Our pybind
+kernels are wrapped in `torch._dynamo.disable` (vllm_serve.py:64-75 — needed
+because Dynamo can't trace pybind C funcs). Under fullgraph, a graph break is a
+FATAL error: `torch._dynamo.exc.Unsupported: Skip calling
+torch.compiler.disable()'d function`. `mode=0` (CompilationMode.NONE) skips Dynamo
+entirely, so the disable'd pybind ops just run eager INSIDE the captured cudagraph.
+This is the same `mode=0 + FULL_DECODE_ONLY` envelope the Qwen 0.18 path used.
+
+**Why FULL_DECODE_ONLY survives mode=0:** `resolve_cudagraph_mode_and_sizes`
+checks the attention backend's `AttentionCGSupport`. **TRITON_ATTN = ALWAYS (=3)**
+(`vllm/v1/attention/backends/triton_attn.py:126`), so it is NOT downgraded. vLLM
+auto-selects TRITON_ATTN on V100 (FA2 needs cc>=8) but the script PINS it for
+determinism.
+
+**Static audit (Claude+Codex) predicted capturability and was right:**
+- `V100_FP8_STREAM = at::cuda::getCurrentCUDAStream()` → kernels launch on the
+  capture stream (correct).
+- No host syncs on the grouped decode path. The OLD w2 per-expert loop's
+  `unique().tolist()` + data-dependent launch count was a HARD cudagraph blocker —
+  so **Phase 2d (grouped w2) was a PREREQUISITE for Phase 3**, not just a perf fix.
+- Static shapes per captured size; wrapper `torch::zeros`/`.to(fp16)` allocate but
+  are capturable via the graph mempool.
+- Caveat: our grouped kernels use `atomicAdd` (split-K) → non-deterministic at
+  temp=0 EAGER-vs-eager too, so token-exactness is unattainable regardless of
+  cudagraph. Bar = late divergence + coherent (cudagraph-vs-eager: char 298,
+  single-word paraphrase — PASS).
+
+**Measured (file-verified, MODE=cudagraph, warmed, MAXTOK=256, both temp0):**
+
+| MAXLEN | decode tok/s | KV cache | concurrency |
+|---|---:|---:|---:|
+| 2048 | 30.69 | 563k | 275× |
+| 8192 | 31.14 | 482k | 58.9× |
+| 32768 | 31.07 | 159k | 4.85× |
+
+All capture cleanly (FULL decode, 0.07 GiB pool, sizes [1,2,4,8,16] cover NS=8),
+0 errors/OOM. NOTE: that table is SHORT-CONTEXT decode (256-tok gen from a short
+prompt) in servers CONFIGURED for 2k/8k/32k — flat ~31 because the decoded sequence
+is shallow regardless of MAXLEN.
+
+**DECODE-AT-DEPTH (the real long-context number; `DEPTH=` knob prefills a long
+prompt; file-verified `/tmp/v100_cg_depth/`, labeled by actual prompt_tokens):**
+
+| actual KV depth | decode tok/s | prefill TTFT |
+|---|---:|---:|
+| shallow (~250) | ~31 | 0.3s |
+| 6,070 | 27.05 | 32s |
+| 26,198 | 18.50 | 169s |
+
+The decode falloff (31→27→18.5) is the ATTENTION cost over a deeper KV (TRITON_ATTN
+decode kernel scans more KV blocks/token) — inherent to ANY model at depth, NOT our
+FP8 kernels (O(1)/token); FP16-fused would fall off identically. Usable throughout
+(≤8k = comfortable ~27; ~26k = 18.5, heavy but works). Anchor 30.7 vs the FP16-fused
+EAGER baseline (4.65); the fair single-stream comparator (FP16-fused cudagraph) is a
+separate run not yet done.
+
+**SEPARATE FINDING — prefill TTFT is heavy: 169s for a 26k-token prompt.** That's
+our EAGER CUDA-core w13/w2 grouped GEMMs at large M (prefill is NOT cudagraphed
+under FULL_DECODE_ONLY, and our kernels aren't tensor-core). So **WMMA-w13 is NOT
+moot — it's the PREFILL lever** (cudagraph already solved decode). Revisit WMMA for
+long-prompt TTFT, gated on a microbench.
+
+**FP16-FUSED-CUDAGRAPH COMPARATOR DONE — mixed-FP8 DOMINATES (file-verified
+`/tmp/v100_fp16fused_cg/`).** Same stack (FP8 CT Linears + cudagraph mode=0), only
+MoE differs, 2k short-context:
+
+| MoE config (both cudagraph) | decode tok/s | concurrency |
+|---|---:|---:|
+| mixed-FP8 (W13 resident + grouped w2) | 30.7 | 275× |
+| FP16-fused (W13_RESIDENT=0) | 4.81 | 78× |
+
+**Mixed-FP8 wins BOTH axes: 6.4× faster AND 3.5× more concurrent** — the OPPOSITE of
+eager (where FP16-fused 4.65 > mixed 2.68). Why: at decode M=1 our mixed path was
+LAUNCH-bound (many small pybind/grouped kernels) → cudagraph removed launch overhead
+→ 2.68→30.7 (11.4×); the FP16-fused MoE is KERNEL-bound (vLLM Triton fused-MoE on
+sm_70 reads full-FP16 expert weights, poorly optimized for Volta) → cudagraph barely
+helps (4.65→4.81). So the "memory-not-speed" framing is RETIRED: **mixed-FP8 +
+cudagraph is simply the best GLM-Air config on V100, faster AND higher-concurrency
+than FP16-fused.** Caveat: FP16-fused here runs mode=0 (forced by our pybind CT
+Linears, no inductor); a pure-FP16 mode=3 path wasn't measured but abandons the FP8
+memory win and barely fits FP16 — not the operative use case.
+
+**Script hardening landed (Codex review):** `glm45_air_fp8_load_vllm021.sh` now
+uses array-based `EXEC_OPTS=(...)` (was a fragile JSON-no-spaces string), always
+pins `VLLM_ATTENTION_BACKEND`, banner shows `mode=$MODE`, and the streaming measure
+records the gold-standard API `completion_tokens` (`stream_options.include_usage`)
+alongside the SSE chunk count, plus a warmup request to dodge Triton-JIT spikes.
+
+**NEXT:** ~~decode-at-depth~~ DONE. ~~FP16-fused-cudagraph comparator~~ DONE.
+~~promote MODE=cudagraph default~~ DONE (bare invocation → mode=cudagraph → 30.75
+tok/s; MODE=eager escape hatch kept for profiling). Remaining: earn headline
+numbers; PREFILL kernel work (below); then Gemma-4 FP8.
+
+**PREFILL SCOPING DONE 2026-06-09 (microbench `tools/prefill_wmma_microbench_vllm021.sh`,
+file-verified) — the 169s TTFT@26k is ~94% the grouped MoE kernels, and the root
+cause is bigger than "no WMMA":**
+- (A) Dense WMMA(tensor-core) vs A.2(CUDA-core) on N=K=4096: WMMA = **8–9.8×**
+  faster (17 vs 1.75 TFLOP/s at M=2048). Tensor cores are a big prefill win.
+- (B) Grouped MoE kernels (the prefill path) run at **0.24 (w13) / 0.29 (w2)
+  TFLOP/s** — ~7× slower than even dense A.2, ~70× slower than WMMA. At R=32768:
+  w13 389ms + w2 164ms = 553ms/layer.
+- Extrapolation: GLM 26k prefill R=209,584 rows/layer ×45 layers ×553ms×(R/32768)
+  = **~159s ≈ the measured 169s TTFT. So grouped MoE = ~94% of prefill.**
+- **ROOT CAUSE:** the grouped kernel launches ONE CTA PER ROUTED ROW
+  (`gridDim.y=R`, M=1/CTA) = a per-row GEMV with ZERO cross-row weight reuse
+  (re-reads each expert weight per row → bandwidth-bound → 0.24 TFLOP/s). Fine for
+  DECODE (R=topk tiny, cudagraphed — why decode is great), terrible for PREFILL
+  (R=200k).
+- **PLAN (the prefill project):** a TILED grouped GEMM for the prefill path —
+  sort/group routed rows by expert, then a real per-expert [M_e,K]×[N,K] GEMM that
+  REUSES the weight across rows. Tiled CUDA-core (A.2-class) alone → ~7× → 169s→~24s;
+  + WMMA (dequant FP8→FP16 in regs, HMMA.884, the existing PoC's approach but for
+  CHANNEL scale block_h=1, which the PoC doesn't yet support) → ~10–15s. Dispatch:
+  large R (prefill) → tiled kernel; small R (decode) → keep the per-row kernel
+  (cudagraphed). This is its own kernel project; decode is unaffected.
+
+**STAGE 1 DONE + VALIDATED 2026-06-09 — and it CORRECTS the "94% MoE" claim.**
+Implemented `_v100_ct_tiled_prefill_moe` (group rows by expert → per-expert a2(w13
+FP8) + cuBLAS(w2 FP16)), dispatched at R≥256 (`VLLM_V100_CT_MOE_PREFILL_TILED=1`,
+`_MIN_R=256`); decode (R<256, cudagraph) untouched. Numtest
+`ct_fp8_tiled_prefill_numtest_vllm021.sh`: tiled vs per-row grouped **cos=1.00000**,
+both match FP32 ref. E2E (MODE=cudagraph): **26k TTFT 169s→74s (2.3×)**, 6k 32s→14s,
+decode UNCHANGED (30.86/27.03/18.62), coherent, ENGAGED.
+- Overhead microbench `tiled_prefill_overhead_microbench_vllm021.sh` (R=209584):
+  tiled MoE = **9.7× on the kernels** (364 vs 3538 ms/layer → 16.4s vs 159s/45L),
+  grouping+scatter only **3%** (Codex's caution — clean, not the bottleneck). The
+  per-expert a2(w13) loop is 341ms (94% of tiled MoE); w2 cuBLAS 11ms.
+- **KEY CORRECTION:** MoE was NOT 94% of *in-model* prefill — that extrapolation
+  measured only the MoE kernel in isolation. After tiling MoE to ~16s, e2e is still
+  74s, so the remaining **~58s is the DENSE CT Linears (qkv/o_proj)** which ALSO run
+  A.2 CUDA-core at prefill: they're CHANNEL scale (block_h=1), and `wmma_layer_ok`
+  needs block_h=128, so they fall to A.2 (1.75 TFLOP/s) — plus attention prefill at
+  26k. (The 46 *fallback* Linears use dequant-FP16+cuBLAS = fast; the 138 *resident*
+  channel Linears are the slow ones — a prefill-vs-memory tradeoff the WMMA kernel
+  resolves.)
+- **STAGE 2 = a CHANNEL-SCALE WMMA kernel** (extend the PoC from block_h=128 to
+  block_h=1). It speeds BOTH the dense Linears AND the tiled-MoE-w13 loop (both A.2
+  today). Bench: WMMA 9.8× over A.2 → projected e2e **74s → ~20s**. Decode
+  (FP8-resident + cudagraph, 30.7) is unaffected.
+
+**STAGE 2 DONE + the projection was WRONG (honest result) 2026-06-09.** Extended the
+WMMA kernel to block_h=1 (per-output-row scale; `sr=(block_h==1)?n_start+row:scale_row`
+at the 2 dequant sites + binding relax). Standalone numtest
+`ct_fp8_channel_wmma_numtest_vllm021.sh`: channel-WMMA cos=1.00000 L2rel=3e-4,
+block_h=128 no-regression. Wired into dense `_v100_fp8_gemm` (channel N%64==0 →
+WMMA at prefill M; `VLLM_V100_CT_CHANNEL_WMMA=1` kill switch; decode M≤8→A.3
+untouched). A/B 26k (both tiled-prefill on): WMMA off=74.1s, on=**63.9s** — only
+**−10s (1.16×)**, decode unchanged (18.6), coherent. **LESSON: the "dense Linears
+≈40s" estimate was WRONG — they were ~11s.** So the isolated microbenches (tiled
+MoE=16s, dense=11s) do NOT explain the in-model 64s. **PHASE 4 TOTAL: 169s→64s
+(2.6×).** NEXT: **STOP ESTIMATING — instrument the real prefill** (per-section CUDA
+timers in the forward). Prime suspect = the per-expert PYTHON LOOP launch overhead
+in the live engine (128 experts × 45 layers ≈ 5760 sequential tiny a2/cuBLAS
+launches — a tight microbench loop hides it, the live engine pays it) + attention
+at 26k. If loop-bound, the fix is **Stage 1.5 = ONE fused grouped-tiled CUDA kernel**
+(on-device routing, one launch/layer), NOT more WMMA. MoE-w13 partial-N WMMA
+(N=352, Stage 2b) deferred.
+
+**STAGE 1.5a DONE 2026-06-09 — fused w13 works; it REVEALED the prefill floor is
+ATTENTION, not our code.** Built `fp8_w8a16_grouped_tiled_gemm` (ONE launch/layer,
+per-tile expert via binary search over GPU-side offsets; sync-free route-prep =
+argsort+scatter_add+cumsum, NO `.tolist()`). Numtest
+`ct_fp8_fused_tiled_numtest_vllm021.sh` bit-identical to per-expert a2 (cos=1.0;
+partial-N=352, 0-tile experts, BM-tails). **w2 A/B (Codex's catch): per-row grouped
+kernel is a DECODE kernel — 43s GPU at prefill R=209k (no cross-row reuse). Option A
+(fused w13 + grouped w2) = 94s REGRESSED; option B (fused w13 + per-expert cuBLAS
+w2) = 60.2s SHIPPED.** `VLLM_V100_CT_MOE_PREFILL_FUSED=1`. PROFILE(B): fused_prep
+sync-free 111ms (17.5s grouping stall GONE); our-code wall/GPU = 1.09 = **GPU-bound
+(host-loop overhead RETIRED)**, but our code is only ~17s of the 60s TTFT → **~42s
+(70%) is OUTSIDE our kernels = self-attention@26k + TP all-reduce.** PHASE 4 TOTAL
+169s→60s (2.8×), decode 30.7 untouched. **MoE/Linear prefill has hit DIMINISHING
+RETURNS — floor is now attention+comm.** Contained lever left = Stage 1.5b: WMMA on
+the 12s w13 GPU (channel-WMMA exists, needs partial-N N=352 to wire into the fused
+kernel; ~10s → ~50s). Big ~42s residual = separate V100-Flash-attn project. C++
+wrapper hardening added (route-layout numel==E, weight [E,N,K]).
+
+**Optimization stance / backlog:** GLM-Air is now in a working, serving-viable
+FP8-resident envelope, but this does **not** mean every kernel/path is fully
+optimized. We made the path work, removed the dominant w2 Python-loop bottleneck,
+and unlocked cudagraph. Further tuning is intentionally demand-driven: if a real
+workload shows a problem, investigate that bucket and update this log with the new
+evidence. Known remaining optimization categories:
+- **Decode-at-depth / attention-KV behavior:** short-context decode is ~31 tok/s
+  even under MAXLEN=32k, but true 8k/32k-prompt decode is still the measurement
+  that decides whether attention/KV scheduling needs work.
+- **Dense FP8 GEMM:** likely suboptimal. This is not urgent for the large-MoE
+  target, but becomes important if the goal is dense 27B-class FP8 on one 32GB
+  V100.
+- **MoE w13 GEMM:** still CUDA-core grouped FP8. Cudagraph makes decode
+  comfortable, so WMMA/tensor-core w13 is no longer immediate, but it remains a
+  possible prefill or throughput lever.
+- **Wrapper allocation / epilogue cleanup:** C++ wrappers allocate FP32 outputs
+  (`torch::zeros`) and cast to FP16; capturable but not ideal. Preallocated
+  buffers or fused epilogues could reduce overhead.
+- **Route/scatter fusion:** `index_select`, activation, route weight, and
+  `index_add_` remain separate ops. A fused MoE path could reduce launch count and
+  memory traffic if profiling shows it matters.
+- **Comparators / promotion:** FP16-fused cudagraph is the fair short-context
+  single-stream comparator; run it before broad headline claims. Promote
+  `MODE=cudagraph` for GLM-Air only after the long-prompt and comparator story is
+  clear.
+
+---
+
+## Session handoff (2026-06-09) — Phase 2d: GLM-Air mixed-MoE w2 decode FIXED + VALIDATED
+
+Co-developed with **Codex** (OpenAI o-series CLI peer reviewer — the user relays
+analyses between Claude and Codex; this is the official subscription name, not
+"GPT"). Codex implemented the kernel in the working tree in parallel; Claude
+reviewed, fixed a real gap, and ran all the hardware gates.
+
+**What shipped:** the GLM-4.5-Air-FP8 mixed-MoE decode bottleneck is gone. The old
+`_v100_ct_mixed_moe_routed` ran w2 (down) as a per-expert Python loop
+(`for e in torch.unique(expert_ids).tolist(): hidden[m] @ w2[e].T`) — a GPU→CPU
+sync + Python loop every layer every token, pinning decode at ~0.37 tok/s. It's
+replaced by a single grouped FP16 routed GEMM launch.
+
+**Design (Claude + Codex consensus): keep w2 FP16, route through a NEW grouped
+kernel** `fp16_grouped_routed_gemm` (in `fp8_dequant.cu`). Chosen OVER making w2
+FP8-resident (pad K 176→256) because the FP16 kernel uses scalar `__half` loads →
+handles GLM's K=I/TP=176 (not 128-aligned) natively with no padding, and adds zero
+FP8 rounding to w2. The big memory win was already w13-free; w2's 176 K-tail is
+small, so keeping it FP16 is a good trade. Flag `VLLM_V100_CT_MOE_W2_GROUPED=1`
+(default on; `=0` kill switch → the old loop). `_K_SPLIT` tunes K-occupancy,
+`_CHUNK` bounds routed rows per launch.
+
+**Claude's fixes on top of Codex's kernel:**
+- The new kernel launches `gridDim.y = R` like the w13 kernel, so long-context
+  prefill (R = M·topk > 65535) would crash *"invalid configuration argument"*.
+  Codex had defined `_CT_MOE_W2_CHUNK` but left it UNWIRED — Claude added the
+  R-chunk loop mirroring w13.
+- Forwarded the 3 W2 env vars into the container in
+  `glm45_air_fp8_load_vllm021.sh` (the kill switch was uncontrollable before).
+- Made the load script STREAM the generation so it reports decode tok/s (TTFT vs
+  steady-state), and surface the w2 self-check tally.
+- Added a load-time real-weight w2 self-check (`_ct_moe_selfcheck_w2`, mirrors
+  the w13 one), gated by `VLLM_V100_CT_FP8_MOE_SELFCHECK=1`.
+
+**Validation (all on 8×V100 TP8, files in `/tmp/v100_w2_ab/`, `/tmp/v100_gateB/`):**
+- Kernel unit test `tools/ct_fp16_w2_grouped_numtest_vllm021.sh` — 10/10 PASS
+  (decode/prefill R, partial-N, K=176 tail, k_split 1/2, invalid −1 routes,
+  R=0), L2rel≈2e-4, cos=1.000000 vs an FP32 reference.
+- Real-weight w2 self-check — **45/45 layers OK, bad=0, L2rel=0.0002** on the
+  actual GLM w2 weights (w13 also 45/45, no regression).
+- Decode A/B (both temp=0): **grouped 2.71 tok/s vs loop 0.37 → ~7.3×**, TTFT
+  0.53s vs 2.80s. Both coherent.
+- **Gate B** `tools/ct_mixed_moe_e2e_diff_vllm021.sh` (pure-FP16 baseline vs
+  grouped-w2-mixed, all 45 layers) — diverges at char 127/1000, LATE + both
+  outputs fully coherent (clean France-essay planning), mixed ERR=0, self-check
+  BAD=0, ENGAGED + FREED. PASS per Codex's bar (no early <char-40 divergence =
+  no missing-shared bug; tiny FP8-rounding numeric diff acceptable).
+
+**THE HONEST PERF FRAMING (important — don't overclaim):** the mixed path is a
+**memory-and-concurrency win, NOT a single-stream speed win.** Gate B measured the
+pure-FP16 fused-MoE baseline at **4.65 tok/s** vs mixed **2.68 tok/s** — mixed is
+~1.7× SLOWER per stream because our w13/w2 grouped kernels are CUDA-core while the
+FP16 fused path uses tensor cores. What mixed buys: it FREES ~8.3 GB/GPU FP16 w13
+→ KV cache 168k→572k tokens, concurrency ~82×→279×, and 32k context the FP16-fused
+path can't fit. Grouped w2's actual win = it moved mixed from 0.37 (7× slower than
+baseline → unusable) to 2.68 (1.7× slower → serving-viable) while keeping that
+memory advantage. For multi-user serving the aggregate throughput likely flips in
+mixed's favor (far more concurrent streams). 2.68 eager is still below the
+comfortable single-stream UX band, so **headline tok/s claims are NOT yet earned.**
+
+**NEXT (agreed order, Claude + Codex):**
+1. ~~Real-weight w2 self-check~~ DONE (45/45).
+2. ~~Update SESSION_LOG / README~~ (this entry; README pending).
+3. **Scope FP8 cudagraph** — the big lever. Prior evidence: cudagraph gave the
+   GPTQ-Int4 122B path ~10× over eager. Our FP8 grouped kernels launch on a
+   custom CUDA stream (`V100_FP8_STREAM`) — the key question is whether they're
+   cudagraph-capturable on Volta, or need rework. This is the path to lifting
+   2.68 toward/past the FP16-fused 4.65.
+4. **WMMA w13 GEMM** after cudagraph constraints are understood (tensor-core
+   w13 would close the per-kernel gap; gate on a microbench).
+
+---
+
+## Session handoff (2026-06-08) — vLLM 0.21 stock sm_70 base validated
+
+The vLLM 0.21.0 source-build lane is no longer hypothetical. The current
+experimental image is `vllm-v100:vllm021-cu126`, built from
+`/home/kumphanartd/vllm-0.21` using `docker/Dockerfile.vllm021_cu126`.
+
+Key stack decision:
+- vLLM 0.21 pins torch 2.11.0. Use the **cu126** PyTorch wheel because
+  torch 2.11+cu128 no longer includes Volta in `torch.cuda.get_arch_list()`.
+- CUDA 12.6 source build still keeps the `sm_70` path viable. CUDA 13 remains
+  out of bounds.
+
+Validation artifacts:
+- `/tmp/v100_smoke021/SUMMARY.txt`
+- `/tmp/v100_smoke021/SUMMARY_modes.txt`
+- `/tmp/v100_smoke021/*_sample.txt`
+- `/tmp/v100_smoke021/*_serve.log`
+
+Stock vLLM 0.21.0, no FP8 patches, on Tesla V100:
+
+| Model | eager tok/s | cudagraph tok/s | cudagraph + MTP |
+|---|---:|---:|---|
+| Qwen3.6-27B FP16 dense GDN | 6.81 | 36.28 | 42.32, exact-match/lossless, 82.6% accept |
+| Qwen3.6-35B-A3B FP16 MoE | 6.61 | 15.34 | coherent but exact-diff, 86.0% accept |
+| gemma-4-31B-it FP16 dense | 8.11 | 28.50 | no MTP head |
+| Qwen3.5-122B-A10B GPTQ-Int4 TP8 | 5.31 | 52.01 | worker-init crash |
+
+Interpretation:
+- Gate 4 passed: stock vLLM 0.21.0 runs on V100 in eager and cudagraph across
+  dense, MoE, GPTQ-Int4, and Gemma 4 workloads.
+- Cudagraph on Volta is real and high leverage. The 122B-Int4 baseline reaches
+  52.01 tok/s, roughly 9.8x its eager speed.
+- MTP is validated on the dense 27B canary with token-for-token exact output
+  vs cudagraph.
+- 35B-A3B MTP exactness failure is likely benign MoE+FP16 nondeterminism: the
+  output is coherent and forks only after a long identical prefix. Acceptance
+  alone is not a correctness proof; keep exact/diff or sample-text checks.
+- 122B-Int4 MTP crash is separate from FP8. The MTP head is recognized, but the
+  Volta GPTQ path is constrained to `gptq_gemm`; Marlin is not available on
+  `sm_70`.
+
+Next work:
+- Start the FP8 W8A16 port to vLLM 0.21. The source inspection found the main
+  insertion points still intact: `Fp8Config.get_min_capability`,
+  `Fp8LinearMethod` init/PWAL/apply, and `Fp8MoEMethod` /
+  `Fp8OnlineMoEMethod` init/PWAL/apply.
+- Use the existing 0.21 smoke scripts as the stock-base harness, then add an
+  FP8 path once the mounted `fp8_w8a16_sm70.vllm_serve` wrapper engages under
+  the 0.21 image.
+- Defer the 35B-MTP divergence investigation unless it becomes relevant to an
+  FP8 MTP claim.
+
 ---
 
 ## Session 4 handoff (2026-05-24) — installable package + memory migration
@@ -2117,3 +2531,173 @@ Test infrastructure (also under `/tmp`, not committed; archived to
 - `/tmp/exactness_prompts.json` — 11-prompt suite
 - `/tmp/run_exactness.py` — comparison script with `--record-only` and
   `--baseline-from-file` flags added during the 122B sequential test.
+
+---
+
+## Session handoff (2026-06-10) — Qwen3.6-27B FP8 coalesced decode, M<=8 probe
+
+Dense FP8 decode slowness was traced to A.3's strided per-output-row weight
+loads. The separate coalesced M=1 kernel fixed the single-stream case:
+
+| Qwen3.6-27B-FP8 TP=4 decode path | tok/s |
+|---|---:|
+| A.3 baseline | 11.75 |
+| coalesced M=1, unroll=2 | 35.08 |
+| coalesced M=1, unroll=4 | 37.24 |
+
+M=1 is effectively proven: Qwen and Gemma both transfer, with Gemma CT-channel
+landing at 28.24 tok/s (97.5% of FP16) on Claude's repeat.
+
+### M<=8 kernel prototype
+
+Implemented a second, gated M<=8 proof kernel rather than rewriting A.3. Shape:
+one CTA per N tile, 8 warps/CTA, each warp owns one output column, reads W once
+coalesced along K, stages up to 8 activation rows in shared memory, and accumulates
+all M rows before writing `[M,N]`. This removes the old proof kernel's repeated
+weight read per row.
+
+Controls:
+- `VLLM_V100_FP8_COALESCED_GEMV=1`
+- `VLLM_V100_FP8_COALESCED_UNROLL=4` for the M=1 kernel
+- `VLLM_V100_FP8_COALESCED_M_UNROLL=8` for the M<=8 kernel
+- `VLLM_V100_FP8_COALESCED_GEMV_M_MAX=8` to enable the M<=8 path
+
+Correctness: `tools/qwen27b_fp8_coalesced_numtest.py` passes M=1,2,8 for both
+block scale (`block_h=128`) and channel scale (`block_h=1`), with cos≈1.0.
+
+Kernel microbench on Qwen attention shape (`N=K=5120`):
+
+| path | M=2 | M=4 | M=8 |
+|---|---:|---:|---:|
+| old M<=8 proof kernel | n/a | n/a | ~0.602 ms |
+| new tiled M<=8, unroll=2 | ~0.217 ms | ~0.220 ms | ~0.223 ms |
+| new tiled M<=8, unroll=4 | ~0.218 ms | ~0.220 ms | ~0.224 ms |
+| new tiled M<=8, unroll=8 | ~0.214 ms | ~0.215 ms | ~0.217 ms |
+
+This is a real kernel-side win: M=8 is about 2.8x faster than the first proof and
+about 4.6x faster than A.3 k=4 (~1.006 ms). It is still about 2.2x slower than
+cuBLAS FP16 (~0.096-0.110 ms), and M-unroll barely moves the result, so the next
+M<=8 kernel limit is likely accumulator/reduction/scheduling or M-specialization,
+not simple HBM load coalescing.
+
+### First concurrent e2e sniff
+
+Two TP=4 Qwen servers were run concurrently:
+- GPUs 0-3, port 8026: coalesced M=1 only (`M_MAX=1`)
+- GPUs 4-7, port 8027: M<=8 enabled (`M_MAX=8`, `M_UNROLL=8`)
+
+The M=1-only 4-concurrent client effectively stalled and fell back heavily into
+A.3 variants. The M<=8 server genuinely used the new path during graph capture
+and decode (example counter mix: `Coalesced GEMV-M=2816`, about 70% of calls) and
+completed 4 simultaneous 256-token requests:
+
+`m8_enabled port=8027 concurrent=4 total_tokens=1024 wall=59.313s aggregate_tok_s=17.264`
+
+Conclusion: M<=8 is correct and the kernel-side proof is promising, but the first
+multi-user e2e number is not yet a production win. It removes the pathological
+M=1-only stall, yet aggregate throughput is far below the 37.24 tok/s single-stream
+M=1 result. The next experiment should profile concurrent decode with breakdown
+enabled (attention/GDN/AR/scheduler/cudagraph-shape effects), and also test
+concurrency 2 and 4 with shorter generations to separate capture/warmup bubbles
+from steady-state throughput.
+
+Claude's Gemma-4 dense repeat changes the priority: pure dense Gemma on the same
+coalesced M<=8 kernel scales correctly under concurrency, while Qwen hybrid does
+not. Gemma dense FP8-resident numbers:
+
+| config | C=1 aggregate | C=2 aggregate | C=4 aggregate | C=4 per-stream |
+|---|---:|---:|---:|---:|
+| M<=8 coalesced | 24.94 | 16.16* | 45.28 | 12.37 |
+| M=1/A.3 fallback | 25.00 | 12.19 | 19.73 | 5.12 |
+
+`*` C=2 was marked an outlier due to TTFT spike. The useful signal is C=4:
+M<=8 coalesced beats fallback 2.3x aggregate and scales upward from single-stream.
+
+Revised conclusion: the scary Qwen C=4 cliff is not a generic coalesced M<=8
+kernel failure and not a generic cudagraph failure. It is Qwen hybrid-specific,
+most likely in the GDN/MoE decode path, state update, expert dispatch, or
+scheduler interaction under concurrency. M-specific GEMV specialization is now
+polish, not the next highest-value step.
+
+Recommended next Qwen branch:
+1. Run Qwen hybrid concurrency probes at C=2 and C=4 with decode breakdown enabled:
+   `VLLM_V100_FP8_DECODE_BREAKDOWN=1`,
+   `VLLM_V100_FP8_DECODE_BREAKDOWN_GDN_SUBS=1`,
+   `VLLM_V100_FP8_DECODE_BREAKDOWN_MOE_SUBS=1`,
+   `VLLM_V100_FP8_MOE_OTHER_PROFILE=1`, and AR profiling if row-parallel all-reduce
+   is in the path.
+2. Keep `VLLM_V100_FP8_COALESCED_GEMV_M_MAX=8` enabled so GEMV is not the known
+   bottleneck while profiling the hybrid path.
+3. Compare Qwen dense-ish sections against Gemma dense: if GEMV counters look good
+   but per-token wall is bad, focus on GDN/MoE Python/vLLM bookkeeping and captured
+   graph shape selection rather than CUDA GEMV.
+
+Claude's Gemma-26B-A4B MoE concurrency discriminator closed the GDN-vs-MoE fork:
+
+| Gemma-26B-A4B MoE config | C=1 aggregate | C=2 aggregate | C=4 aggregate | C=4 per-stream |
+|---|---:|---:|---:|---:|
+| M<=8 coalesced attention + resident MoE | 38.14 | 26.59* | 110.95 | 30.38 |
+| M=1/A.3 attention fallback + resident MoE | 37.86 | 37.61 | 66.59 | 18.04 |
+
+`*` C=2 had the same TTFT/capture bubble and should not drive the trend. The C=4
+signal is decisive: MoE routing/grouped/scatter scales very well on the same
+stack, while Qwen does not. GDN is now the only remaining primary suspect.
+
+Immediate Qwen-specific hypothesis from source read:
+- `Qwen3NextGatedDeltaNet` has a default-on packed recurrent decode fast path,
+  gated by `VLLM_ENABLE_FLA_PACKED_RECURRENT_DECODE=1`.
+- The packed path calls `fused_recurrent_gated_delta_rule_packed_decode` after
+  `causal_conv1d_update`.
+- Disabling the flag routes decode through the generic
+  `fused_sigmoid_gating_delta_rule_update` path.
+
+New harness added:
+- `tools/qwen_gdn_concurrency_ab_vllm021.sh`
+
+It keeps coalesced M<=8 enabled and runs:
+- `packed_cg`: packed recurrent decode ON, cudagraph
+- `unpacked_cg`: packed recurrent decode OFF, cudagraph
+- `packed_eager_profile`: packed ON, eager + breakdown
+- `unpacked_eager_profile`: packed OFF, eager + breakdown
+
+Readout:
+- If `unpacked_cg` fixes C=4 aggregate/per-stream, the cliff is inside the packed
+  recurrent GDN fast path.
+- If both cudagraph configs collapse, use the eager profile rows to split
+  `gdn_core`, `gdn_out_proj`/AR, and `gdn_other` under concurrency.
+- If eager behaves but cudagraph collapses, investigate GDN metadata/fixed-buffer
+  capture behavior in `vllm/v1/attention/backends/gdn_attn.py`.
+
+Result: the Qwen "GDN cliff" did NOT reproduce under a streaming steady-state
+harness. Packed recurrent decode is not the culprit.
+
+Parallel CUDAGRAPH A/B, Qwen3.6-27B-FP8 TP=4, coalesced M<=8 enabled,
+`MAXTOK=128`, streaming per-token measurement:
+
+| Qwen GDN config | C=1 aggregate | C=1 per-stream | C=2 aggregate | C=2 per-stream | C=4 aggregate | C=4 per-stream |
+|---|---:|---:|---:|---:|---:|---:|
+| packed recurrent decode ON | 28.96 | 36.56 | 19.97 | 13.57 | 49.82 | 15.29 |
+| packed recurrent decode OFF | 26.81 | 36.64 | 20.32 | 13.57 | 48.28 | 14.98 |
+
+C=2 has the same TTFT/capture bubble pattern seen in Gemma. The C=4 signal is
+the important one: aggregate scales up, and packed vs unpacked is identical
+within noise.
+
+Confirmation at the original longer decode length, `MAXTOK=256`, packed ON:
+
+`packed_cg: C=4 aggregate=56.04 tok/s per_stream_decode=15.65 tok/s ttft=1.91s ok=4/4`
+
+Revised conclusion: the earlier Qwen C=4 `17.26 tok/s` result was a harness /
+request-shape / TTFT artifact, not a real GDN or MoE concurrency collapse. The
+coalesced M<=8 path is healthy on Qwen too:
+- C=1: single-stream per-stream decode remains ~36.6 tok/s.
+- C=4: aggregate reaches ~50-56 tok/s.
+- `VLLM_ENABLE_FLA_PACKED_RECURRENT_DECODE` does not materially affect decode
+  throughput in this test.
+
+Do not pursue GDN kernel surgery from the old cliff number. The remaining real
+issue is ordinary sub-linear batching efficiency: C=4 aggregate is ~1.35-1.5x
+single-stream rather than 4x, similar in kind to Gemma though lower. Future work
+should package the dense/MoE/Qwen coalesced win and only revisit GDN if a
+production traffic harness reproduces a steady-state collapse with streaming
+inter-token metrics.
