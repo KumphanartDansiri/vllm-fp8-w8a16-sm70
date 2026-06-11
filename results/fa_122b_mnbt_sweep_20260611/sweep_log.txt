@@ -1,0 +1,11 @@
+######## MNBT=8192 ########
+[fa-ab]   healthy after 250s; warmup...
+trial1	OK	prompt_tokens=23001	ttft=39.09s	decode=32.49 tok/s	Thinking Process: 1. **Analyze the Request:** * Input: A very long text consisting of the same sente
+trial2	OK	prompt_tokens=24046	ttft=38.94s	decode=31.99 tok/s	Thinking Process: 1. **Analyze the Request:** * Input: A very long text consisting of the same sente
+fa: trial1	OK	prompt_tokens=23001	ttft=39.09s	decode=32.49 tok/s	Thinking Process: 1. **Analyze the Request:** * Input: A very long text consisting of the same sente trial2	OK	prompt_tokens=24046	ttft=38.94s	decode=31.99 tok/s	Thinking Process: 1. **Analyze the Request:** * Input: A very long text consisting of the same sente 
+######## MNBT=16384 ########
+[fa-ab]   healthy after 250s; warmup...
+trial1	OK	prompt_tokens=23001	ttft=29.82s	decode=32.50 tok/s	Thinking Process: 1. **Analyze the Request:** * Input: A very long text consisting of the same sente
+trial2	OK	prompt_tokens=24046	ttft=29.94s	decode=32.05 tok/s	Thinking Process: 1. **Analyze the Request:** * Input: A very long text consisting of the same sente
+fa: trial1	OK	prompt_tokens=23001	ttft=29.82s	decode=32.50 tok/s	Thinking Process: 1. **Analyze the Request:** * Input: A very long text consisting of the same sente trial2	OK	prompt_tokens=24046	ttft=29.94s	decode=32.05 tok/s	Thinking Process: 1. **Analyze the Request:** * Input: A very long text consisting of the same sente 
+fa: trial1	OK	prompt_tokens=23001	ttft=29.82s	decode=32.50 tok/s	Thinking Process: 1. **Analyze the Request:** * Input: A very long text consisting of the same sente trial2	OK	prompt_tokens=24046	ttft=29.94s	decode=32.05 tok/s	Thinking Process: 1. **Analyze the Request:** * Input: A very long text consisting of the same sente 
