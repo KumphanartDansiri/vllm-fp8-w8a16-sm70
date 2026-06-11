@@ -43,7 +43,7 @@ SKIP_MM="${SKIP_MM:-0}"   # 1 = --skip-mm-profiling (ch1 standard for VL-capable
 MNBT="${MNBT:-}"          # --max-num-batched-tokens (chunked-prefill granularity; default vllm 2048)
 MODEL="${MODEL:-/mnt/models/zai-org/GLM-4.5-Air-FP8}"
 MODE="${MODE:-cudagraph}"   # eager: for models whose decode-graph capture fails (122B hybrid)
-TP=8
+TP="${TP:-8}"
 if [[ "$MODE" == "cudagraph" ]]; then
     EXEC_OPTS=(--compilation-config '{"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY"}')
 else
@@ -75,7 +75,7 @@ run_arm() {
     cname="faab_${label}"; slog="$OUT/${label}_serve.log"
     note "=== arm=$label VLLM_V100_FLASH_ATTN=$faflag (TP=$TP block=256 maxlen=$MAXLEN prompt=$PROMPT_TOKENS) ==="
     docker rm -f "$cname" >/dev/null 2>&1 || true
-    docker run --rm -i --name "$cname" --gpus '"device=0,1,2,3,4,5,6,7"' \
+    docker run --rm -i --name "$cname" --gpus "\"device=$(seq -s, 0 $((TP-1)))\"" \
         -v /mnt/models:/mnt/models:ro \
         -v "$PROJECT_ROOT":/work -w /work \
         -v "$OUT/pylib":/falib:ro \
