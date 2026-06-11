@@ -1,0 +1,16 @@
+[fa_v100_prefill pid=1] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[fa_v100_prefill pid=328] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[fa_v100_prefill pid=483] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[fa_v100_prefill pid=485] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[fa_v100_prefill pid=482] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[fa_v100_prefill pid=484] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+(EngineCore pid=328) INFO 06-11 17:50:09 [kv_cache_utils.py:1710] GPU KV cache size: 218,368 tokens
+(EngineCore pid=328) INFO 06-11 17:50:09 [kv_cache_utils.py:1711] Maximum concurrency for 16,384 tokens per request: 13.33x
+(Worker_TP1 pid=483) [fa_v100_prefill pid=483] densify q stride=(1792, 128, 1) -> contiguous (1280-dense; vLLM qkv-split view, ~0.2ms @24k)
+(Worker_TP1 pid=483) [fa_v100_prefill pid=483] prefill -> flash_attn_v100 (T_Q=8 B=1 Hq=10 Hk=2 D=128 block=256 max_sk=8)
+(Worker_TP3 pid=485) [fa_v100_prefill pid=485] densify q stride=(1792, 128, 1) -> contiguous (1280-dense; vLLM qkv-split view, ~0.2ms @24k)
+(Worker_TP3 pid=485) [fa_v100_prefill pid=485] prefill -> flash_attn_v100 (T_Q=8 B=1 Hq=10 Hk=2 D=128 block=256 max_sk=8)
+(Worker_TP2 pid=484) [fa_v100_prefill pid=484] densify q stride=(1792, 128, 1) -> contiguous (1280-dense; vLLM qkv-split view, ~0.2ms @24k)
+(Worker_TP2 pid=484) [fa_v100_prefill pid=484] prefill -> flash_attn_v100 (T_Q=8 B=1 Hq=10 Hk=2 D=128 block=256 max_sk=8)
+(Worker_TP0 pid=482) [fa_v100_prefill pid=482] densify q stride=(1792, 128, 1) -> contiguous (1280-dense; vLLM qkv-split view, ~0.2ms @24k)
+(Worker_TP0 pid=482) [fa_v100_prefill pid=482] prefill -> flash_attn_v100 (T_Q=8 B=1 Hq=10 Hk=2 D=128 block=256 max_sk=8)

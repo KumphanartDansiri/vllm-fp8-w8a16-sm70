@@ -1,0 +1,12 @@
+[fa_v100_prefill pid=1] disabled (VLLM_V100_FLASH_ATTN unset)
+[fa_v100_prefill pid=328] disabled (VLLM_V100_FLASH_ATTN unset)
+[fa_v100_prefill pid=482] disabled (VLLM_V100_FLASH_ATTN unset)
+[fa_v100_prefill pid=484] disabled (VLLM_V100_FLASH_ATTN unset)
+[fa_v100_prefill pid=483] disabled (VLLM_V100_FLASH_ATTN unset)
+[fa_v100_prefill pid=485] disabled (VLLM_V100_FLASH_ATTN unset)
+(Worker_TP1 pid=483) [fa_v100_prefill pid=483] disabled (VLLM_V100_FLASH_ATTN unset)
+(Worker_TP3 pid=485) [fa_v100_prefill pid=485] disabled (VLLM_V100_FLASH_ATTN unset)
+(Worker_TP2 pid=484) [fa_v100_prefill pid=484] disabled (VLLM_V100_FLASH_ATTN unset)(Worker_TP0 pid=482) 
+[fa_v100_prefill pid=482] disabled (VLLM_V100_FLASH_ATTN unset)
+(EngineCore pid=328) INFO 06-11 19:01:54 [kv_cache_utils.py:1710] GPU KV cache size: 230,093 tokens
+(EngineCore pid=328) INFO 06-11 19:01:54 [kv_cache_utils.py:1711] Maximum concurrency for 16,384 tokens per request: 14.04x

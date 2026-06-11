@@ -1,0 +1,2 @@
+trial1	OK	prompt_tokens=10630	ttft=18.90s	decode=15.21 tok/s	The expedition was measuring glacier retreat, soil moisture, and the migration of mountain birds.
+trial2	OK	prompt_tokens=11113	ttft=20.14s	decode=14.98 tok/s	The expedition measured glacier retreat, soil moisture, and the migration of mountain birds.

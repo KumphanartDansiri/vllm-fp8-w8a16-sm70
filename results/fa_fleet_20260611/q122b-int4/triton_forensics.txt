@@ -1,0 +1,20 @@
+[fa_v100_prefill pid=1] disabled (VLLM_V100_FLASH_ATTN unset)
+[fa_v100_prefill pid=333] disabled (VLLM_V100_FLASH_ATTN unset)
+[fa_v100_prefill pid=487] disabled (VLLM_V100_FLASH_ATTN unset)
+[fa_v100_prefill pid=495] disabled (VLLM_V100_FLASH_ATTN unset)
+[fa_v100_prefill pid=506] disabled (VLLM_V100_FLASH_ATTN unset)
+[fa_v100_prefill pid=522] disabled (VLLM_V100_FLASH_ATTN unset)
+[fa_v100_prefill pid=538] disabled (VLLM_V100_FLASH_ATTN unset)
+[fa_v100_prefill pid=554] disabled (VLLM_V100_FLASH_ATTN unset)
+[fa_v100_prefill pid=570] disabled (VLLM_V100_FLASH_ATTN unset)
+[fa_v100_prefill pid=586] disabled (VLLM_V100_FLASH_ATTN unset)
+(Worker_TP0 pid=487) INFO 06-11 18:47:48 [interface.py:645] Setting attention block size to 768 tokens to ensure that attention page size is >= mamba page size.
+(Worker_TP7 pid=586) INFO 06-11 18:47:48 [interface.py:645] Setting attention block size to 768 tokens to ensure that attention page size is >= mamba page size.
+(Worker_TP5 pid=554) INFO 06-11 18:47:48 [interface.py:645] Setting attention block size to 768 tokens to ensure that attention page size is >= mamba page size.
+(Worker_TP6 pid=570) INFO 06-11 18:47:48 [interface.py:645] Setting attention block size to 768 tokens to ensure that attention page size is >= mamba page size.
+(Worker_TP3 pid=522) INFO 06-11 18:47:48 [interface.py:645] Setting attention block size to 768 tokens to ensure that attention page size is >= mamba page size.
+(Worker_TP1 pid=495) INFO 06-11 18:47:48 [interface.py:645] Setting attention block size to 768 tokens to ensure that attention page size is >= mamba page size.
+(Worker_TP2 pid=506) INFO 06-11 18:47:48 [interface.py:645] Setting attention block size to 768 tokens to ensure that attention page size is >= mamba page size.
+(Worker_TP4 pid=538) INFO 06-11 18:47:48 [interface.py:645] Setting attention block size to 768 tokens to ensure that attention page size is >= mamba page size.
+(EngineCore pid=333) INFO 06-11 18:47:57 [kv_cache_utils.py:1710] GPU KV cache size: 1,408,368 tokens
+(EngineCore pid=333) INFO 06-11 18:47:57 [kv_cache_utils.py:1711] Maximum concurrency for 16,384 tokens per request: 85.96x

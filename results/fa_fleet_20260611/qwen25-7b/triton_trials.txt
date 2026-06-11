@@ -1,0 +1,2 @@
+trial1	OK	prompt_tokens=11129	ttft=6.19s	decode=56.87 tok/s	The Bravo expedition was measuring glacier retreat, soil moisture, and the migration of mountain bir
+trial2	OK	prompt_tokens=11129	ttft=6.17s	decode=57.10 tok/s	The Charlie expedition was measuring glacier retreat, soil moisture, and the migration of mountain b

@@ -1,0 +1,4 @@
+triton: trial1	OK	prompt_tokens=11108	ttft=93.67s	decode=8.71 tok/s	The bravo expedition was measuring glacier retreat, soil moisture, and the migration of mountain bir trial2	OK	prompt_tokens=11108	ttft=93.35s	decode=8.69 tok/s	The Charlie Expedition measured glacier retreat, soil moisture, and the migration of mountain birds. 
+triton: fa-route-banner=0 
+fa: trial1	OK	prompt_tokens=11108	ttft=89.93s	decode=8.70 tok/s	The bravo expedition was measuring glacier retreat, soil moisture, and the migration of mountain bir trial2	OK	prompt_tokens=11108	ttft=89.70s	decode=8.65 tok/s	The Charlie Expedition measured glacier retreat, soil moisture, and the migration of mountain birds. 
+fa: fa-route-banner=4 

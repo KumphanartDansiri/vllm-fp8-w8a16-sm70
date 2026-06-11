@@ -1,0 +1,4 @@
+triton: trial1	OK	prompt_tokens=10627	ttft=13.31s	decode=30.21 tok/s	Here's a thinking process: 1. **Analyze User Input:** - The user provided a very long text consistin trial2	OK	prompt_tokens=11110	ttft=13.12s	decode=30.01 tok/s	Here's a thinking process: 1. **Analyze User Input:** - The user provided a very long text consistin 
+triton: fa-route-banner=0 
+fa: trial1	OK	prompt_tokens=10627	ttft=9.15s	decode=30.21 tok/s	Here's a thinking process: 1. **Analyze User Input:** - The user provided a very long text consistin trial2	OK	prompt_tokens=11110	ttft=9.65s	decode=30.03 tok/s	Here's a thinking process: 1. **Analyze User Input:** - The user provided a very long text consistin 
+fa: fa-route-banner=3 

@@ -1,0 +1,20 @@
+[fa_v100_prefill pid=1] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[fa_v100_prefill pid=332] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[fa_v100_prefill pid=486] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[fa_v100_prefill pid=494] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[fa_v100_prefill pid=505] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[fa_v100_prefill pid=521] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[fa_v100_prefill pid=537] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[fa_v100_prefill pid=553] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[fa_v100_prefill pid=569] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[fa_v100_prefill pid=585] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+(Worker_TP5 pid=553) INFO 06-11 18:55:19 [interface.py:645] Setting attention block size to 768 tokens to ensure that attention page size is >= mamba page size.
+(Worker_TP0 pid=486) INFO 06-11 18:55:23 [interface.py:645] Setting attention block size to 768 tokens to ensure that attention page size is >= mamba page size.
+(Worker_TP7 pid=585) INFO 06-11 18:55:23 [interface.py:645] Setting attention block size to 768 tokens to ensure that attention page size is >= mamba page size.
+(Worker_TP4 pid=537) INFO 06-11 18:55:23 [interface.py:645] Setting attention block size to 768 tokens to ensure that attention page size is >= mamba page size.
+(Worker_TP6 pid=569) INFO 06-11 18:55:23 [interface.py:645] Setting attention block size to 768 tokens to ensure that attention page size is >= mamba page size.
+(Worker_TP1 pid=494) INFO 06-11 18:55:24 [interface.py:645] Setting attention block size to 768 tokens to ensure that attention page size is >= mamba page size.
+(Worker_TP3 pid=521) INFO 06-11 18:55:24 [interface.py:645] Setting attention block size to 768 tokens to ensure that attention page size is >= mamba page size.
+(Worker_TP2 pid=505) INFO 06-11 18:55:24 [interface.py:645] Setting attention block size to 768 tokens to ensure that attention page size is >= mamba page size.
+(EngineCore pid=332) INFO 06-11 18:55:32 [kv_cache_utils.py:1710] GPU KV cache size: 1,408,368 tokens
+(EngineCore pid=332) INFO 06-11 18:55:32 [kv_cache_utils.py:1711] Maximum concurrency for 16,384 tokens per request: 85.96x

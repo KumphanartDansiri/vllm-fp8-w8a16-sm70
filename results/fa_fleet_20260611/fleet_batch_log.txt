@@ -1,0 +1,88 @@
+[fleet] === qwen25-7b (D=128 dense) TP=2 maxlen=16384 prompt=12000 — 17:39:07Z ===
+[fleet] qwen25-7b done (rc=0)
+[fleet] === dsr1-qwen32b (D=128 dense) TP=4 maxlen=16384 prompt=12000 — 17:44:05Z ===
+[fleet] dsr1-qwen32b done (rc=0)
+[fleet] === qwen3-30b-a3b (D=128 MoE) TP=4 maxlen=16384 prompt=12000 — 17:50:46Z ===
+[fleet] qwen3-30b-a3b done (rc=0)
+[fleet] === qwen3-coder-30b (D=128 MoE) TP=4 maxlen=16384 prompt=12000 — 18:03:54Z ===
+[fleet] qwen3-coder-30b done (rc=0)
+[fleet] === mixtral-8x7b (D=128 MoE fp16) TP=4 maxlen=16384 prompt=12000 — 18:16:50Z ===
+[fleet] mixtral-8x7b done (rc=0)
+[fleet] === qwen36-27b-fp8 (D=256 GDN-hybrid) TP=4 maxlen=16384 prompt=12000 — 18:18:15Z ===
+[fleet] qwen36-27b-fp8 done (rc=0)
+[fleet] === qwen36-35b-fp8 (D=256 GDN-hybrid MoE) TP=4 maxlen=16384 prompt=12000 — 18:27:17Z ===
+[fleet] qwen36-35b-fp8 done (rc=0)
+[fleet] === gemma4-31b-fp8 (D=256 full+sliding (sliding->fallback)) TP=4 maxlen=16384 prompt=12000 — 18:38:31Z ===
+[fleet] gemma4-31b-fp8 done (rc=0)
+[fleet] === q122b-int4 (D=256 GDN-hybrid Int4) TP=8 maxlen=16384 prompt=12000 — 18:40:36Z ===
+[fleet] q122b-int4 done (rc=0)
+[fleet] FLEET COMPLETE — 18:57:18Z. Summary: /tmp/v100_fa_fleet/FLEET_SUMMARY.txt
+[fleet] === qwen25-7b (D=128 dense) TP=2 maxlen=16384 prompt=12000 — 17:39:07Z ===
+--- qwen25-7b (rc=0) ---
+triton: trial1	OK	prompt_tokens=11129	ttft=6.19s	decode=56.87 tok/s	The Bravo expedition was measuring glacier retreat, soil moisture, and the migration of mountain bir trial2	OK	prompt_tokens=11129	ttft=6.17s	decode=57.10 tok/s	The Charlie expedition was measuring glacier retreat, soil moisture, and the migration of mountain b 
+triton: fa-route-banner=0 
+fa: trial1	OK	prompt_tokens=11129	ttft=1.90s	decode=56.61 tok/s	The Bravo expedition was measuring glacier retreat, soil moisture, and the migration of mountain bir trial2	OK	prompt_tokens=11129	ttft=1.88s	decode=56.87 tok/s	The Charlie expedition was measuring glacier retreat, soil moisture, and the migration of mountain b 
+fa: fa-route-banner=2 
+fa fallback reasons: 
+[fleet] qwen25-7b done (rc=0)
+[fleet] === dsr1-qwen32b (D=128 dense) TP=4 maxlen=16384 prompt=12000 — 17:44:05Z ===
+--- dsr1-qwen32b (rc=0) ---
+triton: trial1	OK	prompt_tokens=11105	ttft=10.42s	decode=25.01 tok/s	Okay, so I'm trying to figure out what was being measured in this passage. The user provided a long  trial2	OK	prompt_tokens=11105	ttft=10.42s	decode=25.00 tok/s	Okay, so I'm trying to figure out what was being measured in the Charlie expedition's crossing of th 
+triton: fa-route-banner=0 
+fa: trial1	OK	prompt_tokens=11105	ttft=3.83s	decode=24.97 tok/s	Okay, so I'm trying to figure out what was being measured in this passage. The user provided a long  trial2	OK	prompt_tokens=11105	ttft=3.83s	decode=24.97 tok/s	Okay, so I'm trying to figure out what was being measured in the Charlie expedition's crossing of th 
+fa: fa-route-banner=4 
+fa fallback reasons: 
+[fleet] dsr1-qwen32b done (rc=0)
+[fleet] === qwen3-30b-a3b (D=128 MoE) TP=4 maxlen=16384 prompt=12000 — 17:50:46Z ===
+--- qwen3-30b-a3b (rc=0) ---
+triton: trial1	OK	prompt_tokens=11108	ttft=93.67s	decode=8.71 tok/s	The bravo expedition was measuring glacier retreat, soil moisture, and the migration of mountain bir trial2	OK	prompt_tokens=11108	ttft=93.35s	decode=8.69 tok/s	The Charlie Expedition measured glacier retreat, soil moisture, and the migration of mountain birds. 
+triton: fa-route-banner=0 
+fa: trial1	OK	prompt_tokens=11108	ttft=89.93s	decode=8.70 tok/s	The bravo expedition was measuring glacier retreat, soil moisture, and the migration of mountain bir trial2	OK	prompt_tokens=11108	ttft=89.70s	decode=8.65 tok/s	The Charlie Expedition measured glacier retreat, soil moisture, and the migration of mountain birds. 
+fa: fa-route-banner=4 
+fa fallback reasons: 
+[fleet] qwen3-30b-a3b done (rc=0)
+[fleet] === qwen3-coder-30b (D=128 MoE) TP=4 maxlen=16384 prompt=12000 — 18:03:54Z ===
+--- qwen3-coder-30b (rc=0) ---
+triton: trial1	OK	prompt_tokens=11108	ttft=95.52s	decode=8.76 tok/s	The bravo expedition was measuring glacier retreat, soil moisture, and the migration of mountain bir trial2	OK	prompt_tokens=11108	ttft=95.07s	decode=8.75 tok/s	The Charlie Expedition was measuring glacier retreat, soil moisture, and the migration of mountain b 
+triton: fa-route-banner=0 
+fa: trial1	OK	prompt_tokens=11108	ttft=91.74s	decode=8.75 tok/s	The bravo expedition was measuring glacier retreat, soil moisture, and the migration of mountain bir trial2	OK	prompt_tokens=11108	ttft=91.47s	decode=8.75 tok/s	The Charlie Expedition measured glacier retreat, soil moisture, and the migration of mountain birds  
+fa: fa-route-banner=3 
+fa fallback reasons: 
+[fleet] qwen3-coder-30b done (rc=0)
+[fleet] === mixtral-8x7b (D=128 MoE fp16) TP=4 maxlen=16384 prompt=12000 — 18:16:50Z ===
+--- mixtral-8x7b (rc=0) ---
+triton: FAIL (never healthy) — /tmp/v100_fa_ttft_ab/triton_serve.log
+fa: FAIL (never healthy) — /tmp/v100_fa_ttft_ab/fa_serve.log
+fa fallback reasons: 
+[fleet] mixtral-8x7b done (rc=0)
+[fleet] === qwen36-27b-fp8 (D=256 GDN-hybrid) TP=4 maxlen=16384 prompt=12000 — 18:18:15Z ===
+--- qwen36-27b-fp8 (rc=0) ---
+triton: trial1	OK	prompt_tokens=10627	ttft=13.31s	decode=30.21 tok/s	Here's a thinking process: 1. **Analyze User Input:** - The user provided a very long text consistin trial2	OK	prompt_tokens=11110	ttft=13.12s	decode=30.01 tok/s	Here's a thinking process: 1. **Analyze User Input:** - The user provided a very long text consistin 
+triton: fa-route-banner=0 
+fa: trial1	OK	prompt_tokens=10627	ttft=9.15s	decode=30.21 tok/s	Here's a thinking process: 1. **Analyze User Input:** - The user provided a very long text consistin trial2	OK	prompt_tokens=11110	ttft=9.65s	decode=30.03 tok/s	Here's a thinking process: 1. **Analyze User Input:** - The user provided a very long text consistin 
+fa: fa-route-banner=3 
+fa fallback reasons: 
+[fleet] qwen36-27b-fp8 done (rc=0)
+[fleet] === qwen36-35b-fp8 (D=256 GDN-hybrid MoE) TP=4 maxlen=16384 prompt=12000 — 18:27:17Z ===
+--- qwen36-35b-fp8 (rc=0) ---
+triton: trial1	OK	prompt_tokens=10627	ttft=34.23s	decode=57.31 tok/s	Here's a thinking process: 1. **Analyze User Input:** - The user provides a very long, repetitive te trial2	OK	prompt_tokens=11110	ttft=34.62s	decode=56.67 tok/s	Here's a thinking process: 1. **Analyze User Input:** - The user provides a very long, repetitive te 
+triton: fa-route-banner=0 
+fa: trial1	OK	prompt_tokens=10627	ttft=32.35s	decode=57.33 tok/s	Here's a thinking process: 1. **Analyze User Input:** - The user provides a very long, repetitive te trial2	OK	prompt_tokens=11110	ttft=33.39s	decode=56.78 tok/s	Here's a thinking process: 1. **Analyze User Input:** - The user provides a very long, repetitive te 
+fa: fa-route-banner=4 
+fa fallback reasons: 
+[fleet] qwen36-35b-fp8 done (rc=0)
+[fleet] === gemma4-31b-fp8 (D=256 full+sliding (sliding->fallback)) TP=4 maxlen=16384 prompt=12000 — 18:38:31Z ===
+--- gemma4-31b-fp8 (rc=0) ---
+triton: FAIL (never healthy) — /tmp/v100_fa_ttft_ab/triton_serve.log
+fa: FAIL (never healthy) — /tmp/v100_fa_ttft_ab/fa_serve.log
+fa fallback reasons: 
+[fleet] gemma4-31b-fp8 done (rc=0)
+[fleet] === q122b-int4 (D=256 GDN-hybrid Int4) TP=8 maxlen=16384 prompt=12000 — 18:40:36Z ===
+--- q122b-int4 (rc=0) ---
+triton: trial1	OK	prompt_tokens=10627	ttft=13.41s	decode=47.41 tok/s	Thinking Process: 1. **Analyze the Request:** * Input: A very long text consisting of the same sente trial2	OK	prompt_tokens=11110	ttft=10.31s	decode=46.80 tok/s	Thinking Process: 1. **Analyze the Request:** * Input: A very long text consisting of the same sente 
+triton: fa-route-banner=0 
+fa: trial1	OK	prompt_tokens=10627	ttft=8.52s	decode=47.27 tok/s	Thinking Process: 1. **Analyze the Request:** * Input: A very long text consisting of the same sente trial2	OK	prompt_tokens=11110	ttft=8.83s	decode=46.84 tok/s	Thinking Process: 1. **Analyze the Request:** * Input: A very long text consisting of the same sente 
+fa: fa-route-banner=8 
+fa fallback reasons: 
+[fleet] q122b-int4 done (rc=0)
+[fleet] FLEET COMPLETE — 18:57:18Z. Summary: /tmp/v100_fa_fleet/FLEET_SUMMARY.txt

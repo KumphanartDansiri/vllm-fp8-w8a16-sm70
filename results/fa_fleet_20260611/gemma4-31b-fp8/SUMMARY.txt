@@ -1,0 +1,4 @@
+triton: trial1	OK	prompt_tokens=10630	ttft=18.89s	decode=15.24 tok/s	The expedition was measuring glacier retreat, soil moisture, and the migration of mountain birds. trial2	OK	prompt_tokens=11113	ttft=20.14s	decode=15.03 tok/s	The expedition measured glacier retreat, soil moisture, and the migration of mountain birds. 
+triton: fa-route-banner=0 
+fa: trial1	OK	prompt_tokens=10630	ttft=18.90s	decode=15.21 tok/s	The expedition was measuring glacier retreat, soil moisture, and the migration of mountain birds. trial2	OK	prompt_tokens=11113	ttft=20.14s	decode=14.98 tok/s	The expedition measured glacier retreat, soil moisture, and the migration of mountain birds. 
+fa: fa-route-banner=0 fallbacks: (Worker_TP2 pid=484) [fa_v100_prefill pid=484] fallback to Triton (sliding_window (1023, 0));(Worker_TP3 pid=485) [fa_v100_prefill pid=485] fallback to Triton (sliding_window (1023, 0));(Worker_TP0 pid=482) [fa_v100_prefill pid=482] fallback to Triton (sliding_window (1023, 0));

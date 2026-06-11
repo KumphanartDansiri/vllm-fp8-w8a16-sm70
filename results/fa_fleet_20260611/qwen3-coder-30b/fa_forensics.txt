@@ -1,0 +1,11 @@
+[fa_v100_prefill pid=1] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[fa_v100_prefill pid=328] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[fa_v100_prefill pid=483] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[fa_v100_prefill pid=482] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[fa_v100_prefill pid=484] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[fa_v100_prefill pid=485] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+(EngineCore pid=328) INFO 06-11 18:13:17 [kv_cache_utils.py:1710] GPU KV cache size: 568,576 tokens
+(EngineCore pid=328) INFO 06-11 18:13:17 [kv_cache_utils.py:1711] Maximum concurrency for 16,384 tokens per request: 34.70x
+(Worker_TP1 pid=483) [fa_v100_prefill pid=483] prefill -> flash_attn_v100 (T_Q=11 B=1 Hq=8 Hk=1 D=128 block=256 max_sk=11)(Worker_TP2 pid=484) (Worker_TP3 pid=485) 
+[fa_v100_prefill pid=484] prefill -> flash_attn_v100 (T_Q=11 B=1 Hq=8 Hk=1 D=128 block=256 max_sk=11)[fa_v100_prefill pid=485] prefill -> flash_attn_v100 (T_Q=11 B=1 Hq=8 Hk=1 D=128 block=256 max_sk=11)
+(Worker_TP0 pid=482) [fa_v100_prefill pid=482] prefill -> flash_attn_v100 (T_Q=11 B=1 Hq=8 Hk=1 D=128 block=256 max_sk=11)

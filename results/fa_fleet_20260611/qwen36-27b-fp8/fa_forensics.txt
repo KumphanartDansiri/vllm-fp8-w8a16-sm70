@@ -1,0 +1,15 @@
+[fa_v100_prefill pid=1] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[fa_v100_prefill pid=332] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[fa_v100_prefill pid=487] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[fa_v100_prefill pid=486] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[serve_fp8_v100 pid=486] Patches applied: min_cap=70, use_marlin=False on V100, apply() routed to our kernel for block_quant, FP8 MoE fallback=on, fail-closed for non-block FP8.[fa_v100_prefill pid=489] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[fa_v100_prefill pid=488] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+(Worker_TP1 pid=487) INFO 06-11 18:25:15 [interface.py:645] Setting attention block size to 1024 tokens to ensure that attention page size is >= mamba page size.
+(Worker_TP2 pid=488) INFO 06-11 18:25:15 [interface.py:645] Setting attention block size to 1024 tokens to ensure that attention page size is >= mamba page size.
+(Worker_TP3 pid=489) INFO 06-11 18:25:15 [interface.py:645] Setting attention block size to 1024 tokens to ensure that attention page size is >= mamba page size.
+(Worker_TP0 pid=486) INFO 06-11 18:25:15 [interface.py:645] Setting attention block size to 1024 tokens to ensure that attention page size is >= mamba page size.
+(EngineCore pid=332) INFO 06-11 18:25:22 [kv_cache_utils.py:1710] GPU KV cache size: 1,128,771 tokens
+(EngineCore pid=332) INFO 06-11 18:25:22 [kv_cache_utils.py:1711] Maximum concurrency for 16,384 tokens per request: 68.89x
+(Worker_TP1 pid=487) [fa_v100_prefill pid=487] prefill -> flash_attn_v100 (T_Q=13 B=1 Hq=6 Hk=1 D=256 block=1024 max_sk=13)
+(Worker_TP2 pid=488) (Worker_TP3 pid=489) [fa_v100_prefill pid=488] prefill -> flash_attn_v100 (T_Q=13 B=1 Hq=6 Hk=1 D=256 block=1024 max_sk=13)[fa_v100_prefill pid=489] prefill -> flash_attn_v100 (T_Q=13 B=1 Hq=6 Hk=1 D=256 block=1024 max_sk=13)
+(Worker_TP0 pid=486) [fa_v100_prefill pid=486] prefill -> flash_attn_v100 (T_Q=13 B=1 Hq=6 Hk=1 D=256 block=1024 max_sk=13)

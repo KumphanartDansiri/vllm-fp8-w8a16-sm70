@@ -1,0 +1,2 @@
+trial1	OK	prompt_tokens=10627	ttft=32.35s	decode=57.33 tok/s	Here's a thinking process: 1. **Analyze User Input:** - The user provides a very long, repetitive te
+trial2	OK	prompt_tokens=11110	ttft=33.39s	decode=56.78 tok/s	Here's a thinking process: 1. **Analyze User Input:** - The user provides a very long, repetitive te

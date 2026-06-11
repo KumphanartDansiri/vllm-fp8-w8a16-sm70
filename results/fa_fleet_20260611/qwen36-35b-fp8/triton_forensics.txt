@@ -1,0 +1,12 @@
+[fa_v100_prefill pid=1] disabled (VLLM_V100_FLASH_ATTN unset)
+[fa_v100_prefill pid=332] disabled (VLLM_V100_FLASH_ATTN unset)
+[fa_v100_prefill pid=487] disabled (VLLM_V100_FLASH_ATTN unset)
+[fa_v100_prefill pid=488] disabled (VLLM_V100_FLASH_ATTN unset)
+[fa_v100_prefill pid=486] disabled (VLLM_V100_FLASH_ATTN unset)
+[fa_v100_prefill pid=489] disabled (VLLM_V100_FLASH_ATTN unset)
+(Worker_TP1 pid=487) INFO 06-11 18:30:24 [interface.py:645] Setting attention block size to 768 tokens to ensure that attention page size is >= mamba page size.
+(Worker_TP2 pid=488) INFO 06-11 18:30:24 [interface.py:645] Setting attention block size to 768 tokens to ensure that attention page size is >= mamba page size.
+(Worker_TP3 pid=489) INFO 06-11 18:30:24 [interface.py:645] Setting attention block size to 768 tokens to ensure that attention page size is >= mamba page size.
+(Worker_TP0 pid=486) INFO 06-11 18:30:24 [interface.py:645] Setting attention block size to 768 tokens to ensure that attention page size is >= mamba page size.
+(EngineCore pid=332) INFO 06-11 18:30:32 [kv_cache_utils.py:1710] GPU KV cache size: 1,719,009 tokens
+(EngineCore pid=332) INFO 06-11 18:30:32 [kv_cache_utils.py:1711] Maximum concurrency for 16,384 tokens per request: 104.92x

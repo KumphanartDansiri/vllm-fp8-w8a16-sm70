@@ -1,0 +1,6 @@
+[fa_v100_prefill pid=1] disabled (VLLM_V100_FLASH_ATTN unset)
+[fa_v100_prefill pid=328] disabled (VLLM_V100_FLASH_ATTN unset)
+[fa_v100_prefill pid=483] disabled (VLLM_V100_FLASH_ATTN unset)
+[fa_v100_prefill pid=482] disabled (VLLM_V100_FLASH_ATTN unset)
+(EngineCore pid=328) INFO 06-11 17:41:14 [kv_cache_utils.py:1710] GPU KV cache size: 812,032 tokens
+(EngineCore pid=328) INFO 06-11 17:41:14 [kv_cache_utils.py:1711] Maximum concurrency for 16,384 tokens per request: 49.56x

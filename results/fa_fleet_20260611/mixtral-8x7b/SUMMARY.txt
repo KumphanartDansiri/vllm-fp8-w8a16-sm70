@@ -1,0 +1,2 @@
+triton: FAIL (never healthy) — /tmp/v100_fa_ttft_ab/triton_serve.log
+fa: FAIL (never healthy) — /tmp/v100_fa_ttft_ab/fa_serve.log

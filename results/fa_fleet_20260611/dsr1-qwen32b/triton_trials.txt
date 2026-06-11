@@ -1,0 +1,2 @@
+trial1	OK	prompt_tokens=11105	ttft=10.42s	decode=25.01 tok/s	Okay, so I'm trying to figure out what was being measured in this passage. The user provided a long 
+trial2	OK	prompt_tokens=11105	ttft=10.42s	decode=25.00 tok/s	Okay, so I'm trying to figure out what was being measured in the Charlie expedition's crossing of th

@@ -1,0 +1,20 @@
+[fa_v100_prefill pid=1] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[fa_v100_prefill pid=328] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[fa_v100_prefill pid=484] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[fa_v100_prefill pid=485] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[fa_v100_prefill pid=483] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+[fa_v100_prefill pid=482] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+(Worker_TP0 pid=482) [fa_v100_prefill pid=482] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+(Worker_TP3 pid=485) (Worker_TP2 pid=484) [fa_v100_prefill pid=485] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)[serve_fp8_v100 ct-moe pid=484] compressed-tensors FP8 MoE patched for sm_70 (dequant experts->FP16 + unquantized FP16 fused-MoE). CHANNEL/TENSOR only; FP16-resident.
+(Worker_TP2 pid=484) [fa_v100_prefill pid=484] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+(Worker_TP1 pid=483) [fa_v100_prefill pid=483] TRITON_ATTN prefill interposed with flash_attn_v100 (decode untouched; kill switch VLLM_V100_FLASH_ATTN=0)
+(EngineCore pid=328) INFO 06-11 19:06:40 [kv_cache_utils.py:1710] GPU KV cache size: 230,093 tokens
+(EngineCore pid=328) INFO 06-11 19:06:40 [kv_cache_utils.py:1711] Maximum concurrency for 16,384 tokens per request: 14.04x
+(Worker_TP2 pid=484) [fa_v100_prefill pid=484] fallback to Triton (sliding_window (1023, 0))
+(Worker_TP3 pid=485) [fa_v100_prefill pid=485] fallback to Triton (sliding_window (1023, 0))
+(Worker_TP0 pid=482) [fa_v100_prefill pid=482] fallback to Triton (sliding_window (1023, 0))
+(Worker_TP1 pid=483) [fa_v100_prefill pid=483] fallback to Triton (sliding_window (1023, 0))
+(Worker_TP2 pid=484) [fa_v100_prefill pid=484] fallback to Triton (head_dim 512)
+(Worker_TP1 pid=483) [fa_v100_prefill pid=483] fallback to Triton (head_dim 512)
+(Worker_TP3 pid=485) [fa_v100_prefill pid=485] fallback to Triton (head_dim 512)
+(Worker_TP0 pid=482) [fa_v100_prefill pid=482] fallback to Triton (head_dim 512)
