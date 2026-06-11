@@ -1,0 +1,1350 @@
+== ai-bond FA-V100 build+microbench :: 20260611_084004 ==
+results -> /work/tools/fa_v100_microbench_20260611_084004.txt
+----------------------------------------------------------------------
+[1] CLEAN-BOX GUARD
+    GPU clean (no other compute processes).
+----------------------------------------------------------------------
+[2] TOOLCHAIN PIN-CHECK
+    nvcc release: 12.9 (need <= 12.9 for compute_70)
+    torch: 2.10.0+cu129  cuda_avail=True
+    device: Tesla V100-SXM2-32GB  SM 7.0
+----------------------------------------------------------------------
+[3] ENV + GIT STATE
+    --- nvidia-smi ---
+    Thu Jun 11 08:40:08 2026       
+    +-----------------------------------------------------------------------------------------+
+    | NVIDIA-SMI 580.159.03             Driver Version: 580.159.03     CUDA Version: 13.0     |
+    +-----------------------------------------+------------------------+----------------------+
+    | GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+    | Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+    |                                         |                        |               MIG M. |
+    |=========================================+========================+======================|
+    |   0  Tesla V100-SXM2-32GB           Off |   00000000:8A:00.0 Off |                    0 |
+    | N/A   35C    P0             41W /  300W |       0MiB /  32768MiB |      0%      Default |
+    |                                         |                        |                  N/A |
+    +-----------------------------------------+------------------------+----------------------+
+    
+    +-----------------------------------------------------------------------------------------+
+    | Processes:                                                                              |
+    |  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+    |        ID   ID                                                               Usage      |
+    |=========================================================================================|
+    |  No running processes found                                                             |
+    +-----------------------------------------------------------------------------------------+
+    GPU: Tesla V100-SXM2-32GB, 580.159.03, 32768 MiB
+    nvcc: Build cuda_12.9.r12.9/compiler.36037853_0
+    python: Python 3.12.3
+    ai-bond (/fa) HEAD: <n/a>
+    vllm    (/vllm021) HEAD: <n/a>
+    bench shapes: SEQLEN=26000 HQ=12 HK=1 D=128 LAYERS=46 block=256 (Route A)
+----------------------------------------------------------------------
+[4] BUILD ai-bond
+Using pip 24.0 from /usr/lib/python3/dist-packages/pip (python 3.12)
+Processing /fa
+  Preparing metadata (pyproject.toml): started
+  Running command Preparing metadata (pyproject.toml)
+  autoset max_jobs=80, nvcc_threads=80 (current 80 cores, 486.2GB free mem)
+  /usr/local/lib/python3.12/dist-packages/setuptools/dist.py:332: InformationOnly: Normalizing '26.04' to '26.4'
+    self.metadata.version = self._normalize_version(self.metadata.version)
+  running dist_info
+  creating /tmp/pip-modern-metadata-zj_9pk31/flash_attn_v100.egg-info
+  writing /tmp/pip-modern-metadata-zj_9pk31/flash_attn_v100.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-modern-metadata-zj_9pk31/flash_attn_v100.egg-info/dependency_links.txt
+  writing requirements to /tmp/pip-modern-metadata-zj_9pk31/flash_attn_v100.egg-info/requires.txt
+  writing top-level names to /tmp/pip-modern-metadata-zj_9pk31/flash_attn_v100.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-modern-metadata-zj_9pk31/flash_attn_v100.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-modern-metadata-zj_9pk31/flash_attn_v100.egg-info/SOURCES.txt'
+  adding license file 'LICENSE'
+  adding license file 'AUTHORS'
+  writing manifest file '/tmp/pip-modern-metadata-zj_9pk31/flash_attn_v100.egg-info/SOURCES.txt'
+  creating '/tmp/pip-modern-metadata-zj_9pk31/flash_attn_v100-26.4.dist-info'
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Building wheels for collected packages: flash_attn_v100
+  Building wheel for flash_attn_v100 (pyproject.toml): started
+  Running command Building wheel for flash_attn_v100 (pyproject.toml)
+  autoset max_jobs=80, nvcc_threads=80 (current 80 cores, 486.2GB free mem)
+  /usr/local/lib/python3.12/dist-packages/setuptools/dist.py:332: InformationOnly: Normalizing '26.04' to '26.4'
+    self.metadata.version = self._normalize_version(self.metadata.version)
+  running bdist_wheel
+  running build
+  running build_py
+  copying flash_attn_v100/__init__.py -> build/lib.linux-x86_64-cpython-312/flash_attn_v100
+  copying flash_attn_v100/flash_attn_interface.py -> build/lib.linux-x86_64-cpython-312/flash_attn_v100
+  running egg_info
+  writing flash_attn_v100.egg-info/PKG-INFO
+  writing dependency_links to flash_attn_v100.egg-info/dependency_links.txt
+  writing requirements to flash_attn_v100.egg-info/requires.txt
+  writing top-level names to flash_attn_v100.egg-info/top_level.txt
+  reading manifest file 'flash_attn_v100.egg-info/SOURCES.txt'
+  adding license file 'LICENSE'
+  adding license file 'AUTHORS'
+  writing manifest file 'flash_attn_v100.egg-info/SOURCES.txt'
+  Copied package: /fa/flash_attn -> build/lib.linux-x86_64-cpython-312/flash_attn
+  running build_ext
+  W0611 08:40:16.758000 230 torch/utils/cpp_extension.py:535] There are no x86_64-linux-gnu-g++ version bounds defined for CUDA version 12.9
+  building 'flash_attn_v100_cuda' extension
+  ninja: no work to do.
+  x86_64-linux-gnu-g++ -fno-strict-overflow -Wsign-compare -DNDEBUG -g -O2 -Wall -shared -Wl,-O1 -Wl,-Bsymbolic-functions /fa/build/temp.linux-x86_64-cpython-312/kernel/fused_mha_api.o /fa/build/temp.linux-x86_64-cpython-312/kernel/fused_mha_backward.o /fa/build/temp.linux-x86_64-cpython-312/kernel/fused_mha_backward_varlen.o /fa/build/temp.linux-x86_64-cpython-312/kernel/fused_mha_forward.o /fa/build/temp.linux-x86_64-cpython-312/kernel/fused_mha_forward_kvcache.o /fa/build/temp.linux-x86_64-cpython-312/kernel/fused_mha_forward_varlen.o -L/usr/local/lib/python3.12/dist-packages/torch/lib -L/usr/local/cuda/lib64 -L/usr/lib/x86_64-linux-gnu -lc10 -ltorch -ltorch_cpu -ltorch_python -lcudart -lc10_cuda -ltorch_cuda -o build/lib.linux-x86_64-cpython-312/flash_attn_v100_cuda.cpython-312-x86_64-linux-gnu.so
+  Created symlink: flash_attn_2_cuda.so -> flash_attn_v100_cuda.cpython-312-x86_64-linux-gnu.so
+  installing to build/bdist.linux-x86_64/wheel
+  running install
+  running install_lib
+  creating build/bdist.linux-x86_64/wheel
+  copying build/lib.linux-x86_64-cpython-312/flash_attn_2_cuda.so -> build/bdist.linux-x86_64/wheel/.
+  creating build/bdist.linux-x86_64/wheel/flash_attn_v100
+  copying build/lib.linux-x86_64-cpython-312/flash_attn_v100/__init__.py -> build/bdist.linux-x86_64/wheel/./flash_attn_v100
+  copying build/lib.linux-x86_64-cpython-312/flash_attn_v100/flash_attn_interface.py -> build/bdist.linux-x86_64/wheel/./flash_attn_v100
+  creating build/bdist.linux-x86_64/wheel/flash_attn
+  copying build/lib.linux-x86_64-cpython-312/flash_attn/__init__.py -> build/bdist.linux-x86_64/wheel/./flash_attn
+  copying build/lib.linux-x86_64-cpython-312/flash_attn/bert_padding.py -> build/bdist.linux-x86_64/wheel/./flash_attn
+  copying build/lib.linux-x86_64-cpython-312/flash_attn/flash_attn_interface.py -> build/bdist.linux-x86_64/wheel/./flash_attn
+  copying build/lib.linux-x86_64-cpython-312/flash_attn_v100_cuda.cpython-312-x86_64-linux-gnu.so -> build/bdist.linux-x86_64/wheel/.
+  running install_egg_info
+  Copying flash_attn_v100.egg-info to build/bdist.linux-x86_64/wheel/./flash_attn_v100-26.4-py3.12.egg-info
+  running install_scripts
+  creating build/bdist.linux-x86_64/wheel/flash_attn_v100-26.4.dist-info/WHEEL
+  creating '/tmp/pip-wheel-gei0xdpy/.tmp-qrcp5fzv/flash_attn_v100-26.4-cp312-cp312-linux_x86_64.whl' and adding 'build/bdist.linux-x86_64/wheel' to it
+  adding 'flash_attn_2_cuda.so'
+  adding 'flash_attn_v100_cuda.cpython-312-x86_64-linux-gnu.so'
+  adding 'flash_attn/__init__.py'
+  adding 'flash_attn/bert_padding.py'
+  adding 'flash_attn/flash_attn_interface.py'
+  adding 'flash_attn_v100/__init__.py'
+  adding 'flash_attn_v100/flash_attn_interface.py'
+  adding 'flash_attn_v100-26.4.dist-info/licenses/AUTHORS'
+  adding 'flash_attn_v100-26.4.dist-info/licenses/LICENSE'
+  adding 'flash_attn_v100-26.4.dist-info/METADATA'
+  adding 'flash_attn_v100-26.4.dist-info/WHEEL'
+  adding 'flash_attn_v100-26.4.dist-info/top_level.txt'
+  adding 'flash_attn_v100-26.4.dist-info/RECORD'
+  removing build/bdist.linux-x86_64/wheel
+  Building wheel for flash_attn_v100 (pyproject.toml): finished with status 'done'
+  Created wheel for flash_attn_v100: filename=flash_attn_v100-26.4-cp312-cp312-linux_x86_64.whl size=41860788 sha256=b2a307ca8e6fca05e99d25a1b7b1993e6e8341a7cae09d18801c337af3035e1a
+  Stored in directory: /tmp/pip-ephem-wheel-cache-ho6eu1tl/wheels/e7/66/75/347ab4d2057aae78e80e491e043827e7fea221f4c2acb3da43
+Successfully built flash_attn_v100
+Installing collected packages: flash_attn_v100
+Successfully installed flash_attn_v100-26.4
+    build OK (stock(BLOCK_N_128=160)): None
+----------------------------------------------------------------------
+[5] CORRECTNESS GATE (ai-bond test.py) — HARD GATE
+Running on Tesla V100-SXM2-32GB (capability (7, 0))
+
+======================================================================
+Test: B=1, H=1, M=16, N=16, D=16, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 16.3 MB, PyTorch: 16.3 MB (Δ: -0.0 MB, -0.0%)
+ (fwd):   Custom: 0.08ms, PyTorch: 0.39ms (4.74x speedup)
+ (bwd):   Custom: 0.07ms, PyTorch: 2.50ms (34.35x speedup)
+ (tot):   Custom: 0.15ms, PyTorch: 2.89ms (18.67x speedup)
+Validation:
+ (Fwd):   dO err=4.88e-04 ≤ 2×9.77e-04
+ (Bwd):   dQ err=4.88e-04 ≤ 3×9.77e-04
+          dK err=4.88e-04 ≤ 3×9.77e-04
+          dV err=4.88e-04 ≤ 3×4.88e-04
+
+======================================================================
+Test: B=1, H=1, M=16, N=16, D=16, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 16.3 MB, PyTorch: 16.3 MB (Δ: -0.0 MB, -0.0%)
+ (fwd):   Custom: 0.16ms, PyTorch: 0.50ms (3.15x speedup)
+ (bwd):   Custom: 0.17ms, PyTorch: 3.46ms (20.17x speedup)
+ (tot):   Custom: 0.33ms, PyTorch: 3.96ms (11.95x speedup)
+Validation:
+ (Fwd):   dO err=9.77e-04 ≤ 2×9.77e-04
+ (Bwd):   dQ err=4.88e-04 ≤ 3×4.88e-04
+          dK err=9.77e-04 ≤ 3×4.88e-04
+          dV err=9.77e-04 ≤ 3×9.77e-04
+
+======================================================================
+Test: B=1, H=1, M=32, N=32, D=32, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 16.3 MB, PyTorch: 16.3 MB (Δ: -0.0 MB, -0.2%)
+ (fwd):   Custom: 0.16ms, PyTorch: 0.91ms (5.62x speedup)
+ (bwd):   Custom: 0.17ms, PyTorch: 3.89ms (22.76x speedup)
+ (tot):   Custom: 0.33ms, PyTorch: 4.80ms (14.41x speedup)
+Validation:
+ (Fwd):   dO err=4.88e-04 ≤ 2×9.77e-04
+ (Bwd):   dQ err=4.88e-04 ≤ 3×9.77e-04
+          dK err=4.88e-04 ≤ 3×9.77e-04
+          dV err=4.88e-04 ≤ 3×9.77e-04
+
+======================================================================
+Test: B=1, H=1, M=32, N=32, D=32, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 16.3 MB, PyTorch: 16.3 MB (Δ: -0.0 MB, -0.2%)
+ (fwd):   Custom: 0.16ms, PyTorch: 1.17ms (7.27x speedup)
+ (bwd):   Custom: 0.17ms, PyTorch: 4.25ms (24.87x speedup)
+ (tot):   Custom: 0.33ms, PyTorch: 5.42ms (16.34x speedup)
+Validation:
+ (Fwd):   dO err=4.88e-04 ≤ 2×1.46e-03
+ (Bwd):   dQ err=9.77e-04 ≤ 3×9.77e-04
+          dK err=9.77e-04 ≤ 3×9.77e-04
+          dV err=1.95e-03 ≤ 3×1.95e-03
+
+======================================================================
+Test: B=1, H=1, M=64, N=64, D=64, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 16.4 MB, PyTorch: 16.6 MB (Δ: -0.1 MB, -0.8%)
+ (fwd):   Custom: 0.16ms, PyTorch: 0.86ms (5.32x speedup)
+ (bwd):   Custom: 0.17ms, PyTorch: 3.90ms (22.45x speedup)
+ (tot):   Custom: 0.34ms, PyTorch: 4.76ms (14.19x speedup)
+Validation:
+ (Fwd):   dO err=4.88e-04 ≤ 2×4.88e-04
+ (Bwd):   dQ err=4.88e-04 ≤ 3×9.77e-04
+          dK err=4.88e-04 ≤ 3×9.77e-04
+          dV err=4.88e-04 ≤ 3×4.88e-04
+
+======================================================================
+Test: B=1, H=1, M=64, N=64, D=64, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 16.5 MB, PyTorch: 16.6 MB (Δ: -0.1 MB, -0.8%)
+ (fwd):   Custom: 0.16ms, PyTorch: 1.06ms (6.59x speedup)
+ (bwd):   Custom: 0.17ms, PyTorch: 4.20ms (24.58x speedup)
+ (tot):   Custom: 0.33ms, PyTorch: 5.27ms (15.85x speedup)
+Validation:
+ (Fwd):   dO err=9.77e-04 ≤ 2×9.77e-04
+ (Bwd):   dQ err=9.77e-04 ≤ 3×9.77e-04
+          dK err=9.77e-04 ≤ 3×9.77e-04
+          dV err=1.95e-03 ≤ 3×1.95e-03
+
+======================================================================
+Test: B=1, H=1, M=128, N=128, D=128, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 17.0 MB, PyTorch: 17.5 MB (Δ: -0.5 MB, -3.0%)
+ (fwd):   Custom: 0.16ms, PyTorch: 0.40ms (2.46x speedup)
+ (bwd):   Custom: 0.17ms, PyTorch: 3.30ms (19.19x speedup)
+ (tot):   Custom: 0.33ms, PyTorch: 3.70ms (11.08x speedup)
+Validation:
+ (Fwd):   dO err=4.88e-04 ≤ 2×4.88e-04
+ (Bwd):   dQ err=4.88e-04 ≤ 3×9.77e-04
+          dK err=4.88e-04 ≤ 3×9.77e-04
+          dV err=4.88e-04 ≤ 3×6.10e-04
+
+======================================================================
+Test: B=1, H=1, M=128, N=128, D=128, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 17.1 MB, PyTorch: 17.6 MB (Δ: -0.5 MB, -3.1%)
+ (fwd):   Custom: 0.16ms, PyTorch: 1.00ms (6.24x speedup)
+ (bwd):   Custom: 0.17ms, PyTorch: 4.37ms (25.26x speedup)
+ (tot):   Custom: 0.33ms, PyTorch: 5.37ms (16.10x speedup)
+Validation:
+ (Fwd):   dO err=9.77e-04 ≤ 2×9.77e-04
+ (Bwd):   dQ err=9.77e-04 ≤ 3×1.95e-03
+          dK err=9.77e-04 ≤ 3×1.95e-03
+          dV err=9.77e-04 ≤ 3×1.95e-03
+
+======================================================================
+Test: B=1, H=1, M=256, N=256, D=256, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 19.3 MB, PyTorch: 21.4 MB (Δ: -2.1 MB, -9.9%)
+ (fwd):   Custom: 0.16ms, PyTorch: 0.92ms (5.63x speedup)
+ (bwd):   Custom: 0.18ms, PyTorch: 3.92ms (22.42x speedup)
+ (tot):   Custom: 0.34ms, PyTorch: 4.84ms (14.33x speedup)
+Validation:
+ (Fwd):   dO err=2.44e-04 ≤ 2×7.32e-04
+ (Bwd):   dQ err=2.44e-04 ≤ 3×4.88e-04
+          dK err=4.88e-04 ≤ 3×4.88e-04
+          dV err=4.88e-04 ≤ 3×9.77e-04
+
+======================================================================
+Test: B=1, H=1, M=256, N=256, D=256, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 19.6 MB, PyTorch: 21.8 MB (Δ: -2.2 MB, -10.0%)
+ (fwd):   Custom: 0.16ms, PyTorch: 1.16ms (7.20x speedup)
+ (bwd):   Custom: 0.17ms, PyTorch: 4.05ms (23.41x speedup)
+ (tot):   Custom: 0.33ms, PyTorch: 5.21ms (15.57x speedup)
+Validation:
+ (Fwd):   dO err=9.77e-04 ≤ 2×1.95e-03
+ (Bwd):   dQ err=9.77e-04 ≤ 3×9.77e-04
+          dK err=9.77e-04 ≤ 3×1.95e-03
+          dV err=1.95e-03 ≤ 3×1.95e-03
+
+======================================================================
+Test: B=1, H=16, M=1024, N=1024, D=16, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 28.5 MB, PyTorch: 351.9 MB (Δ: -323.4 MB, -91.9%)
+ (fwd):   Custom: 0.31ms, PyTorch: 0.98ms (3.13x speedup)
+ (bwd):   Custom: 0.74ms, PyTorch: 3.88ms (5.27x speedup)
+ (tot):   Custom: 1.05ms, PyTorch: 4.85ms (4.63x speedup)
+Validation:
+ (Fwd):   dO err=2.44e-04 ≤ 2×4.88e-04
+ (Bwd):   dQ err=4.88e-04 ≤ 3×9.77e-04
+          dK err=4.88e-04 ≤ 3×9.77e-04
+          dV err=4.88e-04 ≤ 3×7.32e-04
+
+======================================================================
+Test: B=1, H=16, M=1024, N=1024, D=16, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 30.0 MB, PyTorch: 354.4 MB (Δ: -324.4 MB, -91.5%)
+ (fwd):   Custom: 0.26ms, PyTorch: 1.28ms (4.87x speedup)
+ (bwd):   Custom: 0.51ms, PyTorch: 4.06ms (7.92x speedup)
+ (tot):   Custom: 0.78ms, PyTorch: 5.34ms (6.88x speedup)
+Validation:
+ (Fwd):   dO err=9.77e-04 ≤ 2×1.95e-03
+ (Bwd):   dQ err=1.95e-03 ≤ 3×3.91e-03
+          dK err=1.95e-03 ≤ 3×1.95e-03
+          dV err=1.95e-03 ≤ 3×1.95e-03
+
+======================================================================
+Test: B=1, H=32, M=1024, N=1024, D=16, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 41.8 MB, PyTorch: 688.5 MB (Δ: -646.8 MB, -93.9%)
+ (fwd):   Custom: 0.47ms, PyTorch: 1.38ms (2.93x speedup)
+ (bwd):   Custom: 1.16ms, PyTorch: 4.20ms (3.62x speedup)
+ (tot):   Custom: 1.63ms, PyTorch: 5.58ms (3.42x speedup)
+Validation:
+ (Fwd):   dO err=2.44e-04 ≤ 2×4.88e-04
+ (Bwd):   dQ err=4.88e-04 ≤ 3×9.77e-04
+          dK err=4.88e-04 ≤ 3×9.77e-04
+          dV err=4.88e-04 ≤ 3×7.32e-04
+
+======================================================================
+Test: B=1, H=32, M=1024, N=1024, D=16, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 43.8 MB, PyTorch: 691.5 MB (Δ: -647.8 MB, -93.7%)
+ (fwd):   Custom: 0.38ms, PyTorch: 2.03ms (5.30x speedup)
+ (bwd):   Custom: 0.79ms, PyTorch: 5.26ms (6.65x speedup)
+ (tot):   Custom: 1.17ms, PyTorch: 7.29ms (6.21x speedup)
+Validation:
+ (Fwd):   dO err=9.77e-04 ≤ 2×1.95e-03
+ (Bwd):   dQ err=1.95e-03 ≤ 3×3.91e-03
+          dK err=1.95e-03 ≤ 3×1.95e-03
+          dV err=1.95e-03 ≤ 3×1.95e-03
+
+======================================================================
+Test: B=1, H=16, M=1024, N=1024, D=32, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 43.5 MB, PyTorch: 370.4 MB (Δ: -326.9 MB, -88.3%)
+ (fwd):   Custom: 0.28ms, PyTorch: 0.97ms (3.51x speedup)
+ (bwd):   Custom: 0.69ms, PyTorch: 3.70ms (5.40x speedup)
+ (tot):   Custom: 0.96ms, PyTorch: 4.67ms (4.86x speedup)
+Validation:
+ (Fwd):   dO err=2.44e-04 ≤ 2×7.32e-04
+ (Bwd):   dQ err=2.44e-04 ≤ 3×1.22e-03
+          dK err=2.44e-04 ≤ 3×1.22e-03
+          dV err=2.44e-04 ≤ 3×9.77e-04
+
+======================================================================
+Test: B=1, H=16, M=1024, N=1024, D=32, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 43.5 MB, PyTorch: 371.4 MB (Δ: -327.9 MB, -88.3%)
+ (fwd):   Custom: 0.23ms, PyTorch: 1.38ms (5.95x speedup)
+ (bwd):   Custom: 0.55ms, PyTorch: 4.34ms (7.85x speedup)
+ (tot):   Custom: 0.78ms, PyTorch: 5.72ms (7.29x speedup)
+Validation:
+ (Fwd):   dO err=9.77e-04 ≤ 2×1.95e-03
+ (Bwd):   dQ err=9.77e-04 ≤ 3×1.95e-03
+          dK err=1.95e-03 ≤ 3×1.95e-03
+          dV err=1.95e-03 ≤ 3×3.91e-03
+
+======================================================================
+Test: B=1, H=32, M=1024, N=1024, D=32, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 66.8 MB, PyTorch: 720.5 MB (Δ: -653.8 MB, -90.7%)
+ (fwd):   Custom: 0.48ms, PyTorch: 1.58ms (3.27x speedup)
+ (bwd):   Custom: 1.38ms, PyTorch: 4.35ms (3.15x speedup)
+ (tot):   Custom: 1.86ms, PyTorch: 5.93ms (3.18x speedup)
+Validation:
+ (Fwd):   dO err=2.44e-04 ≤ 2×1.22e-03
+ (Bwd):   dQ err=4.88e-04 ≤ 3×1.46e-03
+          dK err=4.88e-04 ≤ 3×1.46e-03
+          dV err=4.88e-04 ≤ 3×1.10e-03
+
+======================================================================
+Test: B=1, H=32, M=1024, N=1024, D=32, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 70.8 MB, PyTorch: 725.5 MB (Δ: -654.8 MB, -90.2%)
+ (fwd):   Custom: 0.33ms, PyTorch: 2.09ms (6.32x speedup)
+ (bwd):   Custom: 0.84ms, PyTorch: 5.44ms (6.51x speedup)
+ (tot):   Custom: 1.17ms, PyTorch: 7.54ms (6.46x speedup)
+Validation:
+ (Fwd):   dO err=9.77e-04 ≤ 2×1.95e-03
+ (Bwd):   dQ err=1.46e-03 ≤ 3×2.93e-03
+          dK err=1.95e-03 ≤ 3×2.93e-03
+          dV err=1.95e-03 ≤ 3×1.95e-03
+
+======================================================================
+Test: B=1, H=16, M=1024, N=1024, D=64, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 70.5 MB, PyTorch: 404.4 MB (Δ: -333.9 MB, -82.6%)
+ (fwd):   Custom: 0.36ms, PyTorch: 1.12ms (3.09x speedup)
+ (bwd):   Custom: 0.98ms, PyTorch: 3.86ms (3.94x speedup)
+ (tot):   Custom: 1.34ms, PyTorch: 4.98ms (3.71x speedup)
+Validation:
+ (Fwd):   dO err=1.22e-04 ≤ 2×4.88e-04
+ (Bwd):   dQ err=4.88e-04 ≤ 3×7.32e-04
+          dK err=4.88e-04 ≤ 3×7.32e-04
+          dV err=2.44e-04 ≤ 3×4.88e-04
+
+======================================================================
+Test: B=1, H=16, M=1024, N=1024, D=64, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 70.5 MB, PyTorch: 405.4 MB (Δ: -334.9 MB, -82.6%)
+ (fwd):   Custom: 0.25ms, PyTorch: 1.47ms (5.80x speedup)
+ (bwd):   Custom: 0.66ms, PyTorch: 4.35ms (6.59x speedup)
+ (tot):   Custom: 0.91ms, PyTorch: 5.82ms (6.37x speedup)
+Validation:
+ (Fwd):   dO err=9.77e-04 ≤ 2×1.95e-03
+ (Bwd):   dQ err=1.95e-03 ≤ 3×1.95e-03
+          dK err=1.95e-03 ≤ 3×1.95e-03
+          dV err=1.95e-03 ≤ 3×1.95e-03
+
+======================================================================
+Test: B=1, H=32, M=1024, N=1024, D=64, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 116.8 MB, PyTorch: 784.5 MB (Δ: -667.8 MB, -85.1%)
+ (fwd):   Custom: 0.58ms, PyTorch: 1.78ms (3.09x speedup)
+ (bwd):   Custom: 1.84ms, PyTorch: 4.83ms (2.62x speedup)
+ (tot):   Custom: 2.42ms, PyTorch: 6.61ms (2.73x speedup)
+Validation:
+ (Fwd):   dO err=2.44e-04 ≤ 2×4.88e-04
+ (Bwd):   dQ err=4.88e-04 ≤ 3×1.46e-03
+          dK err=4.88e-04 ≤ 3×1.46e-03
+          dV err=4.88e-04 ≤ 3×9.77e-04
+
+======================================================================
+Test: B=1, H=32, M=1024, N=1024, D=64, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 124.8 MB, PyTorch: 793.5 MB (Δ: -668.8 MB, -84.3%)
+ (fwd):   Custom: 0.38ms, PyTorch: 2.40ms (6.26x speedup)
+ (bwd):   Custom: 1.14ms, PyTorch: 6.09ms (5.33x speedup)
+ (tot):   Custom: 1.53ms, PyTorch: 8.49ms (5.57x speedup)
+Validation:
+ (Fwd):   dO err=9.77e-04 ≤ 2×1.95e-03
+ (Bwd):   dQ err=1.95e-03 ≤ 3×1.95e-03
+          dK err=1.95e-03 ≤ 3×1.95e-03
+          dV err=1.95e-03 ≤ 3×3.91e-03
+
+======================================================================
+Test: B=1, H=16, M=1024, N=1024, D=128, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 124.5 MB, PyTorch: 472.4 MB (Δ: -347.9 MB, -73.6%)
+ (fwd):   Custom: 0.57ms, PyTorch: 1.39ms (2.43x speedup)
+ (bwd):   Custom: 1.81ms, PyTorch: 3.99ms (2.20x speedup)
+ (tot):   Custom: 2.39ms, PyTorch: 5.38ms (2.26x speedup)
+Validation:
+ (Fwd):   dO err=1.22e-04 ≤ 2×7.32e-04
+ (Bwd):   dQ err=2.44e-04 ≤ 3×9.77e-04
+          dK err=2.44e-04 ≤ 3×1.46e-03
+          dV err=2.44e-04 ≤ 3×7.32e-04
+
+======================================================================
+Test: B=1, H=16, M=1024, N=1024, D=128, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 124.5 MB, PyTorch: 473.4 MB (Δ: -348.9 MB, -73.7%)
+ (fwd):   Custom: 0.37ms, PyTorch: 1.68ms (4.49x speedup)
+ (bwd):   Custom: 1.08ms, PyTorch: 4.49ms (4.16x speedup)
+ (tot):   Custom: 1.45ms, PyTorch: 6.17ms (4.25x speedup)
+Validation:
+ (Fwd):   dO err=1.95e-03 ≤ 2×1.95e-03
+ (Bwd):   dQ err=1.95e-03 ≤ 3×1.95e-03
+          dK err=1.95e-03 ≤ 3×1.95e-03
+          dV err=1.95e-03 ≤ 3×3.91e-03
+
+======================================================================
+Test: B=1, H=32, M=2048, N=2048, D=128, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 401.3 MB, PyTorch: 3072.8 MB (Δ: -2671.5 MB, -86.9%)
+ (fwd):   Custom: 3.44ms, PyTorch: 8.46ms (2.46x speedup)
+ (bwd):   Custom: 13.28ms, PyTorch: 24.83ms (1.87x speedup)
+ (tot):   Custom: 16.71ms, PyTorch: 33.28ms (1.99x speedup)
+Validation:
+ (Fwd):   dO err=2.44e-04 ≤ 2×6.10e-04
+ (Bwd):   dQ err=2.44e-04 ≤ 3×9.77e-04
+          dK err=2.44e-04 ≤ 3×9.77e-04
+          dV err=2.44e-04 ≤ 3×7.93e-04
+
+======================================================================
+Test: B=1, H=32, M=2048, N=2048, D=128, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 449.3 MB, PyTorch: 3124.8 MB (Δ: -2675.5 MB, -85.6%)
+ (fwd):   Custom: 1.94ms, PyTorch: 11.29ms (5.82x speedup)
+ (bwd):   Custom: 7.14ms, PyTorch: 30.12ms (4.22x speedup)
+ (tot):   Custom: 9.08ms, PyTorch: 41.41ms (4.56x speedup)
+Validation:
+ (Fwd):   dO err=9.77e-04 ≤ 2×2.20e-03
+ (Bwd):   dQ err=3.91e-03 ≤ 3×3.91e-03
+          dK err=1.95e-03 ≤ 3×1.95e-03
+          dV err=1.95e-03 ≤ 3×3.91e-03
+
+======================================================================
+Test: B=1, H=32, M=4096, N=4096, D=128, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 818.3 MB, PyTorch: 11281.3 MB (Δ: -10463.0 MB, -92.7%)
+ (fwd):   Custom: 13.56ms, PyTorch: 32.60ms (2.40x speedup)
+ (bwd):   Custom: 52.29ms, PyTorch: 96.65ms (1.85x speedup)
+ (tot):   Custom: 65.85ms, PyTorch: 129.24ms (1.96x speedup)
+Validation:
+ (Fwd):   dO err=1.22e-04 ≤ 2×6.10e-04
+ (Bwd):   dQ err=1.22e-04 ≤ 3×4.88e-04
+          dK err=2.44e-04 ≤ 3×6.10e-04
+          dV err=1.22e-04 ≤ 3×4.88e-04
+
+======================================================================
+Test: B=1, H=32, M=4096, N=4096, D=128, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 882.3 MB, PyTorch: 11361.3 MB (Δ: -10479.0 MB, -92.2%)
+ (fwd):   Custom: 6.98ms, PyTorch: 43.43ms (6.22x speedup)
+ (bwd):   Custom: 27.16ms, PyTorch: 116.78ms (4.30x speedup)
+ (tot):   Custom: 34.15ms, PyTorch: 160.22ms (4.69x speedup)
+Validation:
+ (Fwd):   dO err=1.95e-03 ≤ 2×1.95e-03
+ (Bwd):   dQ err=1.95e-03 ≤ 3×1.95e-03
+          dK err=1.95e-03 ≤ 3×1.95e-03
+          dV err=3.91e-03 ≤ 3×3.91e-03
+
+======================================================================
+Test: B=1, H=16, M=1024, N=1024, D=256, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 328.5 MB, PyTorch: 704.4 MB (Δ: -375.9 MB, -53.4%)
+ (fwd):   Custom: 1.10ms, PyTorch: 2.01ms (1.82x speedup)
+ (bwd):   Custom: 3.66ms, PyTorch: 5.68ms (1.55x speedup)
+ (tot):   Custom: 4.76ms, PyTorch: 7.69ms (1.62x speedup)
+Validation:
+ (Fwd):   dO err=2.44e-04 ≤ 2×7.32e-04
+ (Bwd):   dQ err=2.44e-04 ≤ 3×9.77e-04
+          dK err=2.44e-04 ≤ 3×7.32e-04
+          dV err=2.44e-04 ≤ 3×4.88e-04
+
+======================================================================
+Test: B=1, H=16, M=1024, N=1024, D=256, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 232.5 MB, PyTorch: 609.4 MB (Δ: -376.9 MB, -61.8%)
+ (fwd):   Custom: 0.65ms, PyTorch: 2.34ms (3.59x speedup)
+ (bwd):   Custom: 2.01ms, PyTorch: 6.35ms (3.16x speedup)
+ (tot):   Custom: 2.66ms, PyTorch: 8.69ms (3.27x speedup)
+Validation:
+ (Fwd):   dO err=1.95e-03 ≤ 2×1.95e-03
+ (Bwd):   dQ err=1.95e-03 ≤ 3×1.95e-03
+          dK err=1.95e-03 ≤ 3×1.95e-03
+          dV err=3.91e-03 ≤ 3×3.91e-03
+
+======================================================================
+Test: B=1, H=32, M=2048, N=2048, D=256, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 785.3 MB, PyTorch: 3568.8 MB (Δ: -2783.5 MB, -78.0%)
+ (fwd):   Custom: 7.74ms, PyTorch: 13.82ms (1.78x speedup)
+ (bwd):   Custom: 28.26ms, PyTorch: 40.96ms (1.45x speedup)
+ (tot):   Custom: 36.00ms, PyTorch: 54.78ms (1.52x speedup)
+Validation:
+ (Fwd):   dO err=2.44e-04 ≤ 2×7.32e-04
+ (Bwd):   dQ err=2.44e-04 ≤ 3×7.32e-04
+          dK err=2.44e-04 ≤ 3×7.32e-04
+          dV err=2.44e-04 ≤ 3×4.88e-04
+
+======================================================================
+Test: B=1, H=32, M=2048, N=2048, D=256, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 881.3 MB, PyTorch: 3668.8 MB (Δ: -2787.5 MB, -76.0%)
+ (fwd):   Custom: 3.85ms, PyTorch: 16.50ms (4.28x speedup)
+ (bwd):   Custom: 14.53ms, PyTorch: 45.65ms (3.14x speedup)
+ (tot):   Custom: 18.38ms, PyTorch: 62.15ms (3.38x speedup)
+Validation:
+ (Fwd):   dO err=1.95e-03 ≤ 2×1.95e-03
+ (Bwd):   dQ err=1.95e-03 ≤ 3×3.91e-03
+          dK err=3.91e-03 ≤ 3×3.91e-03
+          dV err=3.91e-03 ≤ 3×3.91e-03
+
+======================================================================
+Test: B=1, H=32, M=4096, N=4096, D=256, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 1618.3 MB, PyTorch: 12305.3 MB (Δ: -10687.0 MB, -86.8%)
+ (fwd):   Custom: 30.76ms, PyTorch: 54.25ms (1.76x speedup)
+ (bwd):   Custom: 116.22ms, PyTorch: 160.07ms (1.38x speedup)
+ (tot):   Custom: 146.99ms, PyTorch: 214.32ms (1.46x speedup)
+Validation:
+ (Fwd):   dO err=1.22e-04 ≤ 2×3.66e-04
+ (Bwd):   dQ err=1.22e-04 ≤ 3×4.88e-04
+          dK err=1.22e-04 ≤ 3×4.88e-04
+          dV err=1.22e-04 ≤ 3×3.66e-04
+
+======================================================================
+Test: B=1, H=32, M=4096, N=4096, D=256, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 1746.3 MB, PyTorch: 12449.3 MB (Δ: -10703.0 MB, -86.0%)
+ (fwd):   Custom: 14.54ms, PyTorch: 65.22ms (4.48x speedup)
+ (bwd):   Custom: 56.95ms, PyTorch: 180.22ms (3.16x speedup)
+ (tot):   Custom: 71.49ms, PyTorch: 245.43ms (3.43x speedup)
+Validation:
+ (Fwd):   dO err=1.95e-03 ≤ 2×1.95e-03
+ (Bwd):   dQ err=1.95e-03 ≤ 3×1.95e-03
+          dK err=1.95e-03 ≤ 3×1.95e-03
+          dV err=3.91e-03 ≤ 3×3.91e-03
+
+======================================================================
+Test: B=1, H=32, M=8192, N=8192, D=256, causal=False
+  ⚠️  PyTorch  OOM
+  ✅ Forward  OK
+  ✅ Backward OK
+Performance:
+ (Mem):   Custom: 2836.3 MB, PyTorch: OOM
+ (fwd):   Custom: 121.50ms, PyTorch: skipped
+ (bwd):   Custom: 473.46ms, PyTorch: skipped
+ (tot):   Custom: 594.96ms, PyTorch: skipped
+Validation:
+ (Fwd):   Skipped
+ (Bwd):   Skipped
+
+======================================================================
+Test: B=1, H=32, M=8192, N=8192, D=256, causal=True
+  ⚠️  PyTorch  OOM
+  ✅ Forward  OK
+  ✅ Backward OK
+Performance:
+ (Mem):   Custom: 2836.3 MB, PyTorch: OOM
+ (fwd):   Custom: 56.96ms, PyTorch: skipped
+ (bwd):   Custom: 229.70ms, PyTorch: skipped
+ (tot):   Custom: 286.66ms, PyTorch: skipped
+Validation:
+ (Fwd):   Skipped
+ (Bwd):   Skipped
+
+All combined tests passed!
+    [test.py exit: 0]
+----------------------------------------------------------------------
+[6] ADAPTER-CONTRACT SMOKE (paged + block_table + seqused_k + synth cu_seqlens_k + in-place out)
+[SMOKE] block_size=256 GQA=12/2 D=128 seqs=[300, 512] interleaved block_table, garbage-tail clamp test
+[SMOKE] in-place out= : OK
+[SMOKE] LSE [H_Q,T_Q] : OK
+[SMOKE] numerics      : cos=0.004047 max_abs=100.7305
+[SMOKE] FAIL (low-level varlen_fwd adapter contract)
+    [smoke exit: 1] (build: stock(BLOCK_N_128=160))
+    smoke FAILED on stock build — consistent with the PREDICTED D=128 tile/page
+    straddle (BLOCK_N_128=160 does not divide page 256; audit Turn 7).
+    Applying contingency + clean rebuild + full re-gate...
+    CONTINGENCY APPLIED: BLOCK_N_128 160->128 (tile now divides 256 page).
+    (backup: include/forward.h.bak_fa_audit ; revert via git checkout -- include/forward.h)
+Using pip 24.0 from /usr/lib/python3/dist-packages/pip (python 3.12)
+Processing /fa
+  Preparing metadata (pyproject.toml): started
+  Running command Preparing metadata (pyproject.toml)
+  autoset max_jobs=80, nvcc_threads=80 (current 80 cores, 486.3GB free mem)
+  /usr/local/lib/python3.12/dist-packages/setuptools/dist.py:332: InformationOnly: Normalizing '26.04' to '26.4'
+    self.metadata.version = self._normalize_version(self.metadata.version)
+  running dist_info
+  creating /tmp/pip-modern-metadata-vgrfyj9m/flash_attn_v100.egg-info
+  writing /tmp/pip-modern-metadata-vgrfyj9m/flash_attn_v100.egg-info/PKG-INFO
+  writing dependency_links to /tmp/pip-modern-metadata-vgrfyj9m/flash_attn_v100.egg-info/dependency_links.txt
+  writing requirements to /tmp/pip-modern-metadata-vgrfyj9m/flash_attn_v100.egg-info/requires.txt
+  writing top-level names to /tmp/pip-modern-metadata-vgrfyj9m/flash_attn_v100.egg-info/top_level.txt
+  writing manifest file '/tmp/pip-modern-metadata-vgrfyj9m/flash_attn_v100.egg-info/SOURCES.txt'
+  reading manifest file '/tmp/pip-modern-metadata-vgrfyj9m/flash_attn_v100.egg-info/SOURCES.txt'
+  adding license file 'LICENSE'
+  adding license file 'AUTHORS'
+  writing manifest file '/tmp/pip-modern-metadata-vgrfyj9m/flash_attn_v100.egg-info/SOURCES.txt'
+  creating '/tmp/pip-modern-metadata-vgrfyj9m/flash_attn_v100-26.4.dist-info'
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Building wheels for collected packages: flash_attn_v100
+  Building wheel for flash_attn_v100 (pyproject.toml): started
+  Running command Building wheel for flash_attn_v100 (pyproject.toml)
+  autoset max_jobs=80, nvcc_threads=80 (current 80 cores, 486.2GB free mem)
+  /usr/local/lib/python3.12/dist-packages/setuptools/dist.py:332: InformationOnly: Normalizing '26.04' to '26.4'
+    self.metadata.version = self._normalize_version(self.metadata.version)
+  running bdist_wheel
+  running build
+  running build_py
+  creating build/lib.linux-x86_64-cpython-312/flash_attn_v100
+  copying flash_attn_v100/__init__.py -> build/lib.linux-x86_64-cpython-312/flash_attn_v100
+  copying flash_attn_v100/flash_attn_interface.py -> build/lib.linux-x86_64-cpython-312/flash_attn_v100
+  running egg_info
+  writing flash_attn_v100.egg-info/PKG-INFO
+  writing dependency_links to flash_attn_v100.egg-info/dependency_links.txt
+  writing requirements to flash_attn_v100.egg-info/requires.txt
+  writing top-level names to flash_attn_v100.egg-info/top_level.txt
+  reading manifest file 'flash_attn_v100.egg-info/SOURCES.txt'
+  adding license file 'LICENSE'
+  adding license file 'AUTHORS'
+  writing manifest file 'flash_attn_v100.egg-info/SOURCES.txt'
+  Copied package: /fa/flash_attn -> build/lib.linux-x86_64-cpython-312/flash_attn
+  running build_ext
+  W0611 08:42:36.636000 668 torch/utils/cpp_extension.py:535] There are no x86_64-linux-gnu-g++ version bounds defined for CUDA version 12.9
+  building 'flash_attn_v100_cuda' extension
+  creating /fa/build/temp.linux-x86_64-cpython-312/kernel
+  [1/6] c++ -MMD -MF /fa/build/temp.linux-x86_64-cpython-312/kernel/fused_mha_api.o.d -fno-strict-overflow -Wsign-compare -DNDEBUG -g -O2 -Wall -fPIC -I/fa/include -I/usr/local/lib/python3.12/dist-packages/torch/include -I/usr/local/lib/python3.12/dist-packages/torch/include/torch/csrc/api/include -I/usr/local/cuda/include -I/usr/include/python3.12 -c -c /fa/kernel/fused_mha_api.cpp -o /fa/build/temp.linux-x86_64-cpython-312/kernel/fused_mha_api.o -O3 -std=c++17 -DTORCH_API_INCLUDE_EXTENSION_H -DTORCH_EXTENSION_NAME=flash_attn_v100_cuda
+  [2/6] /usr/local/cuda/bin/nvcc --generate-dependencies-with-compile --dependency-output /fa/build/temp.linux-x86_64-cpython-312/kernel/fused_mha_forward.o.d -I/fa/include -I/usr/local/lib/python3.12/dist-packages/torch/include -I/usr/local/lib/python3.12/dist-packages/torch/include/torch/csrc/api/include -I/usr/local/cuda/include -I/usr/include/python3.12 -c -c /fa/kernel/fused_mha_forward.cu -o /fa/build/temp.linux-x86_64-cpython-312/kernel/fused_mha_forward.o -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ --expt-relaxed-constexpr --compiler-options ''"'"'-fPIC'"'"'' -O3 -std=c++17 -gencode arch=compute_70,code=sm_70 -U__CUDA_NO_HALF_OPERATORS__ -U__CUDA_NO_HALF_CONVERSIONS__ -U__CUDA_NO_HALF2_OPERATORS__ --expt-relaxed-constexpr --expt-extended-lambda --use_fast_math -Wno-deprecated-gpu-targets --threads=80 -DTORCH_API_INCLUDE_EXTENSION_H -DTORCH_EXTENSION_NAME=flash_attn_v100_cuda
+  [3/6] /usr/local/cuda/bin/nvcc --generate-dependencies-with-compile --dependency-output /fa/build/temp.linux-x86_64-cpython-312/kernel/fused_mha_backward.o.d -I/fa/include -I/usr/local/lib/python3.12/dist-packages/torch/include -I/usr/local/lib/python3.12/dist-packages/torch/include/torch/csrc/api/include -I/usr/local/cuda/include -I/usr/include/python3.12 -c -c /fa/kernel/fused_mha_backward.cu -o /fa/build/temp.linux-x86_64-cpython-312/kernel/fused_mha_backward.o -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ --expt-relaxed-constexpr --compiler-options ''"'"'-fPIC'"'"'' -O3 -std=c++17 -gencode arch=compute_70,code=sm_70 -U__CUDA_NO_HALF_OPERATORS__ -U__CUDA_NO_HALF_CONVERSIONS__ -U__CUDA_NO_HALF2_OPERATORS__ --expt-relaxed-constexpr --expt-extended-lambda --use_fast_math -Wno-deprecated-gpu-targets --threads=80 -DTORCH_API_INCLUDE_EXTENSION_H -DTORCH_EXTENSION_NAME=flash_attn_v100_cuda
+  [4/6] /usr/local/cuda/bin/nvcc --generate-dependencies-with-compile --dependency-output /fa/build/temp.linux-x86_64-cpython-312/kernel/fused_mha_backward_varlen.o.d -I/fa/include -I/usr/local/lib/python3.12/dist-packages/torch/include -I/usr/local/lib/python3.12/dist-packages/torch/include/torch/csrc/api/include -I/usr/local/cuda/include -I/usr/include/python3.12 -c -c /fa/kernel/fused_mha_backward_varlen.cu -o /fa/build/temp.linux-x86_64-cpython-312/kernel/fused_mha_backward_varlen.o -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ --expt-relaxed-constexpr --compiler-options ''"'"'-fPIC'"'"'' -O3 -std=c++17 -gencode arch=compute_70,code=sm_70 -U__CUDA_NO_HALF_OPERATORS__ -U__CUDA_NO_HALF_CONVERSIONS__ -U__CUDA_NO_HALF2_OPERATORS__ --expt-relaxed-constexpr --expt-extended-lambda --use_fast_math -Wno-deprecated-gpu-targets --threads=80 -DTORCH_API_INCLUDE_EXTENSION_H -DTORCH_EXTENSION_NAME=flash_attn_v100_cuda
+  [5/6] /usr/local/cuda/bin/nvcc --generate-dependencies-with-compile --dependency-output /fa/build/temp.linux-x86_64-cpython-312/kernel/fused_mha_forward_varlen.o.d -I/fa/include -I/usr/local/lib/python3.12/dist-packages/torch/include -I/usr/local/lib/python3.12/dist-packages/torch/include/torch/csrc/api/include -I/usr/local/cuda/include -I/usr/include/python3.12 -c -c /fa/kernel/fused_mha_forward_varlen.cu -o /fa/build/temp.linux-x86_64-cpython-312/kernel/fused_mha_forward_varlen.o -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ --expt-relaxed-constexpr --compiler-options ''"'"'-fPIC'"'"'' -O3 -std=c++17 -gencode arch=compute_70,code=sm_70 -U__CUDA_NO_HALF_OPERATORS__ -U__CUDA_NO_HALF_CONVERSIONS__ -U__CUDA_NO_HALF2_OPERATORS__ --expt-relaxed-constexpr --expt-extended-lambda --use_fast_math -Wno-deprecated-gpu-targets --threads=80 -DTORCH_API_INCLUDE_EXTENSION_H -DTORCH_EXTENSION_NAME=flash_attn_v100_cuda
+  [6/6] /usr/local/cuda/bin/nvcc --generate-dependencies-with-compile --dependency-output /fa/build/temp.linux-x86_64-cpython-312/kernel/fused_mha_forward_kvcache.o.d -I/fa/include -I/usr/local/lib/python3.12/dist-packages/torch/include -I/usr/local/lib/python3.12/dist-packages/torch/include/torch/csrc/api/include -I/usr/local/cuda/include -I/usr/include/python3.12 -c -c /fa/kernel/fused_mha_forward_kvcache.cu -o /fa/build/temp.linux-x86_64-cpython-312/kernel/fused_mha_forward_kvcache.o -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ --expt-relaxed-constexpr --compiler-options ''"'"'-fPIC'"'"'' -O3 -std=c++17 -gencode arch=compute_70,code=sm_70 -U__CUDA_NO_HALF_OPERATORS__ -U__CUDA_NO_HALF_CONVERSIONS__ -U__CUDA_NO_HALF2_OPERATORS__ --expt-relaxed-constexpr --expt-extended-lambda --use_fast_math -Wno-deprecated-gpu-targets --threads=80 -DTORCH_API_INCLUDE_EXTENSION_H -DTORCH_EXTENSION_NAME=flash_attn_v100_cuda
+  x86_64-linux-gnu-g++ -fno-strict-overflow -Wsign-compare -DNDEBUG -g -O2 -Wall -shared -Wl,-O1 -Wl,-Bsymbolic-functions /fa/build/temp.linux-x86_64-cpython-312/kernel/fused_mha_api.o /fa/build/temp.linux-x86_64-cpython-312/kernel/fused_mha_backward.o /fa/build/temp.linux-x86_64-cpython-312/kernel/fused_mha_backward_varlen.o /fa/build/temp.linux-x86_64-cpython-312/kernel/fused_mha_forward.o /fa/build/temp.linux-x86_64-cpython-312/kernel/fused_mha_forward_kvcache.o /fa/build/temp.linux-x86_64-cpython-312/kernel/fused_mha_forward_varlen.o -L/usr/local/lib/python3.12/dist-packages/torch/lib -L/usr/local/cuda/lib64 -L/usr/lib/x86_64-linux-gnu -lc10 -ltorch -ltorch_cpu -ltorch_python -lcudart -lc10_cuda -ltorch_cuda -o build/lib.linux-x86_64-cpython-312/flash_attn_v100_cuda.cpython-312-x86_64-linux-gnu.so
+  Created symlink: flash_attn_2_cuda.so -> flash_attn_v100_cuda.cpython-312-x86_64-linux-gnu.so
+  installing to build/bdist.linux-x86_64/wheel
+  running install
+  running install_lib
+  creating build/bdist.linux-x86_64/wheel
+  copying build/lib.linux-x86_64-cpython-312/flash_attn_2_cuda.so -> build/bdist.linux-x86_64/wheel/.
+  creating build/bdist.linux-x86_64/wheel/flash_attn_v100
+  copying build/lib.linux-x86_64-cpython-312/flash_attn_v100/__init__.py -> build/bdist.linux-x86_64/wheel/./flash_attn_v100
+  copying build/lib.linux-x86_64-cpython-312/flash_attn_v100/flash_attn_interface.py -> build/bdist.linux-x86_64/wheel/./flash_attn_v100
+  creating build/bdist.linux-x86_64/wheel/flash_attn
+  copying build/lib.linux-x86_64-cpython-312/flash_attn/__init__.py -> build/bdist.linux-x86_64/wheel/./flash_attn
+  copying build/lib.linux-x86_64-cpython-312/flash_attn/bert_padding.py -> build/bdist.linux-x86_64/wheel/./flash_attn
+  copying build/lib.linux-x86_64-cpython-312/flash_attn/flash_attn_interface.py -> build/bdist.linux-x86_64/wheel/./flash_attn
+  copying build/lib.linux-x86_64-cpython-312/flash_attn_v100_cuda.cpython-312-x86_64-linux-gnu.so -> build/bdist.linux-x86_64/wheel/.
+  running install_egg_info
+  Copying flash_attn_v100.egg-info to build/bdist.linux-x86_64/wheel/./flash_attn_v100-26.4-py3.12.egg-info
+  running install_scripts
+  creating build/bdist.linux-x86_64/wheel/flash_attn_v100-26.4.dist-info/WHEEL
+  creating '/tmp/pip-wheel-6rnou9xp/.tmp-9h5e8htf/flash_attn_v100-26.4-cp312-cp312-linux_x86_64.whl' and adding 'build/bdist.linux-x86_64/wheel' to it
+  adding 'flash_attn_2_cuda.so'
+  adding 'flash_attn_v100_cuda.cpython-312-x86_64-linux-gnu.so'
+  adding 'flash_attn/__init__.py'
+  adding 'flash_attn/bert_padding.py'
+  adding 'flash_attn/flash_attn_interface.py'
+  adding 'flash_attn_v100/__init__.py'
+  adding 'flash_attn_v100/flash_attn_interface.py'
+  adding 'flash_attn_v100-26.4.dist-info/licenses/AUTHORS'
+  adding 'flash_attn_v100-26.4.dist-info/licenses/LICENSE'
+  adding 'flash_attn_v100-26.4.dist-info/METADATA'
+  adding 'flash_attn_v100-26.4.dist-info/WHEEL'
+  adding 'flash_attn_v100-26.4.dist-info/top_level.txt'
+  adding 'flash_attn_v100-26.4.dist-info/RECORD'
+  removing build/bdist.linux-x86_64/wheel
+  Building wheel for flash_attn_v100 (pyproject.toml): finished with status 'done'
+  Created wheel for flash_attn_v100: filename=flash_attn_v100-26.4-cp312-cp312-linux_x86_64.whl size=41492637 sha256=2ca505542e6e5dabc06da494729aa6251442819ca2acd9ebbaddeee9d6dac019
+  Stored in directory: /tmp/pip-ephem-wheel-cache-e9gur6_a/wheels/e7/66/75/347ab4d2057aae78e80e491e043827e7fea221f4c2acb3da43
+Successfully built flash_attn_v100
+Installing collected packages: flash_attn_v100
+  Attempting uninstall: flash_attn_v100
+    Found existing installation: flash_attn_v100 26.4
+    Uninstalling flash_attn_v100-26.4:
+      Removing file or directory /usr/local/lib/python3.12/dist-packages/flash_attn/
+      Removing file or directory /usr/local/lib/python3.12/dist-packages/flash_attn_2_cuda.so
+      Removing file or directory /usr/local/lib/python3.12/dist-packages/flash_attn_v100-26.4.dist-info/
+      Removing file or directory /usr/local/lib/python3.12/dist-packages/flash_attn_v100/
+      Removing file or directory /usr/local/lib/python3.12/dist-packages/flash_attn_v100_cuda.cpython-312-x86_64-linux-gnu.so
+      Successfully uninstalled flash_attn_v100-26.4
+Successfully installed flash_attn_v100-26.4
+    build OK (patched(BLOCK_N_128=128)): None
+Running on Tesla V100-SXM2-32GB (capability (7, 0))
+
+======================================================================
+Test: B=1, H=1, M=16, N=16, D=16, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 16.3 MB, PyTorch: 16.3 MB (Δ: -0.0 MB, -0.0%)
+ (fwd):   Custom: 0.10ms, PyTorch: 0.39ms (3.82x speedup)
+ (bwd):   Custom: 0.07ms, PyTorch: 3.47ms (46.40x speedup)
+ (tot):   Custom: 0.18ms, PyTorch: 3.86ms (21.84x speedup)
+Validation:
+ (Fwd):   dO err=4.88e-04 ≤ 2×9.77e-04
+ (Bwd):   dQ err=4.88e-04 ≤ 3×9.77e-04
+          dK err=4.88e-04 ≤ 3×9.77e-04
+          dV err=4.88e-04 ≤ 3×4.88e-04
+
+======================================================================
+Test: B=1, H=1, M=16, N=16, D=16, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 16.3 MB, PyTorch: 16.3 MB (Δ: -0.0 MB, -0.0%)
+ (fwd):   Custom: 0.16ms, PyTorch: 0.51ms (3.14x speedup)
+ (bwd):   Custom: 0.18ms, PyTorch: 3.75ms (21.44x speedup)
+ (tot):   Custom: 0.34ms, PyTorch: 4.26ms (12.62x speedup)
+Validation:
+ (Fwd):   dO err=9.77e-04 ≤ 2×9.77e-04
+ (Bwd):   dQ err=4.88e-04 ≤ 3×4.88e-04
+          dK err=9.77e-04 ≤ 3×4.88e-04
+          dV err=9.77e-04 ≤ 3×9.77e-04
+
+======================================================================
+Test: B=1, H=1, M=32, N=32, D=32, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 16.3 MB, PyTorch: 16.3 MB (Δ: -0.0 MB, -0.2%)
+ (fwd):   Custom: 0.16ms, PyTorch: 0.91ms (5.56x speedup)
+ (bwd):   Custom: 0.17ms, PyTorch: 3.82ms (21.93x speedup)
+ (tot):   Custom: 0.34ms, PyTorch: 4.73ms (14.01x speedup)
+Validation:
+ (Fwd):   dO err=4.88e-04 ≤ 2×9.77e-04
+ (Bwd):   dQ err=4.88e-04 ≤ 3×9.77e-04
+          dK err=4.88e-04 ≤ 3×9.77e-04
+          dV err=4.88e-04 ≤ 3×9.77e-04
+
+======================================================================
+Test: B=1, H=1, M=32, N=32, D=32, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 16.3 MB, PyTorch: 16.3 MB (Δ: -0.0 MB, -0.2%)
+ (fwd):   Custom: 0.16ms, PyTorch: 0.99ms (6.18x speedup)
+ (bwd):   Custom: 0.17ms, PyTorch: 4.37ms (25.25x speedup)
+ (tot):   Custom: 0.33ms, PyTorch: 5.36ms (16.07x speedup)
+Validation:
+ (Fwd):   dO err=4.88e-04 ≤ 2×1.46e-03
+ (Bwd):   dQ err=9.77e-04 ≤ 3×9.77e-04
+          dK err=9.77e-04 ≤ 3×9.77e-04
+          dV err=1.95e-03 ≤ 3×1.95e-03
+
+======================================================================
+Test: B=1, H=1, M=64, N=64, D=64, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 16.4 MB, PyTorch: 16.6 MB (Δ: -0.1 MB, -0.8%)
+ (fwd):   Custom: 0.16ms, PyTorch: 0.84ms (5.14x speedup)
+ (bwd):   Custom: 0.18ms, PyTorch: 3.91ms (22.22x speedup)
+ (tot):   Custom: 0.34ms, PyTorch: 4.75ms (14.02x speedup)
+Validation:
+ (Fwd):   dO err=4.88e-04 ≤ 2×4.88e-04
+ (Bwd):   dQ err=4.88e-04 ≤ 3×9.77e-04
+          dK err=4.88e-04 ≤ 3×9.77e-04
+          dV err=4.88e-04 ≤ 3×4.88e-04
+
+======================================================================
+Test: B=1, H=1, M=64, N=64, D=64, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 16.5 MB, PyTorch: 16.6 MB (Δ: -0.1 MB, -0.8%)
+ (fwd):   Custom: 0.16ms, PyTorch: 1.18ms (7.25x speedup)
+ (bwd):   Custom: 0.17ms, PyTorch: 4.30ms (24.76x speedup)
+ (tot):   Custom: 0.34ms, PyTorch: 5.48ms (16.29x speedup)
+Validation:
+ (Fwd):   dO err=9.77e-04 ≤ 2×9.77e-04
+ (Bwd):   dQ err=9.77e-04 ≤ 3×9.77e-04
+          dK err=9.77e-04 ≤ 3×9.77e-04
+          dV err=1.95e-03 ≤ 3×1.95e-03
+
+======================================================================
+Test: B=1, H=1, M=128, N=128, D=128, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 17.0 MB, PyTorch: 17.5 MB (Δ: -0.5 MB, -3.0%)
+ (fwd):   Custom: 0.16ms, PyTorch: 0.40ms (2.43x speedup)
+ (bwd):   Custom: 0.18ms, PyTorch: 3.10ms (17.72x speedup)
+ (tot):   Custom: 0.34ms, PyTorch: 3.50ms (10.33x speedup)
+Validation:
+ (Fwd):   dO err=4.88e-04 ≤ 2×4.88e-04
+ (Bwd):   dQ err=4.88e-04 ≤ 3×9.77e-04
+          dK err=4.88e-04 ≤ 3×9.77e-04
+          dV err=4.88e-04 ≤ 3×6.10e-04
+
+======================================================================
+Test: B=1, H=1, M=128, N=128, D=128, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 17.1 MB, PyTorch: 17.6 MB (Δ: -0.5 MB, -3.1%)
+ (fwd):   Custom: 0.16ms, PyTorch: 1.20ms (7.30x speedup)
+ (bwd):   Custom: 0.18ms, PyTorch: 4.28ms (24.28x speedup)
+ (tot):   Custom: 0.34ms, PyTorch: 5.47ms (16.09x speedup)
+Validation:
+ (Fwd):   dO err=9.77e-04 ≤ 2×9.77e-04
+ (Bwd):   dQ err=9.77e-04 ≤ 3×1.95e-03
+          dK err=9.77e-04 ≤ 3×1.95e-03
+          dV err=9.77e-04 ≤ 3×1.95e-03
+
+======================================================================
+Test: B=1, H=1, M=256, N=256, D=256, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 19.3 MB, PyTorch: 21.4 MB (Δ: -2.1 MB, -9.9%)
+ (fwd):   Custom: 0.16ms, PyTorch: 0.92ms (5.65x speedup)
+ (bwd):   Custom: 0.18ms, PyTorch: 3.95ms (22.21x speedup)
+ (tot):   Custom: 0.34ms, PyTorch: 4.87ms (14.28x speedup)
+Validation:
+ (Fwd):   dO err=2.44e-04 ≤ 2×7.32e-04
+ (Bwd):   dQ err=2.44e-04 ≤ 3×4.88e-04
+          dK err=4.88e-04 ≤ 3×4.88e-04
+          dV err=4.88e-04 ≤ 3×9.77e-04
+
+======================================================================
+Test: B=1, H=1, M=256, N=256, D=256, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 19.6 MB, PyTorch: 21.8 MB (Δ: -2.2 MB, -10.0%)
+ (fwd):   Custom: 0.16ms, PyTorch: 0.97ms (5.88x speedup)
+ (bwd):   Custom: 0.18ms, PyTorch: 4.40ms (25.01x speedup)
+ (tot):   Custom: 0.34ms, PyTorch: 5.37ms (15.77x speedup)
+Validation:
+ (Fwd):   dO err=9.77e-04 ≤ 2×1.95e-03
+ (Bwd):   dQ err=9.77e-04 ≤ 3×9.77e-04
+          dK err=9.77e-04 ≤ 3×1.95e-03
+          dV err=1.95e-03 ≤ 3×1.95e-03
+
+======================================================================
+Test: B=1, H=16, M=1024, N=1024, D=16, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 28.5 MB, PyTorch: 351.9 MB (Δ: -323.4 MB, -91.9%)
+ (fwd):   Custom: 0.31ms, PyTorch: 1.00ms (3.20x speedup)
+ (bwd):   Custom: 0.73ms, PyTorch: 3.89ms (5.36x speedup)
+ (tot):   Custom: 1.04ms, PyTorch: 4.89ms (4.71x speedup)
+Validation:
+ (Fwd):   dO err=2.44e-04 ≤ 2×4.88e-04
+ (Bwd):   dQ err=4.88e-04 ≤ 3×9.77e-04
+          dK err=4.88e-04 ≤ 3×9.77e-04
+          dV err=4.88e-04 ≤ 3×7.32e-04
+
+======================================================================
+Test: B=1, H=16, M=1024, N=1024, D=16, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 30.0 MB, PyTorch: 354.4 MB (Δ: -324.4 MB, -91.5%)
+ (fwd):   Custom: 0.26ms, PyTorch: 1.27ms (4.80x speedup)
+ (bwd):   Custom: 0.50ms, PyTorch: 4.16ms (8.32x speedup)
+ (tot):   Custom: 0.76ms, PyTorch: 5.43ms (7.10x speedup)
+Validation:
+ (Fwd):   dO err=9.77e-04 ≤ 2×1.95e-03
+ (Bwd):   dQ err=1.95e-03 ≤ 3×3.91e-03
+          dK err=1.95e-03 ≤ 3×1.95e-03
+          dV err=1.95e-03 ≤ 3×1.95e-03
+
+======================================================================
+Test: B=1, H=32, M=1024, N=1024, D=16, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 41.8 MB, PyTorch: 688.5 MB (Δ: -646.8 MB, -93.9%)
+ (fwd):   Custom: 0.54ms, PyTorch: 1.39ms (2.55x speedup)
+ (bwd):   Custom: 1.34ms, PyTorch: 4.20ms (3.14x speedup)
+ (tot):   Custom: 1.88ms, PyTorch: 5.59ms (2.97x speedup)
+Validation:
+ (Fwd):   dO err=2.44e-04 ≤ 2×4.88e-04
+ (Bwd):   dQ err=4.88e-04 ≤ 3×9.77e-04
+          dK err=4.88e-04 ≤ 3×9.77e-04
+          dV err=4.88e-04 ≤ 3×7.32e-04
+
+======================================================================
+Test: B=1, H=32, M=1024, N=1024, D=16, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 43.8 MB, PyTorch: 691.5 MB (Δ: -647.8 MB, -93.7%)
+ (fwd):   Custom: 0.41ms, PyTorch: 2.08ms (5.09x speedup)
+ (bwd):   Custom: 0.82ms, PyTorch: 5.40ms (6.60x speedup)
+ (tot):   Custom: 1.23ms, PyTorch: 7.48ms (6.09x speedup)
+Validation:
+ (Fwd):   dO err=9.77e-04 ≤ 2×1.95e-03
+ (Bwd):   dQ err=1.95e-03 ≤ 3×3.91e-03
+          dK err=1.95e-03 ≤ 3×1.95e-03
+          dV err=1.95e-03 ≤ 3×1.95e-03
+
+======================================================================
+Test: B=1, H=16, M=1024, N=1024, D=32, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 43.5 MB, PyTorch: 370.4 MB (Δ: -326.9 MB, -88.3%)
+ (fwd):   Custom: 0.27ms, PyTorch: 1.05ms (3.96x speedup)
+ (bwd):   Custom: 0.75ms, PyTorch: 3.81ms (5.08x speedup)
+ (tot):   Custom: 1.01ms, PyTorch: 4.86ms (4.79x speedup)
+Validation:
+ (Fwd):   dO err=2.44e-04 ≤ 2×7.32e-04
+ (Bwd):   dQ err=2.44e-04 ≤ 3×1.22e-03
+          dK err=2.44e-04 ≤ 3×1.22e-03
+          dV err=2.44e-04 ≤ 3×9.77e-04
+
+======================================================================
+Test: B=1, H=16, M=1024, N=1024, D=32, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 43.5 MB, PyTorch: 371.4 MB (Δ: -327.9 MB, -88.3%)
+ (fwd):   Custom: 0.23ms, PyTorch: 1.31ms (5.61x speedup)
+ (bwd):   Custom: 0.55ms, PyTorch: 3.97ms (7.17x speedup)
+ (tot):   Custom: 0.79ms, PyTorch: 5.28ms (6.71x speedup)
+Validation:
+ (Fwd):   dO err=9.77e-04 ≤ 2×1.95e-03
+ (Bwd):   dQ err=9.77e-04 ≤ 3×1.95e-03
+          dK err=1.95e-03 ≤ 3×1.95e-03
+          dV err=1.95e-03 ≤ 3×3.91e-03
+
+======================================================================
+Test: B=1, H=32, M=1024, N=1024, D=32, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 66.8 MB, PyTorch: 720.5 MB (Δ: -653.8 MB, -90.7%)
+ (fwd):   Custom: 0.47ms, PyTorch: 1.46ms (3.11x speedup)
+ (bwd):   Custom: 1.34ms, PyTorch: 4.25ms (3.17x speedup)
+ (tot):   Custom: 1.81ms, PyTorch: 5.71ms (3.15x speedup)
+Validation:
+ (Fwd):   dO err=2.44e-04 ≤ 2×1.22e-03
+ (Bwd):   dQ err=4.88e-04 ≤ 3×1.46e-03
+          dK err=4.88e-04 ≤ 3×1.46e-03
+          dV err=4.88e-04 ≤ 3×1.10e-03
+
+======================================================================
+Test: B=1, H=32, M=1024, N=1024, D=32, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 70.8 MB, PyTorch: 725.5 MB (Δ: -654.8 MB, -90.2%)
+ (fwd):   Custom: 0.33ms, PyTorch: 2.12ms (6.38x speedup)
+ (bwd):   Custom: 0.83ms, PyTorch: 5.38ms (6.51x speedup)
+ (tot):   Custom: 1.16ms, PyTorch: 7.50ms (6.48x speedup)
+Validation:
+ (Fwd):   dO err=9.77e-04 ≤ 2×1.95e-03
+ (Bwd):   dQ err=1.46e-03 ≤ 3×2.93e-03
+          dK err=1.95e-03 ≤ 3×2.93e-03
+          dV err=1.95e-03 ≤ 3×1.95e-03
+
+======================================================================
+Test: B=1, H=16, M=1024, N=1024, D=64, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 70.5 MB, PyTorch: 404.4 MB (Δ: -333.9 MB, -82.6%)
+ (fwd):   Custom: 0.36ms, PyTorch: 1.04ms (2.87x speedup)
+ (bwd):   Custom: 0.97ms, PyTorch: 3.88ms (4.00x speedup)
+ (tot):   Custom: 1.33ms, PyTorch: 4.92ms (3.69x speedup)
+Validation:
+ (Fwd):   dO err=1.22e-04 ≤ 2×4.88e-04
+ (Bwd):   dQ err=4.88e-04 ≤ 3×7.32e-04
+          dK err=4.88e-04 ≤ 3×7.32e-04
+          dV err=2.44e-04 ≤ 3×4.88e-04
+
+======================================================================
+Test: B=1, H=16, M=1024, N=1024, D=64, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 70.5 MB, PyTorch: 405.4 MB (Δ: -334.9 MB, -82.6%)
+ (fwd):   Custom: 0.26ms, PyTorch: 1.44ms (5.62x speedup)
+ (bwd):   Custom: 0.66ms, PyTorch: 4.36ms (6.58x speedup)
+ (tot):   Custom: 0.92ms, PyTorch: 5.80ms (6.31x speedup)
+Validation:
+ (Fwd):   dO err=9.77e-04 ≤ 2×1.95e-03
+ (Bwd):   dQ err=1.95e-03 ≤ 3×1.95e-03
+          dK err=1.95e-03 ≤ 3×1.95e-03
+          dV err=1.95e-03 ≤ 3×1.95e-03
+
+======================================================================
+Test: B=1, H=32, M=1024, N=1024, D=64, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 116.8 MB, PyTorch: 784.5 MB (Δ: -667.8 MB, -85.1%)
+ (fwd):   Custom: 0.58ms, PyTorch: 1.80ms (3.11x speedup)
+ (bwd):   Custom: 1.85ms, PyTorch: 4.89ms (2.65x speedup)
+ (tot):   Custom: 2.42ms, PyTorch: 6.68ms (2.76x speedup)
+Validation:
+ (Fwd):   dO err=2.44e-04 ≤ 2×4.88e-04
+ (Bwd):   dQ err=4.88e-04 ≤ 3×1.46e-03
+          dK err=4.88e-04 ≤ 3×1.46e-03
+          dV err=4.88e-04 ≤ 3×9.77e-04
+
+======================================================================
+Test: B=1, H=32, M=1024, N=1024, D=64, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 124.8 MB, PyTorch: 793.5 MB (Δ: -668.8 MB, -84.3%)
+ (fwd):   Custom: 0.38ms, PyTorch: 2.40ms (6.25x speedup)
+ (bwd):   Custom: 1.14ms, PyTorch: 6.10ms (5.35x speedup)
+ (tot):   Custom: 1.52ms, PyTorch: 8.50ms (5.57x speedup)
+Validation:
+ (Fwd):   dO err=9.77e-04 ≤ 2×1.95e-03
+ (Bwd):   dQ err=1.95e-03 ≤ 3×1.95e-03
+          dK err=1.95e-03 ≤ 3×1.95e-03
+          dV err=1.95e-03 ≤ 3×3.91e-03
+
+======================================================================
+Test: B=1, H=16, M=1024, N=1024, D=128, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 124.5 MB, PyTorch: 472.4 MB (Δ: -347.9 MB, -73.6%)
+ (fwd):   Custom: 0.57ms, PyTorch: 1.37ms (2.39x speedup)
+ (bwd):   Custom: 1.81ms, PyTorch: 3.94ms (2.17x speedup)
+ (tot):   Custom: 2.38ms, PyTorch: 5.31ms (2.23x speedup)
+Validation:
+ (Fwd):   dO err=1.22e-04 ≤ 2×7.32e-04
+ (Bwd):   dQ err=2.44e-04 ≤ 3×9.77e-04
+          dK err=2.44e-04 ≤ 3×1.46e-03
+          dV err=2.44e-04 ≤ 3×7.32e-04
+
+======================================================================
+Test: B=1, H=16, M=1024, N=1024, D=128, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 124.5 MB, PyTorch: 473.4 MB (Δ: -348.9 MB, -73.7%)
+ (fwd):   Custom: 0.37ms, PyTorch: 1.68ms (4.49x speedup)
+ (bwd):   Custom: 1.07ms, PyTorch: 4.47ms (4.18x speedup)
+ (tot):   Custom: 1.44ms, PyTorch: 6.14ms (4.26x speedup)
+Validation:
+ (Fwd):   dO err=1.95e-03 ≤ 2×1.95e-03
+ (Bwd):   dQ err=1.95e-03 ≤ 3×1.95e-03
+          dK err=1.95e-03 ≤ 3×1.95e-03
+          dV err=1.95e-03 ≤ 3×3.91e-03
+
+======================================================================
+Test: B=1, H=32, M=2048, N=2048, D=128, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 401.3 MB, PyTorch: 3072.8 MB (Δ: -2671.5 MB, -86.9%)
+ (fwd):   Custom: 3.50ms, PyTorch: 8.47ms (2.42x speedup)
+ (bwd):   Custom: 13.28ms, PyTorch: 24.88ms (1.87x speedup)
+ (tot):   Custom: 16.77ms, PyTorch: 33.34ms (1.99x speedup)
+Validation:
+ (Fwd):   dO err=2.44e-04 ≤ 2×6.10e-04
+ (Bwd):   dQ err=2.44e-04 ≤ 3×9.77e-04
+          dK err=2.44e-04 ≤ 3×9.77e-04
+          dV err=2.44e-04 ≤ 3×7.93e-04
+
+======================================================================
+Test: B=1, H=32, M=2048, N=2048, D=128, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 449.3 MB, PyTorch: 3124.8 MB (Δ: -2675.5 MB, -85.6%)
+ (fwd):   Custom: 1.96ms, PyTorch: 11.28ms (5.74x speedup)
+ (bwd):   Custom: 7.14ms, PyTorch: 30.17ms (4.22x speedup)
+ (tot):   Custom: 9.11ms, PyTorch: 41.45ms (4.55x speedup)
+Validation:
+ (Fwd):   dO err=9.77e-04 ≤ 2×2.20e-03
+ (Bwd):   dQ err=3.91e-03 ≤ 3×3.91e-03
+          dK err=1.95e-03 ≤ 3×1.95e-03
+          dV err=1.95e-03 ≤ 3×3.91e-03
+
+======================================================================
+Test: B=1, H=32, M=4096, N=4096, D=128, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 818.3 MB, PyTorch: 11281.3 MB (Δ: -10463.0 MB, -92.7%)
+ (fwd):   Custom: 13.56ms, PyTorch: 32.65ms (2.41x speedup)
+ (bwd):   Custom: 52.30ms, PyTorch: 96.09ms (1.84x speedup)
+ (tot):   Custom: 65.86ms, PyTorch: 128.74ms (1.95x speedup)
+Validation:
+ (Fwd):   dO err=1.22e-04 ≤ 2×6.10e-04
+ (Bwd):   dQ err=1.22e-04 ≤ 3×4.88e-04
+          dK err=2.44e-04 ≤ 3×6.10e-04
+          dV err=1.22e-04 ≤ 3×4.88e-04
+
+======================================================================
+Test: B=1, H=32, M=4096, N=4096, D=128, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 882.3 MB, PyTorch: 11361.3 MB (Δ: -10479.0 MB, -92.2%)
+ (fwd):   Custom: 7.06ms, PyTorch: 43.50ms (6.16x speedup)
+ (bwd):   Custom: 27.18ms, PyTorch: 116.64ms (4.29x speedup)
+ (tot):   Custom: 34.24ms, PyTorch: 160.14ms (4.68x speedup)
+Validation:
+ (Fwd):   dO err=1.95e-03 ≤ 2×1.95e-03
+ (Bwd):   dQ err=1.95e-03 ≤ 3×1.95e-03
+          dK err=1.95e-03 ≤ 3×1.95e-03
+          dV err=3.91e-03 ≤ 3×3.91e-03
+
+======================================================================
+Test: B=1, H=16, M=1024, N=1024, D=256, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 328.5 MB, PyTorch: 704.4 MB (Δ: -375.9 MB, -53.4%)
+ (fwd):   Custom: 1.11ms, PyTorch: 2.03ms (1.82x speedup)
+ (bwd):   Custom: 3.66ms, PyTorch: 5.70ms (1.55x speedup)
+ (tot):   Custom: 4.78ms, PyTorch: 7.73ms (1.62x speedup)
+Validation:
+ (Fwd):   dO err=2.44e-04 ≤ 2×7.32e-04
+ (Bwd):   dQ err=2.44e-04 ≤ 3×9.77e-04
+          dK err=2.44e-04 ≤ 3×7.32e-04
+          dV err=2.44e-04 ≤ 3×4.88e-04
+
+======================================================================
+Test: B=1, H=16, M=1024, N=1024, D=256, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 232.5 MB, PyTorch: 609.4 MB (Δ: -376.9 MB, -61.8%)
+ (fwd):   Custom: 0.65ms, PyTorch: 2.36ms (3.61x speedup)
+ (bwd):   Custom: 2.02ms, PyTorch: 6.40ms (3.18x speedup)
+ (tot):   Custom: 2.67ms, PyTorch: 8.76ms (3.28x speedup)
+Validation:
+ (Fwd):   dO err=1.95e-03 ≤ 2×1.95e-03
+ (Bwd):   dQ err=1.95e-03 ≤ 3×1.95e-03
+          dK err=1.95e-03 ≤ 3×1.95e-03
+          dV err=3.91e-03 ≤ 3×3.91e-03
+
+======================================================================
+Test: B=1, H=32, M=2048, N=2048, D=256, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 785.3 MB, PyTorch: 3568.8 MB (Δ: -2783.5 MB, -78.0%)
+ (fwd):   Custom: 7.80ms, PyTorch: 13.83ms (1.77x speedup)
+ (bwd):   Custom: 28.27ms, PyTorch: 40.97ms (1.45x speedup)
+ (tot):   Custom: 36.07ms, PyTorch: 54.80ms (1.52x speedup)
+Validation:
+ (Fwd):   dO err=2.44e-04 ≤ 2×7.32e-04
+ (Bwd):   dQ err=2.44e-04 ≤ 3×7.32e-04
+          dK err=2.44e-04 ≤ 3×7.32e-04
+          dV err=2.44e-04 ≤ 3×4.88e-04
+
+======================================================================
+Test: B=1, H=32, M=2048, N=2048, D=256, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 881.3 MB, PyTorch: 3668.8 MB (Δ: -2787.5 MB, -76.0%)
+ (fwd):   Custom: 3.84ms, PyTorch: 16.52ms (4.30x speedup)
+ (bwd):   Custom: 14.53ms, PyTorch: 45.46ms (3.13x speedup)
+ (tot):   Custom: 18.38ms, PyTorch: 61.98ms (3.37x speedup)
+Validation:
+ (Fwd):   dO err=1.95e-03 ≤ 2×1.95e-03
+ (Bwd):   dQ err=1.95e-03 ≤ 3×3.91e-03
+          dK err=3.91e-03 ≤ 3×3.91e-03
+          dV err=3.91e-03 ≤ 3×3.91e-03
+
+======================================================================
+Test: B=1, H=32, M=4096, N=4096, D=256, causal=False
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 1618.3 MB, PyTorch: 12305.3 MB (Δ: -10687.0 MB, -86.8%)
+ (fwd):   Custom: 30.73ms, PyTorch: 54.29ms (1.77x speedup)
+ (bwd):   Custom: 116.04ms, PyTorch: 159.01ms (1.37x speedup)
+ (tot):   Custom: 146.77ms, PyTorch: 213.29ms (1.45x speedup)
+Validation:
+ (Fwd):   dO err=1.22e-04 ≤ 2×3.66e-04
+ (Bwd):   dQ err=1.22e-04 ≤ 3×4.88e-04
+          dK err=1.22e-04 ≤ 3×4.88e-04
+          dV err=1.22e-04 ≤ 3×3.66e-04
+
+======================================================================
+Test: B=1, H=32, M=4096, N=4096, D=256, causal=True
+  ✅ Forward  match OK
+  ✅ Backward match OK
+Performance:
+ (Mem):   Custom: 1746.3 MB, PyTorch: 12449.3 MB (Δ: -10703.0 MB, -86.0%)
+ (fwd):   Custom: 14.53ms, PyTorch: 64.93ms (4.47x speedup)
+ (bwd):   Custom: 56.94ms, PyTorch: 179.97ms (3.16x speedup)
+ (tot):   Custom: 71.47ms, PyTorch: 244.90ms (3.43x speedup)
+Validation:
+ (Fwd):   dO err=1.95e-03 ≤ 2×1.95e-03
+ (Bwd):   dQ err=1.95e-03 ≤ 3×1.95e-03
+          dK err=1.95e-03 ≤ 3×1.95e-03
+          dV err=3.91e-03 ≤ 3×3.91e-03
+
+======================================================================
+Test: B=1, H=32, M=8192, N=8192, D=256, causal=False
+  ⚠️  PyTorch  OOM
+  ✅ Forward  OK
+  ✅ Backward OK
+Performance:
+ (Mem):   Custom: 2836.3 MB, PyTorch: OOM
+ (fwd):   Custom: 121.50ms, PyTorch: skipped
+ (bwd):   Custom: 473.46ms, PyTorch: skipped
+ (tot):   Custom: 594.96ms, PyTorch: skipped
+Validation:
+ (Fwd):   Skipped
+ (Bwd):   Skipped
+
+======================================================================
+Test: B=1, H=32, M=8192, N=8192, D=256, causal=True
+  ⚠️  PyTorch  OOM
+  ✅ Forward  OK
+  ✅ Backward OK
+Performance:
+ (Mem):   Custom: 2836.3 MB, PyTorch: OOM
+ (fwd):   Custom: 56.98ms, PyTorch: skipped
+ (bwd):   Custom: 229.73ms, PyTorch: skipped
+ (tot):   Custom: 286.71ms, PyTorch: skipped
+Validation:
+ (Fwd):   Skipped
+ (Bwd):   Skipped
+
+All combined tests passed!
+    [test.py exit: 0]
+[SMOKE] block_size=256 GQA=12/2 D=128 seqs=[300, 512] interleaved block_table, garbage-tail clamp test
+[SMOKE] in-place out= : OK
+[SMOKE] LSE [H_Q,T_Q] : OK
+[SMOKE] numerics      : cos=1.000000 max_abs=0.0020
+[SMOKE] PASS (low-level varlen_fwd adapter contract)
+    [patched smoke exit: 0]
+    >>> STRADDLE BUG CONFIRMED + FIX VALIDATED: stock FAIL -> patched PASS. <<<
+----------------------------------------------------------------------
+[7] PREFILL MICROBENCH (Route A, build: patched(BLOCK_N_128=128))
+[BENCH] shape: seqlen=26000 Hq=12 Hk=1 D=128 block=256 causal=True fp16 paged
+[BENCH] ai-bond varlen :  112.625 ms/layer  ~ 18.44 TFLOP/s  -> x46 layers =   5.18 s
+[BENCH] torch-SDPA*   :   59.156 ms/layer (scaled from 8192) -> x46 =   2.72 s   [*CUDA-core anchor, NOT vLLM-Triton]
+[BENCH] ai-bond speedup vs SDPA anchor: 0.53x
+[BENCH] GO/NO-GO: compare ai-bond x-layers estimate against the documented ~42s in-model attention residual (GLM45_AIR_V100_CONFIG.md). Faster + correctness PASS => integrate the adapter.
+----------------------------------------------------------------------
+DONE. Full log: /work/tools/fa_v100_microbench_20260611_084004.txt
+Decision: correctness PASS (5+6) AND microbench faster than ~42s residual => integrate adapter.
+
+== TRITON A/B (run from host, appended) ==
+[TRITON-BENCH] triton unified : 945.398 ms/layer ~2.20 TFLOP/s -> x46 = 43.49 s
+[TRITON-BENCH] vs ai-bond 112.625 ms/layer: triton/aibond = 8.39x
+[VERDICT] GO — triton x46 (43.49s) ~= documented ~42s residual; ai-bond 8.4x faster, projected TTFT@26k 60s -> ~22s

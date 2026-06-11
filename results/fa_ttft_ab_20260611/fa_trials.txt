@@ -1,0 +1,6 @@
+trial1	OK	prompt_tokens=24040	ttft=51.81s	decode=22.99 tok/s	 <think>Hmm, the user has shared a repetitive block of text about the Bravo Expedition crossing the 
+trial2	OK	prompt_tokens=24040	ttft=51.76s	decode=22.98 tok/s	 <think>Hmm, the user has repeated the same sentence about the Charlie Expedition multiple times. It
+trial1	SUSPECT	prompt_tokens=24040	ttft=19.57s	decode=23.00 tok/s	 现场西藏http://wwwtrebuchaviTreasure http://www treasuredhttp treasured http://www treasuredhttp://www 
+trial2	SUSPECT	prompt_tokens=24040	ttft=19.77s	decode=22.96 tok/s	 1 1. 0, 0,0,0, 0, 0, 0, 0,0,0,0,0,0,0,0,0,0,0 0 0,0 0, 0,0,0,0,
+trial1	OK	prompt_tokens=24040	ttft=19.44s	decode=22.96 tok/s	 <think>Hmm, the user has shared a repetitive block of text about the Bravo Expedition crossing the 
+trial2	OK	prompt_tokens=24040	ttft=19.47s	decode=22.94 tok/s	 <think>Hmm, the user has shared a repetitive block of text about the Charlie Expedition crossing th

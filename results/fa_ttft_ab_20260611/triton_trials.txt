@@ -1,0 +1,2 @@
+trial1	OK	prompt_tokens=24040	ttft=51.85s	decode=22.96 tok/s	 <think>Hmm, the user has shared a repetitive block of text about the Bravo Expedition crossing the 
+trial2	OK	prompt_tokens=24040	ttft=51.78s	decode=22.95 tok/s	 <think>Hmm, the user has repeated the same sentence about the Charlie Expedition multiple times. It

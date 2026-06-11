@@ -2676,6 +2676,18 @@ def _patch_vllm_for_v100():
         print(f"[serve_fp8_v100 pid={os.getpid()}] compressed-tensors patch "
               f"skipped: {type(exc).__name__}: {exc}", flush=True)
 
+    # Additive, env-gated (VLLM_V100_FLASH_ATTN=1): route TRITON_ATTN prefill
+    # batches to the ai-bond flash-attention-v100 kernel (8.4x at 26k, audit
+    # docs/FA_V100_AUDIT.md Turn 8). Decode keeps the validated Triton+cudagraph
+    # path by construction. No-op if the extension or the flag is absent.
+    # Requires --block-size 256 (ai-bond paged constraint).
+    try:
+        from fp8_w8a16_sm70.fa_v100_prefill import patch_triton_prefill_for_v100
+        patch_triton_prefill_for_v100()
+    except Exception as exc:
+        print(f"[serve_fp8_v100 pid={os.getpid()}] fa_v100 prefill patch "
+              f"skipped: {type(exc).__name__}: {exc}", flush=True)
+
     print(f"[serve_fp8_v100 pid={os.getpid()}] Patches applied: "
           "min_cap=70, use_marlin=False on V100, apply() routed to our kernel "
           "for block_quant, FP8 MoE fallback="
