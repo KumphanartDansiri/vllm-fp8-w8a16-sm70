@@ -38,6 +38,8 @@ MAXLEN="${MAXLEN:-28672}"
 PROMPT_TOKENS="${PROMPT_TOKENS:-26000}"
 TRIALS="${TRIALS:-2}"
 MAXTOK="${MAXTOK:-64}"
+BLOCK_SIZE="${BLOCK_SIZE:-256}"
+SKIP_MM="${SKIP_MM:-0}"   # 1 = --skip-mm-profiling (ch1 standard for VL-capable archs)
 MODEL="${MODEL:-/mnt/models/zai-org/GLM-4.5-Air-FP8}"
 MODE="${MODE:-cudagraph}"   # eager: for models whose decode-graph capture fails (122B hybrid)
 TP=8
@@ -87,15 +89,21 @@ run_arm() {
         -e VLLM_V100_FLASH_ATTN="$faflag" \
         -e VLLM_V100_CT_FP8_RESIDENT=1 -e VLLM_V100_CT_FP8_RESIDENT_SELFCHECK=1 \
         -e VLLM_V100_CT_MOE_W13_RESIDENT=1 -e VLLM_V100_CT_MOE_W13_FREE_FP16=1 \
-        -e VLLM_V100_CT_MOE_W2_GROUPED=1 \
+        -e VLLM_V100_CT_MOE_W2_GROUPED=1 -e VLLM_V100_CT_MOE_W13_COALESCED=1 \
         -e VLLM_V100_CT_MOE_PREFILL_TILED=1 -e VLLM_V100_CT_MOE_PREFILL_FUSED=1 \
         -e VLLM_V100_CT_CHANNEL_WMMA=1 \
+        -e VLLM_V100_FP8_COALESCED_GEMV=1 -e VLLM_V100_FP8_COALESCED_UNROLL=4 \
+        -e VLLM_V100_FP8_COALESCED_M_UNROLL=4 -e VLLM_V100_FP8_COALESCED_GEMV_M_MAX=8 \
+        -e VLLM_V100_FP8_MOE_W13_COALESCED=1 -e VLLM_V100_FP8_MOE_FALLBACK=1 \
+        -e VLLM_V100_FP8_MOE_GROUPED_ROUTED_GEMM=1 -e VLLM_V100_FP8_MOE_GROUPED_MAX_ROUTE_SLOTS=128 \
+        -e VLLM_V100_FP8_MOE_FAST_ROUTE_PREP=1 \
         -e VLLM_ATTENTION_BACKEND=TRITON_ATTN \
         -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 \
         "$IMAGE" \
         python3 -m fp8_w8a16_sm70.vllm_serve --model "$MODEL" --served-model-name "$SERVED" \
             --tensor-parallel-size "$TP" --dtype float16 "${EXEC_OPTS[@]}" \
-            --max-model-len "$MAXLEN" --max-num-seqs 8 --block-size 256 \
+            --max-model-len "$MAXLEN" --max-num-seqs 8 --block-size "$BLOCK_SIZE" \
+            $([ "$SKIP_MM" = "1" ] && echo --skip-mm-profiling) \
             --gpu-memory-utilization "$GPUMEM" \
             \
             --host 0.0.0.0 --port "$PORT" \
