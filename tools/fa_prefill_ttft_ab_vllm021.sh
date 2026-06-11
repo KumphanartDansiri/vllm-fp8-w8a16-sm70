@@ -39,7 +39,13 @@ PROMPT_TOKENS="${PROMPT_TOKENS:-26000}"
 TRIALS="${TRIALS:-2}"
 MAXTOK="${MAXTOK:-64}"
 MODEL="${MODEL:-/mnt/models/zai-org/GLM-4.5-Air-FP8}"
+MODE="${MODE:-cudagraph}"   # eager: for models whose decode-graph capture fails (122B hybrid)
 TP=8
+if [[ "$MODE" == "cudagraph" ]]; then
+    EXEC_OPTS=(--compilation-config '{"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY"}')
+else
+    EXEC_OPTS=(--enforce-eager)
+fi
 ONLY="${ONLY:-}"
 CACHE_TAG="${CACHE_TAG:-021}"
 SERVED="faab"
@@ -88,11 +94,10 @@ run_arm() {
         -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 \
         "$IMAGE" \
         python3 -m fp8_w8a16_sm70.vllm_serve --model "$MODEL" --served-model-name "$SERVED" \
-            --tensor-parallel-size "$TP" --dtype float16 \
-            --compilation-config '{"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+            --tensor-parallel-size "$TP" --dtype float16 "${EXEC_OPTS[@]}" \
             --max-model-len "$MAXLEN" --max-num-seqs 8 --block-size 256 \
             --gpu-memory-utilization "$GPUMEM" \
-            --no-enable-chunked-prefill --no-enable-prefix-caching \
+            \
             --host 0.0.0.0 --port "$PORT" \
         </dev/null >"$slog" 2>&1 &
     local lpid=$!

@@ -90,7 +90,7 @@ run_arm() {
             --compilation-config '{"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY"}' \
             --max-model-len "$MAXLEN" --max-num-seqs 8 --block-size "$blocksz" \
             --gpu-memory-utilization "$GPUMEM" \
-            --no-enable-chunked-prefill --no-enable-prefix-caching \
+            \
             --host 0.0.0.0 --port "$PORT" \
         </dev/null >"$slog" 2>&1 &
     local lpid=$!
