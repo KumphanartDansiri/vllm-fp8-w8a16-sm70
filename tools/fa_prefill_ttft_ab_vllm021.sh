@@ -40,6 +40,7 @@ TRIALS="${TRIALS:-2}"
 MAXTOK="${MAXTOK:-64}"
 BLOCK_SIZE="${BLOCK_SIZE:-256}"
 SKIP_MM="${SKIP_MM:-0}"   # 1 = --skip-mm-profiling (ch1 standard for VL-capable archs)
+MNBT="${MNBT:-}"          # --max-num-batched-tokens (chunked-prefill granularity; default vllm 2048)
 MODEL="${MODEL:-/mnt/models/zai-org/GLM-4.5-Air-FP8}"
 MODE="${MODE:-cudagraph}"   # eager: for models whose decode-graph capture fails (122B hybrid)
 TP=8
@@ -104,6 +105,7 @@ run_arm() {
             --tensor-parallel-size "$TP" --dtype float16 "${EXEC_OPTS[@]}" \
             --max-model-len "$MAXLEN" --max-num-seqs 8 --block-size "$BLOCK_SIZE" \
             $([ "$SKIP_MM" = "1" ] && echo --skip-mm-profiling) \
+            $([ -n "$MNBT" ] && echo --max-num-batched-tokens "$MNBT") \
             --gpu-memory-utilization "$GPUMEM" \
             \
             --host 0.0.0.0 --port "$PORT" \

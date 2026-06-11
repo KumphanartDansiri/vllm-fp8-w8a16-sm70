@@ -45,9 +45,36 @@ alternative (4.81 tok/s / 78× concurrency), this config wins decisively on both
 speed and concurrency. See `docs/COALESCED_FP8_GEMV.md` for the kernel.
 
 **Prefill TTFT (26k-token prompt):** 60.2s (was 169s before Phase 4, **2.8×**).
-The remaining cost is ~70% self-attention + TP all-reduce (vLLM internals); the
-FP8/MoE host-loop bottleneck is retired (our code is GPU-bound). Further prefill
-gains need an attention project (V100 FlashAttention / TP-overlap), not MoE work.
+The remaining cost was ~70% self-attention — now addressed by FlashAttention-V100
+(below): **TTFT@24k 51.8s → 19.45s (2.66×)**, total journey 169s → ~19.5s (~8.7×).
+
+## FlashAttention-V100 prefill (opt-in; recommended for long context)
+
+`VLLM_V100_FLASH_ATTN=1` routes prefill attention batches from TRITON_ATTN's
+`unified_attention` to the ai-bond flash-attention-v100 kernel (8.4× vs Triton at
+26k: 112.6 vs 945.4 ms/layer — the Triton prefill kernel runs ~2.2 TFLOP/s on
+Volta, tensor-core-less). Decode keeps the validated Triton+cudagraph path **by
+construction** (decode-only graphs never see the FA path; e2e decode is
+digit-identical with the flag on/off).
+
+**Measured (GLM-Air TP8, 24,040-token prompt):** TTFT 51.8 → **19.45s (2.66×)**,
+output coherent and tracking the baseline greedy trace. Under 4-user concurrent
+load: worst-case TTFT 93.7 → 45.0s (2.1×), 13/13 coherent, decode parity, zero
+preemptions.
+
+**Requirements:** `--block-size 256` (multiple-of-256; empirically neutral vs
+block-16 — identical KV pool and behavior), fp16 KV cache, and the ai-bond
+extension built for this image (torch 2.11+cu126; 3 source patches in the local
+fork, see `docs/FA_V100_AUDIT.md`). Expose ONLY `flash_attn_v100_cuda*.so` to the
+container PYTHONPATH — never ai-bond's `flash_attn` python shim (it breaks vLLM's
+optional flash-attn probe). The adapter falls back to Triton per-call for anything
+ungated (non-fp16 KV, sliding window, head_dim ∉ {128,256}, fp8-KV, alibi/sinks).
+Kill switch: `VLLM_V100_FLASH_ATTN=0` (default).
+
+The four integration invariants + full audit trail: `docs/FA_V100_AUDIT.md`.
+Model applicability: D=128/256 full-attention layers (GLM-Air = headline 2.66×;
+GDN-hybrids like Qwen3.5-122B get a bounded win — only their full-attn layers
+route; Gemma-4 sliding layers pend a window gate).
 
 ## The optimization stack (all default-on; each has a kill switch)
 
@@ -66,6 +93,7 @@ gains need an attention project (V100 FlashAttention / TP-overlap), not MoE work
 | `VLLM_V100_CT_MOE_W13_COALESCED=1` | grouped coalesced GEMV for MoE w13 decode (45.4→56.6, +25%) | `=0` → grouped a3 |
 | `MODE=cudagraph` | mode=0 + FULL_DECODE_ONLY + TRITON_ATTN | `MODE=eager` |
 | `VLLM_V100_CT_PROFILE=0` | per-section prefill GPU+wall timers (use with `MODE=eager`) | `=1` to enable |
+| `VLLM_V100_FLASH_ATTN=0` | **opt-in**: FA-V100 prefill (TTFT@24k 2.66×; needs `--block-size 256`) | default off |
 
 Decode (R<256) always uses the per-row grouped kernels + cudagraph — the prefill
 tiled/fused paths never touch it.
@@ -78,11 +106,16 @@ tiled/fused paths never touch it.
 - `ct_fp8_channel_wmma_numtest_vllm021.sh` — channel-WMMA vs FP32 + block_h=128 no-regression
 - `prefill_wmma_microbench_vllm021.sh` — WMMA-vs-A.2 + grouped-MoE prefill cost
 - `ct_mixed_moe_e2e_diff_vllm021.sh` — e2e token-diff vs FP16 baseline
+- `fa_v100_build_microbench.sh` — FA: build + test.py + paged smoke + longseq/layout gates + microbench
+- `fa_v100_longseq_check.py` — FA: 512→24k paged sweep, interleaved KV, Sq<Sk/mixed-batch, strided-q probe (`--d/--hq/--hk`)
+- `fa_prefill_ttft_ab_vllm021.sh` — FA: e2e TTFT A/B (triton vs fa arms)
+- `fa_concurrency_soak_vllm021.sh` — FA: 3-arm multi-user soak (block-size + FA decomposed)
 
 ## Open / future (separate projects)
 
-- **Attention prefill** (the ~42s TTFT floor at 26k): V100 FlashAttention / paged
-  prefill, TP all-reduce overlap.
+- ~~Attention prefill~~ **DONE** — FlashAttention-V100 section above (169s→~19.5s total).
 - **Stage 1.5b**: partial-N (N=352) WMMA to fold w13's 12s prefill GPU into the
-  fused kernel (~10s off TTFT) — polish only; attention is the real floor.
-- **Gemma-4 FP8** — direct transfer of this stack (no MLA blocker).
+  fused kernel (~10s off TTFT) — polish only.
+- **Gemma-4 FP8** — direct transfer of this stack (no MLA blocker); FA sliding-window
+  gate (P3) pends for its sliding layers.
+- **FA upstream**: 3 ai-bond fixes ready as issue/PR (fa repo commit `ccb6557`).
