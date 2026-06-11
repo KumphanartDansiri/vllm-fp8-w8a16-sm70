@@ -29,6 +29,9 @@ SCALE = D ** -0.5
 CHUNK = 1024
 
 
+SHUFFLE = True
+
+
 def run_case(L, interleaved):
     torch.manual_seed(L)
     nb = (L + BLOCK - 1) // BLOCK
@@ -39,7 +42,7 @@ def run_case(L, interleaved):
         k_cache = torch.randn(nb, BLOCK, H_K, D, device=DEV, dtype=DT)
         v_cache = torch.randn(nb, BLOCK, H_K, D, device=DEV, dtype=DT)
 
-    perm = torch.randperm(nb)                     # shuffled physical pages
+    perm = torch.randperm(nb) if SHUFFLE else torch.arange(nb)
     block_table = torch.empty(1, nb, dtype=torch.int32, device=DEV)
     block_table[0] = perm.to(torch.int32).to(DEV)
 
@@ -58,19 +61,21 @@ def run_case(L, interleaved):
         block_table, None, L, L, 0.0, SCALE,
         False, True, -1, -1, 0.0, False, None, 0)
 
-    # chunked exact fp32 reference (per q-row-chunk, all heads)
+    # chunked exact fp32 reference — proper GQA head mapping (h -> h // group)
     qf = q.float()
     ref = torch.empty(L, H_Q, D, device=DEV, dtype=torch.float32)
-    kT = k_log[:, 0, :].T.contiguous()            # [D, L] (H_K=1)
-    vv = v_log[:, 0, :].contiguous()              # [L, D]
+    g = H_Q // H_K
+    kTs = [k_log[:, j, :].T.contiguous() for j in range(H_K)]   # [D, L] each
+    vvs = [v_log[:, j, :].contiguous() for j in range(H_K)]     # [L, D] each
     rows = torch.arange(L, device=DEV)
     for s in range(0, L, CHUNK):
         e = min(s + CHUNK, L)
         for h in range(H_Q):
-            sc = (qf[s:e, h, :] @ kT) * SCALE     # [chunk, L]
+            j = h // g
+            sc = (qf[s:e, h, :] @ kTs[j]) * SCALE     # [chunk, L]
             mask = rows.unsqueeze(0) > rows[s:e].unsqueeze(1)
             sc.masked_fill_(mask, float("-inf"))
-            ref[s:e, h, :] = torch.softmax(sc, dim=-1) @ vv
+            ref[s:e, h, :] = torch.softmax(sc, dim=-1) @ vvs[j]
         del sc, mask
     err = (out.float() - ref).abs()
     cos = torch.nn.functional.cosine_similarity(
@@ -217,6 +222,22 @@ def run_mixed_batch_case():
 
 
 def main():
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--d", type=int, default=128, help="head_dim (64/128/256)")
+    ap.add_argument("--hq", type=int, default=12, help="per-rank query heads")
+    ap.add_argument("--hk", type=int, default=1, help="per-rank kv heads")
+    ap.add_argument("--quick", action="store_true", help="short lengths only")
+    ap.add_argument("--noshuffle", action="store_true", help="identity block table")
+    args = ap.parse_args()
+    global D, H_Q, H_K, LENS, SHUFFLE
+    D, H_Q, H_K = args.d, args.hq, args.hk
+    if args.quick:
+        LENS = [512, 2048]
+    if args.noshuffle:
+        SHUFFLE = False
+    print(f"[LONGSEQ] === shape: D={D} H_Q={H_Q} H_K={H_K} block={BLOCK} ===",
+          flush=True)
     bad = 0
     for L in (512, 2048):
         run_qkv_split_case(L)
