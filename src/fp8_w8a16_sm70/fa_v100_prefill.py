@@ -105,6 +105,17 @@ def patch_triton_prefill_for_v100():
             return _fallback("no block_table/seqused_k", orig, kwargs)
         if q.dtype != torch.float16:
             return _fallback(f"dtype {q.dtype}", orig, kwargs)
+        if q.size(2) not in (64, 128, 256):
+            # ai-bond dispatches 16/32/64/128/256; we only route dims we've gated
+            # (128 fully e2e-proven; 64/256 page-safe tiles: 256%BLOCK_N==0).
+            # D=256 still needs its own longseq+perf gate before serving Qwen3.5/
+            # Gemma-4 — this check prevents a kernel TORCH_CHECK crash for others.
+            return _fallback(f"head_dim {q.size(2)}", orig, kwargs)
+        if window_size is not None and tuple(window_size) != (-1, -1):
+            # ai-bond HAS a window path but it is UNVALIDATED by our gates;
+            # Gemma-4 sliding layers (window 1024) must stay on Triton until a
+            # window correctness gate passes.
+            return _fallback(f"sliding_window {tuple(window_size)}", orig, kwargs)
         if k.size(1) % 256 != 0:
             return _fallback(f"block_size {k.size(1)} %256!=0", orig, kwargs)
         if not (_dense_block_layout(k) and _dense_block_layout(v)):
