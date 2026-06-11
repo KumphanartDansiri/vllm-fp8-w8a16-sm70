@@ -121,6 +121,17 @@ try:
 except ValueError:
     _COALESCED_GEMV_M_MAX = 1
 _COALESCED_GEMV_M_MAX = max(1, min(8, _COALESCED_GEMV_M_MAX))
+# Grouped coalesced MoE w13 decode GEMV for the BLOCK-FP8 (Qwen quant_method=fp8)
+# path. Mirrors the CT Stage G1 wiring (VLLM_V100_CT_MOE_W13_COALESCED) but for
+# the `_our_moe_apply_grouped` decode kernel, which the CT flag never touches.
+# Safe: _our_moe_apply_grouped is decode-only (route_slots <= 32 gate) and only
+# runs for block_h==block_w==128, exactly what the grouped coalesced kernel needs
+# (it also requires K=hidden_size % 128 == 0). Default ON; kill switch = 0/off.
+_HAS_GROUPED_COALESCED_GEMV = hasattr(_ext, "fp8_w8a16_grouped_gemv_coalesced")
+_MOE_W13_COALESCED = os.environ.get(
+    "VLLM_V100_FP8_MOE_W13_COALESCED", "1").lower() not in (
+        "0", "off", "false", "")
+_MOE_W13_COAL_ENGAGED = [False]
 
 # Per-process counters for per-variant call rate observability. Each TP
 # worker tracks its own counts; periodic summary printed every COUNTER_LOG_EVERY
@@ -1695,6 +1706,27 @@ def _our_moe_apply_grouped(
         )
 
     def run_w13_grouped():
+        # Decode w13: the grouped coalesced GEMV (warp owns (routed-row, col),
+        # lanes stride consecutive K, warp-reduce) replaces the N-strided a3
+        # kernel. This path is decode-only (route_slots <= 32) so gridDim.y=R is
+        # tiny — no 65535 grid-cap or per-row-GEMV-prefill concern. K=hidden_size
+        # must be %128 (kernel constraint); block is already (128,128) here.
+        if (_MOE_W13_COALESCED and _HAS_GROUPED_COALESCED_GEMV
+                and hidden_size % 128 == 0):
+            if not _MOE_W13_COAL_ENGAGED[0] and _moe_profile_rank() in (0, -1):
+                _MOE_W13_COAL_ENGAGED[0] = True
+                print("[V100-FP8-MOE-GROUPED] decode w13 = grouped COALESCED "
+                      "GEMV (warp->col, lanes->K); first call", flush=True)
+            return _ext.fp8_w8a16_grouped_gemv_coalesced(
+                route_x,
+                local_expert_ids,
+                w13_weight,
+                w13_scale,
+                2 * intermediate,
+                hidden_size,
+                block_h,
+                block_w,
+            )
         return _ext.fp8_w8a16_grouped_routed_gemm_a3(
             route_x,
             local_expert_ids,
