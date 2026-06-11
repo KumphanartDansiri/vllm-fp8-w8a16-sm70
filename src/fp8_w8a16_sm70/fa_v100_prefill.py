@@ -105,11 +105,11 @@ def patch_triton_prefill_for_v100():
             return _fallback("no block_table/seqused_k", orig, kwargs)
         if q.dtype != torch.float16:
             return _fallback(f"dtype {q.dtype}", orig, kwargs)
-        if q.size(2) not in (64, 128, 256):
-            # ai-bond dispatches 16/32/64/128/256; we only route dims we've gated
-            # (128 fully e2e-proven; 64/256 page-safe tiles: 256%BLOCK_N==0).
-            # D=256 still needs its own longseq+perf gate before serving Qwen3.5/
-            # Gemma-4 — this check prevents a kernel TORCH_CHECK crash for others.
+        if q.size(2) not in (128, 256):
+            # Route only gate-proven head dims: D=128 (e2e: GLM-Air, audit T12/15)
+            # and D=256 (longseq+perf gates, audit T16: 8.0x vs Triton, all fleet
+            # shapes). ai-bond also implements 16/32/64 but no fleet model uses
+            # them and they have no correctness run — fallback, don't crash.
             return _fallback(f"head_dim {q.size(2)}", orig, kwargs)
         if window_size is not None and tuple(window_size) != (-1, -1):
             # ai-bond HAS a window path but it is UNVALIDATED by our gates;
