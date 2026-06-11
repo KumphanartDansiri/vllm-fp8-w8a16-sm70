@@ -1,0 +1,9 @@
+triton16: kv-banner: (EngineCore pid=329) INFO 06-11 15:15:56 [kv_cache_utils.py:1710] GPU KV cache size: 147,200 tokens
+triton16: route=0 densify=0 fallback=0 preempt=0
+triton16: 13/13 requests OK — details /tmp/v100_fa_soak/triton16_requests.tsv
+triton256: kv-banner: (EngineCore pid=328) INFO 06-11 15:21:12 [kv_cache_utils.py:1710] GPU KV cache size: 147,200 tokens
+triton256: route=0 densify=0 fallback=0 preempt=0
+triton256: 13/13 requests OK — details /tmp/v100_fa_soak/triton256_requests.tsv
+fa256: kv-banner: (EngineCore pid=328) INFO 06-11 15:26:29 [kv_cache_utils.py:1710] GPU KV cache size: 147,200 tokens
+fa256: route=8 densify=8 fallback=0 preempt=0
+fa256: 13/13 requests OK — details /tmp/v100_fa_soak/fa256_requests.tsv

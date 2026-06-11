@@ -1,0 +1,13 @@
+S	u0	long24k	OK	pt=21228	ct=64	ttft=42.11s	decode=24.16t/s	 <think>Hmm, the user has shared a very repetitive block of text about "The anch
+C	u0	long6k	OK	pt=5319	ct=64	ttft=6.91s	decode=0.69t/s	 <think>Hmm, the user has repeated the same sentence about the Alpha Expedition 
+C	u0	short0	OK	pt=14	ct=72	ttft=0.66s	decode=17.29t/s	 <think>We are to list the numbers from one to five as digits. The numbers are: 
+C	u0	short1	OK	pt=14	ct=72	ttft=0.53s	decode=17.66t/s	 <think>We are to list the numbers from one to five as digits. The numbers are: 
+C	u1	long12k	OK	pt=11105	ct=64	ttft=23.85s	decode=0.85t/s	 <think>Hmm, the user has shared a repetitive block of text about the Bravo Expe
+C	u1	short0	OK	pt=14	ct=72	ttft=0.88s	decode=18.59t/s	 <think>We are to list the numbers from one to five as digits. The numbers are: 
+C	u1	short1	OK	pt=14	ct=72	ttft=0.81s	decode=18.98t/s	 <think>We are to list the numbers from one to five as digits. The numbers are: 
+C	u2	long18k	OK	pt=16649	ct=64	ttft=93.70s	decode=12.40t/s	 <think>Hmm, the user has shared a repetitive block of text about the Charlie Ex
+C	u2	short0	OK	pt=14	ct=72	ttft=0.96s	decode=19.33t/s	 <think>We are to list the numbers from one to five as digits. The numbers are: 
+C	u2	short1	OK	pt=14	ct=72	ttft=0.69s	decode=20.67t/s	 <think>We are to list the numbers from one to five as digits. The numbers are: 
+C	u3	long24k	OK	pt=21228	ct=64	ttft=65.67s	decode=1.91t/s	 <think>Hmm, the user has shared a very repetitive block of text about the delta
+C	u3	short0	OK	pt=14	ct=75	ttft=0.74s	decode=17.15t/s	 <think>We are to list the numbers one to five as digits. The numbers from one t
+C	u3	short1	OK	pt=14	ct=109	ttft=0.59s	decode=26.31t/s	 <think>We are to list the numbers from one to five as digits. The numbers are: 
