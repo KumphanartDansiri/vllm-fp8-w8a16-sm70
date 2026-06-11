@@ -1,0 +1,65 @@
+Here's a thinking process:
+
+1.  **Understand User Request:**
+   - **Topic:** Transformer neural network processing a sentence
+   - **Scope:** From tokenization and embeddings through self-attention and feed-forward layers to output distribution
+   - **Requirements:** Step-by-step, precise, thorough
+   - **Target Audience:** Likely someone with some ML background but wants a detailed, structured explanation
+
+2.  **Deconstruct the Transformer Pipeline:**
+   I need to cover:
+   - Input representation (tokenization, embeddings, positional encoding)
+   - Encoder/Decoder structure (though the prompt doesn't specify, I'll focus on the standard encoder-only or encoder-decoder, but typically "processes a sentence" implies either encoding or generation. I'll clarify and focus on the core transformer block, then explain both directions if needed, but keep it focused on the forward pass)
+   - Self-attention mechanism (Q, K, V, scaling, softmax, masking if applicable)
+   - Feed-forward network (MLP, activation, layer norm)
+   - Residual connections & layer normalization
+   - Output projection & distribution (logits, softmax, sampling/argmax)
+   - I should be precise with dimensions, formulas, and order of operations.
+
+3.  **Step-by-Step Structure:**
+   I'll organize it logically:
+   1. Tokenization
+   2. Embedding & Positional Encoding
+   3. Transformer Block (repeated N times)
+      a. Multi-Head Self-Attention
+      b. Add & Norm
+      c. Feed-Forward Network
+      d. Add & Norm
+   4. Output Projection & Distribution
+   5. (Optional but important) Training vs Inference context, masking, etc.
+
+   I'll make sure each step includes:
+   - What happens
+   - Mathematical formulation
+   - Dimensional changes
+   - Purpose/rationale
+
+4.  **Draft - Section by Section (Mental Refinement):**
+
+   **Step 1: Tokenization**
+   - Input: Raw sentence string
+   - Process: Subword tokenization (BPE, WordPiece, SentencePiece)
+   - Output: Sequence of token IDs: $x = [t_1, t_2, ..., t_L]$ where $L$ is sequence length
+   - Note: Special tokens (CLS, SEP, PAD, etc.) may be added depending on architecture
+   - Dimensions: $L$ integers
+
+   **Step 2: Embedding & Positional Encoding**
+   - Token Embeddings: Lookup table $E \in \mathbb{R}^{V \times d_{model}}$ where $V$ is vocab size, $d_{model}$ is hidden dim
+   - $X_{emb} = E[x] \in \mathbb{R}^{L \times d_{model}}$
+   - Positional Encoding: Transformers are permutation-invariant, so add position info
+   - Sinusoidal: $PE_{(pos, 2i)} = \sin(pos / 10000^{2i/d_{model}})$, etc.
+   - Learned: $P \in \mathbb{R}^{L_{max} \times d_{model}}$, indexed by position
+   - $X_0 = X_{emb} + P[0:L] \in \mathbb{R}^{L \times d_{model}}$
+   - Note: Some variants (like RoPE, ALiBi) handle positions differently, but I'll stick to standard for clarity, mention alternatives briefly.
+
+   **Step 3: Transformer Block (repeated $N$ times)**
+   - Each block has two main sublayers with residual connections and layer normalization
+   - I'll detail one block, then note it's stacked
+
+   **3a. Multi-Head Self-Attention**
+   - Linear projections: $W_Q, W_K, W_V \in \mathbb{R}^{d_{model} \times d_k}$, $W_O \in \mathbb{R}^{h \cdot d_k \times d_{model}}$
+   - $Q = X W_Q$, $K = X W_K$, $V = X W_V$ where $X$ is input to block
+   - Actually, in multi-head: split into $h$ heads, each with $d_k = d_{model}/h$
+   - More precisely: $Q_i = X W_Q^i$, etc., or project then split
+   - Scaled Dot-Product Attention: $\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V$
+   - Multi-head: $\text{MultiHead

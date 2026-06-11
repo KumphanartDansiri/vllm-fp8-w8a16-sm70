@@ -1,0 +1,9 @@
+ch1.2 Reliability bench [vLLM 0.19+cu126, ns=8, cudagraph, skip-mm, coalesced-ON(fp8)] — 2026-06-10T20:17:29Z
+q27b-fp8 [fp8]: Q1 decode mean=38.57 sd=0.03 min=38.52 max=38.62 n=5 | self-stability: 1 distinct sha / 5 runs (Exact: deterministic) | startup=822.44 s
+
+q27b-fp16 [fp16]: Q1 decode mean=41.52 sd=0.01 min=41.51 max=41.53 n=5 | self-stability: 1 distinct sha / 5 runs (Exact: deterministic) | startup=15.71 s
+
+q35b-fp8 [fp8]: Q1 decode mean=79.11 sd=0.01 min=79.09 max=79.12 n=5 | self-stability: 1 distinct sha / 5 runs (Exact: deterministic) | startup=799.29 s
+
+q35b-fp16 [fp16]: Q1 decode mean=15.77 sd=0.00 min=15.77 max=15.77 n=5 | self-stability: 1 distinct sha / 5 runs (Exact: deterministic) | startup=835.29 s
+

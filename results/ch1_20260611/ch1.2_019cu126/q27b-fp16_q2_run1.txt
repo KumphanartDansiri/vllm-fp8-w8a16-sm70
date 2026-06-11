@@ -1,0 +1,62 @@
+Here's a thinking process:
+
+1.  **Understand User Request:**
+   - **Topic:** Transformer neural network processing a sentence
+   - **Scope:** Step-by-step explanation from tokenization to output distribution
+   - **Key Components to Cover:** Tokenization, embeddings, self-attention, feed-forward layers, output distribution
+   - **Requirements:** Precise and thorough
+
+2.  **Deconstruct the Transformer Architecture (Standard Decoder/Encoder-Decoder or just Decoder for simplicity, but I'll focus on the standard Transformer as introduced in "Attention Is All You Need", typically explaining the decoder side for text generation, but I'll clarify the flow for a typical autoregressive language model like GPT, which is decoder-only. I should note that the original Transformer has both encoder and decoder, but modern LLMs are decoder-only. I'll explain the decoder-only flow as it's most relevant for sentence processing/generation, but I'll mention encoder if needed. Actually, the prompt says "processes a sentence", which could mean encoding or generating. I'll stick to the standard forward pass of a decoder-only transformer, as it's the most common context today, but I'll be explicit about the architecture type.)**
+
+   Let's structure it step-by-step:
+   1. Input & Tokenization
+   2. Embedding & Positional Encoding
+   3. Transformer Block (Self-Attention + FFN + Residuals + LayerNorm)
+   4. Repetition across layers
+   5. Output Projection & Distribution
+   6. (Optional) Decoding strategies if generating, but the prompt says "to the output distribution", so I'll stop at the logits/probabilities.
+
+3.  **Step 1: Tokenization**
+   - Raw text → sequence of tokens
+   - Methods: Word-level, subword (BPE, WordPiece, SentencePiece), character-level
+   - Example: "Hello, world!" → ["Hello", ",", "world", "!"]
+   - Each token mapped to integer ID via vocabulary
+   - Output: Sequence of token IDs: [id1, id2, ..., idN]
+
+4.  **Step 2: Embedding & Positional Encoding**
+   - Token IDs → dense vectors via lookup table (embedding matrix)
+   - Shape: (batch_size, seq_len, d_model)
+   - Problem: Transformers lack inherent sequence order awareness
+   - Solution: Add positional encodings (sinusoidal or learned)
+   - Result: X = E + P, where E is token embeddings, P is positional encodings
+   - Shape remains (batch_size, seq_len, d_model)
+
+5.  **Step 3: Transformer Block (Core Processing)**
+   - A transformer consists of N identical layers (blocks)
+   - Each block has:
+     a. Multi-Head Self-Attention (MSA)
+     b. Add & LayerNorm
+     c. Position-wise Feed-Forward Network (FFN)
+     d. Add & LayerNorm
+   - I'll explain each sub-component precisely.
+
+   **3a. Multi-Head Self-Attention:**
+   - Input: X (seq_len, d_model)
+   - Linear projections: Q = XW_Q, K = XW_K, V = XW_V (each d_model × d_model)
+   - Split into h heads: Q_i, K_i, V_i each of shape (seq_len, d_k) where d_k = d_model/h
+   - Attention scores: S = QK^T / sqrt(d_k)
+   - Masking (for autoregressive): causal mask applied to S to prevent attending to future tokens
+   - Softmax: A = softmax(S) → attention weights (seq_len, seq_len)
+   - Weighted sum: O = AV → (seq_len, d_k)
+   - Concatenate heads: O_concat = [O_1; O_2; ...; O_h] → (seq_len, d_model)
+   - Output projection: O_final = O_concat W_O
+   - Residual connection: X' = X + O_final
+   - LayerNorm: X'' = LayerNorm(X')
+
+   **3b. Feed-Forward Network (FFN):**
+   - Input: X'' (seq_len, d_model)
+   - Two linear layers with non-linearity: FFN(x) = max(0, xW_1 + b_1)W_2 + b_2 (or GELU/SiLU in modern models)
+   - Typically expands to d_ff (e.g., 4×d_model) then projects back to d_model
+   - Applied position-wise (same weights across all positions)
+   - Residual connection: X''' = X'' + FFN(X'')
+   -

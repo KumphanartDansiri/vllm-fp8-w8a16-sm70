@@ -1,0 +1,44 @@
+To understand how a Transformer processes a sentence, we must follow the data as it transforms from discrete text into high-dimensional vectors, undergoes complex relational reasoning, and is finally projected back into a probability distribution.
+
+Here is the step-by-step journey of a sentence through a Transformer decoder or encoder.
+
+---
+
+### 1. Input Pre-processing: Tokenization and Embedding
+The Transformer cannot "read" text; it only processes numbers.
+
+*   **Tokenization:** The raw sentence (e.g., *"The cat sat."*) is broken into smaller units called **tokens**. Modern models use **Subword Tokenization** (like Byte-Pair Encoding), which breaks rare words into meaningful chunks (e.g., *"unhappiness"* $\rightarrow$ *"un"*, *"happi"*, *"ness"*). This prevents "out-of-vocabulary" errors.
+*   **Token IDs:** Each token is mapped to a unique integer index from a pre-defined vocabulary.
+*   **Input Embeddings:** Each token ID is used to look up a high-dimensional vector (e.g., 512 or 768 dimensions) in an **Embedding Matrix**. This vector represents the semantic meaning of the token. At this stage, the vector for "cat" is the same regardless of whether it is the subject or the object of a sentence.
+
+### 2. Adding Context: Positional Encoding
+Unlike Recurrent Neural Networks (RNNs), Transformers process all tokens in a sentence simultaneously (parallelism). This means the model has no inherent sense of word order.
+
+*   **Positional Encodings:** To fix this, a "position vector" is added to the input embedding. This vector uses sine and cosine functions of different frequencies to encode the absolute position of each token.
+*   **The Result:** The input to the first layer is: $\text{Input} = \text{Token Embedding} + \text{Positional Encoding}$. Now, the vector for "cat" at position 1 is mathematically different from "cat" at position 5.
+
+### 3. The Transformer Block (The Core Engine)
+A Transformer consists of a stack of identical layers. Each layer contains two primary sub-layers: **Multi-Head Self-Attention** and a **Position-wise Feed-Forward Network**.
+
+#### Step A: Multi-Head Self-Attention (Relational Reasoning)
+This is where the model learns how words relate to one another.
+
+1.  **Linear Projections (Q, K, V):** For every token, the model creates three new vectors by multiplying the input by three learned weight matrices ($W^Q, W^K, W^V$):
+    *   **Query ($Q$):** "What am I looking for?"
+    *   **Key ($K$):** "What information do I contain?"
+    *   **Value ($V$):** "If I am relevant, what information do I provide?"
+2.  **Scaled Dot-Product Attention:** To determine how much focus token $A$ should place on token $B$, the model calculates the dot product of $Q_A$ and $K_B$. 
+    *   The scores are scaled (divided by $\sqrt{d_k}$) to prevent gradients from exploding.
+    *   A **Softmax** function is applied to these scores, turning them into probabilities that sum to 1.
+    *   These probabilities are used to compute a weighted sum of the **Value ($V$)** vectors.
+3.  **Multi-Head Mechanism:** Instead of doing this once, the model splits the embeddings into multiple "heads" (e.g., 8 or 12). Each head can learn different types of relationships (e.g., one head focuses on grammar, another on pronoun references, another on verb-object relationships). The outputs are concatenated and projected back to the original dimension.
+
+#### Step B: Residual Connection and Layer Normalization
+To prevent the "vanishing gradient" problem during training, the model uses:
+*   **Residual Connection:** The original input to the attention layer is added back to the output: $\text{Output} = \text{Layer}(\text{Input}) + \text{Input}$.
+*   **Layer Normalization:** The values are normalized to have a mean of 0 and a variance of 1, which stabilizes training.
+
+#### Step C: Position-wise Feed-Forward Network (FFN)
+After attention has gathered context from other words, the FFN processes each token independently.
+*   The FFN consists of two linear transformations with a non-linear activation function (like **ReLU** or **GELU**) in between.
+*   **Purpose:** While attention is about *interaction* between tokens, the FFN is about *processing* the information within each token. It allows the model to refine the

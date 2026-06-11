@@ -1,0 +1,102 @@
+Here's a thinking process:
+
+1.  **Understand User Requirements:**
+   - **Data Structure:** LRU Cache (Least Recently Used)
+   - **Operations:** `get(key)` and `put(key, value)`
+   - **Constraint:** Fixed capacity
+   - **Thread-safety:** Must be thread-safe
+   - **Library Constraint:** Use only Python standard library
+   - **Documentation:** Include docstrings
+   - **Testing:** Include pytest unit tests covering:
+     - Eviction
+     - Update (existing key)
+     - Concurrency
+
+2.  **Core Design Decisions:**
+   - **LRU Implementation:** Typically uses a doubly-linked list + hash map for O(1) operations. Python's `collections.OrderedDict` maintains insertion order and supports O(1) move-to-end operations, making it perfect for LRU.
+   - **Thread-safety:** Use `threading.Lock` to protect all operations. Since `OrderedDict` operations are not atomic across multiple steps, a single lock around `get` and `put` is sufficient.
+   - **Capacity:** Fixed at initialization.
+   - **Standard Library Only:** `collections.OrderedDict`, `threading.Lock`, `typing` for type hints.
+
+3.  **Implementation Details:**
+   - Class: `LRUCache`
+   - `__init__(self, capacity: int)`: Initialize OrderedDict and Lock. Validate capacity > 0.
+   - `get(self, key: K) -> V | None`: 
+     - Acquire lock
+     - If key in dict, move to end (most recently used), return value
+     - Else return None
+   - `put(self, key: K, value: V) -> None`:
+     - Acquire lock
+     - If key in dict, update value and move to end
+     - Else, add to dict. If exceeds capacity, pop first item (least recently used)
+   - Type hints: Use `typing.Generic`, `typing.TypeVar`, `typing.Optional`
+
+   Let's draft the code mentally:
+   ```python
+   import threading
+   from collections import OrderedDict
+   from typing import TypeVar, Generic, Optional
+
+   K = TypeVar('K')
+   V = TypeVar('V')
+
+   class LRUCache(Generic[K, V]):
+       def __init__(self, capacity: int):
+           if capacity <= 0:
+               raise ValueError("Capacity must be positive")
+           self._capacity = capacity
+           self._cache = OrderedDict()
+           self._lock = threading.Lock()
+
+       def get(self, key: K) -> Optional[V]:
+           with self._lock:
+               if key not in self._cache:
+                   return None
+               self._cache.move_to_end(key)
+               return self._cache[key]
+
+       def put(self, key: K, value: V) -> None:
+           with self._lock:
+               if key in self._cache:
+                   self._cache.move_to_end(key)
+                   self._cache[key] = value
+               else:
+                   self._cache[key] = value
+                   if len(self._cache) > self._capacity:
+                       self._cache.popitem(last=False)
+   ```
+
+4.  **Thread-safety Considerations:**
+   - `OrderedDict` operations are not thread-safe by themselves.
+   - Using `with self._lock:` ensures mutual exclusion.
+   - `get` and `put` are the only public methods, so all state changes are protected.
+   - This is sufficient for thread-safety in Python.
+
+5.  **Testing Requirements:**
+   - Need pytest tests covering:
+     - Basic get/put
+     - Eviction (when capacity exceeded)
+     - Update existing key (should move to end, not evict)
+     - Concurrency (multiple threads doing get/put simultaneously)
+   - I'll write a comprehensive test suite using `pytest` and `threading`.
+
+   Test structure:
+   ```python
+   import pytest
+   import threading
+   import time
+   from lru_cache import LRUCache # assuming module name
+
+   class TestLRUCache:
+       def test_basic_get_put(self): ...
+       def test_eviction(self): ...
+       def test_update_existing_key(self): ...
+       def test_get_nonexistent_key(self): ...
+       def test_concurrent_access(self): ...
+       def test_capacity_validation(self): ...
+   ```
+
+   Let's flesh out the tests:
+   - `test_basic_get_put`: put 1,2,3; get them back
+   - `test_eviction`: capacity=2; put 1,2,3; get 1 should be None; get 2,3 should work
+   - `

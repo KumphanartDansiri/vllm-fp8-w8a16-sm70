@@ -1,0 +1,99 @@
+Here's a thinking process:
+
+1.  **Understand User Requirements:**
+   - Implement a thread-safe LRU cache in Python
+   - Support `get(key)` and `put(key, value)` operations
+   - Fixed capacity
+   - Use only standard library
+   - Include docstrings
+   - Include pytest unit tests covering:
+     - Eviction
+     - Update
+     - Concurrency
+
+2.  **Core LRU Cache Design:**
+   - Need a data structure that supports O(1) get and put operations
+   - Standard approach: Doubly linked list + Hash map (dictionary)
+   - Doubly linked list maintains order (most recent at head, least recent at tail)
+   - Hash map maps keys to nodes in the linked list
+   - When capacity is exceeded, remove the least recently used item (tail)
+   - Thread safety: Use `threading.Lock` to protect shared state
+
+3.  **Implementation Details (Standard Library Only):**
+   - `collections.OrderedDict` could be used, but it's not thread-safe by itself. I could wrap it with a lock, but implementing a custom doubly linked list is more educational and gives full control. However, using `OrderedDict` with a lock is simpler and still standard library. Let's stick to the classic doubly linked list + dict approach for clarity and to demonstrate proper LRU implementation. Actually, Python's `collections.OrderedDict` is fine, but I'll implement a custom node-based approach to be explicit about the LRU mechanism. Wait, the standard library approach often just uses `OrderedDict` with a lock. But the prompt says "Implement a thread-safe LRU cache", so I'll implement it from scratch with a doubly linked list for completeness, or use `OrderedDict` with a lock. I think implementing the linked list is better for demonstrating the algorithm. Let's do that.
+   - Actually, Python's `collections.OrderedDict` is implemented in C and is efficient. But for educational purposes and to show the LRU mechanism clearly, I'll implement a custom doubly linked list. It's not too long.
+   - Let's design the classes:
+     - `Node`: key, value, prev, next
+     - `LRUCache`: capacity, dict mapping key to node, head/tail dummy nodes, lock
+     - Methods: `get(key)`, `put(key, value)`, `_move_to_head(node)`, `_remove_node(node)`, `_pop_tail()`
+   - Thread safety: Use `threading.Lock` around all public methods and internal state modifications.
+
+4.  **Draft Implementation (Mental):**
+   ```python
+   import threading
+
+   class _Node:
+       def __init__(self, key=None, value=None):
+           self.key = key
+           self.value = value
+           self.prev = None
+           self.next = None
+
+   class LRUCache:
+       def __init__(self, capacity: int):
+           if capacity <= 0:
+               raise ValueError("Capacity must be positive")
+           self.capacity = capacity
+           self.cache = {}  # key -> Node
+           self.lock = threading.Lock()
+
+           # Dummy head and tail
+           self.head = _Node()
+           self.tail = _Node()
+           self.head.next = self.tail
+           self.tail.prev = self.head
+
+       def get(self, key):
+           with self.lock:
+               if key in self.cache:
+                   node = self.cache[key]
+                   self._move_to_head(node)
+                   return node.value
+               return -1
+
+       def put(self, key, value):
+           with self.lock:
+               if key in self.cache:
+                   node = self.cache[key]
+                   node.value = value
+                   self._move_to_head(node)
+               else:
+                   if len(self.cache) >= self.capacity:
+                       self._pop_tail()
+                   new_node = _Node(key, value)
+                   self.cache[key] = new_node
+                   self._add_to_head(new_node)
+
+       def _move_to_head(self, node):
+           self._remove_node(node)
+           self._add_to_head(node)
+
+       def _add_to_head(self, node):
+           node.prev = self.head
+           node.next = self.head.next
+           self.head.next.prev = node
+           self.head.next = node
+
+       def _remove_node(self, node):
+           prev = node.prev
+           next = node.next
+           prev.next = next
+           next.prev = prev
+
+       def _pop_tail(self):
+           node = self.tail.prev
+           self._remove_node(node)
+           del self.cache[node.key]
+   ```
+
+   Wait, I need to make sure the lock is used correctly. Since `get` and `put` both acquire the lock, and internal methods

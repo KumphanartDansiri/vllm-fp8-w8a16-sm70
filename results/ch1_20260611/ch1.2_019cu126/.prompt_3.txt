@@ -1,0 +1,1 @@
+A train leaves city A at 9:00 traveling 60 km/h toward city B, 280 km away. A second train leaves city B at 9:30 traveling 80 km/h toward city A on the same line. At what clock time do they meet, and how far from city A? Show every step of your reasoning, then give the final answer.

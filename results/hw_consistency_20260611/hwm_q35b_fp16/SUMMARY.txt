@@ -1,0 +1,10 @@
+## TEST A: TP4 cross-group (0-3 vs 4-7) (/mnt/models/Qwen/Qwen3.6-35B-A3B fp16, 3 rounds, 512 tok)
+  round1 A_gpu0123 (GPU group): sha=28668dee8592e963 COHERENT
+  round1 B_gpu4567 (GPU group): sha=28668dee8592e963 COHERENT
+  round2 A_gpu0123 (GPU group): sha=28668dee8592e963 COHERENT
+  round2 B_gpu4567 (GPU group): sha=28668dee8592e963 COHERENT
+  round3 A_gpu0123 (GPU group): sha=28668dee8592e963 COHERENT
+  round3 B_gpu4567 (GPU group): sha=28668dee8592e963 COHERENT
+  -> distinct sha across all groups×rounds: 1
+  VERDICT: ✅ ALL groups×rounds IDENTICAL -> hardware CONSISTENT, no bad card.
+

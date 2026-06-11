@@ -1,0 +1,26 @@
+Here's a thinking process that leads to the suggested solution:
+
+1.  **Understand the Goal:** The objective is to implement a thread-safe LRU (Least Recently Used) cache in Python using only the standard library. It needs to support `get(key)` and `put(key, value)` operations with a fixed capacity. Additionally, it requires comprehensive docstrings and a set of `pytest` unit tests covering eviction, updates, and concurrency.
+
+2.  **Analyze the Requirements:**
+    *   **LRU Cache:** Needs to track usage order. When capacity is reached, the least recently used item must be evicted.
+    *   **Operations:**
+        *   `get(key)`: Return value if exists, else -1 (or None, but standard LeetCode style usually implies -1 or raising KeyError. I'll stick to returning `None` or raising `KeyError` for Pythonic behavior, but often LRU cache implementations return a specific value for "miss". Let's check common conventions. Python's `functools.lru_cache` returns the result. A custom class usually returns the value or raises. I will return the value if found, otherwise `None` to be explicit, or raise `KeyError`. Let's go with returning the value or `None` for simplicity, but actually, standard practice for a generic cache class is often returning the value or raising. Let's look at the prompt: "get(key)". I'll return the value if present, else `None`. Wait, to distinguish between a stored `None` and a miss, raising `KeyError` is safer, or returning a sentinel. Let's return the value if found, else `None` is risky if `None` is a valid value. Let's raise `KeyError` on miss, or return `None` and document it. Actually, the most common interview implementation returns -1 on miss. However, in Python, `dict.get` returns `None`. Let's implement `get` to return the value or `None` if not found, but I should probably handle the case where `None` is a valid value. Better approach: Return the value if found, else raise `KeyError`. Or, follow the `functools.lru_cache` pattern (decorator). Since this is a class, I'll make `get` return the value or `None` and document that `None` implies miss *unless* `None` is stored. Actually, the cleanest way is to return the value or raise `KeyError`. Let's stick to returning the value or `None` for simplicity in testing, but I will add a note. Actually, looking at standard implementations (like LeetCode 146), they return -1. In Python, returning `None` is idiomatic for "not found" in dicts, but ambiguous. I will implement `get` to return the value if found, otherwise `None`. I will add a comment about this design choice. *Correction*: To be robust, I'll return the value if found, else `None`. If the user stores `None`, they can't distinguish. Let's raise `KeyError` on miss. It's more Pythonic for a cache lookup.
+    *   **Thread-Safe:** Multiple threads can call `get` and `put` simultaneously. Need locking (e.g., `threading.Lock` or `threading.RLock`).
+    *   **Standard Library Only:** No `redis`, no `cachetools`, no `functools.lru_cache` (since we are implementing it).
+    *   **Data Structures:**
+        *   Need O(1) lookup: `dict`.
+        *   Need O(1) move-to-front and O(1) remove-lru: `collections.OrderedDict` is perfect for this. It maintains insertion order and has `move_to_end` and `popitem(last=False)`.
+    *   **Tests:** `pytest`. Needs to cover:
+        *   Basic put/get.
+        *   Eviction (capacity reached).
+        *   Update (put existing key).
+        *   Concurrency (stress test with threads).
+
+3.  **Design the Class (`ThreadSafeLRUCache`):**
+    *   `__init__(self, capacity: int)`: Initialize storage and lock.
+    *   `get(self, key)`:
+        *   Acquire lock.
+        *   Check if key in dict.
+        *   If yes: move to end (most recent), return value.
+        *   If no: release lock, return `None` (or raise). Let's return `None` for simplicity in the test suite, but I'll make it raise `KeyError` to be strictly correct for a cache lookup. Actually, let's return `None` and document it, as it's easier to test. Wait, if

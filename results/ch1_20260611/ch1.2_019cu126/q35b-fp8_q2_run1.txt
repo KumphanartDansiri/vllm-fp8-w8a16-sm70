@@ -1,0 +1,55 @@
+Here's a thinking process:
+
+1.  **Understand User Request:**
+   - **Topic:** Transformer neural network processing a sentence
+   - **Scope:** From tokenization and embeddings through self-attention and feed-forward layers to output distribution
+   - **Requirements:** Step-by-step, precise, thorough
+
+2.  **Deconstruct the Transformer Pipeline:**
+   I need to cover the entire forward pass of a standard Transformer (encoder or decoder, but I'll focus on the encoder for clarity, or mention both if relevant). The key stages are:
+   - Input representation (tokenization, embedding, positional encoding)
+   - Layer normalization (pre-LN vs post-LN, I'll mention standard post-LN but note modern variants)
+   - Multi-head self-attention
+   - Residual connections
+   - Feed-forward network (FFN)
+   - Output generation (for decoder) or final representation (for encoder)
+   - I should be precise about dimensions, operations, and mathematical formulations where appropriate.
+
+3.  **Step-by-Step Breakdown:**
+
+   **Step 1: Tokenization**
+   - Convert raw text into discrete tokens (words, subwords, characters)
+   - Use a vocabulary (e.g., BPE, WordPiece, SentencePiece)
+   - Map tokens to integer IDs
+   - Add special tokens (e.g., [CLS], [SEP], [PAD])
+   - Output: sequence of token IDs $[t_1, t_2, ..., t_n]$
+
+   **Step 2: Embedding & Positional Encoding**
+   - Token embedding: Lookup table $E \in \mathbb{R}^{V \times d_{model}}$, where $V$ is vocab size, $d_{model}$ is embedding dimension
+   - Get $x_i = E[t_i]$ for each token
+   - Positional encoding: Add position information since transformers are permutation-invariant
+     - Sinusoidal: $PE_{(pos, 2i)} = \sin(pos/10000^{2i/d_{model}})$, $PE_{(pos, 2i+1)} = \cos(...)$
+     - Learned: $P \in \mathbb{R}^{L \times d_{model}}$
+   - Combined input: $z_0 = [x_1 + p_1, x_2 + p_2, ..., x_n + p_n]$
+   - Shape: $\mathbb{R}^{n \times d_{model}}$
+
+   **Step 3: Layer Normalization (Optional but standard in modern variants)**
+   - Pre-LN: $z_0' = \text{LayerNorm}(z_0)$
+   - Post-LN: Applied after attention/FFN
+   - I'll stick to standard post-LN for clarity but note pre-LN is common now.
+
+   **Step 4: Multi-Head Self-Attention (MHSA)**
+   - For each head $h = 1..H$:
+     - Project inputs to Q, K, V: $Q_h = z W_Q^h$, $K_h = z W_K^h$, $V_h = z W_V^h$
+     - Dimensions: $W_Q, W_K, W_V \in \mathbb{R}^{d_{model} \times d_k}$, $d_k = d_{model}/H$
+     - Scaled dot-product attention: $\text{Attention}(Q_h, K_h, V_h) = \text{softmax}\left(\frac{Q_h K_h^T}{\sqrt{d_k}}\right) V_h$
+     - Masking (if causal for decoder)
+   - Concatenate heads: $O = \text{Concat}(head_1, ..., head_H) W_O$
+   - $W_O \in \mathbb{R}^{d_{model} \times d_{model}}$
+   - Residual connection: $z_1 = z_0 + \text{MHSA}(z_0)$
+   - LayerNorm: $z_1' = \text{LayerNorm}(z_1)$
+
+   **Step 5: Feed-Forward Network (FFN)**
+   - Two linear layers with non-linearity: $\text{FFN}(x) = \text{GELU}(x W_1 + b_1) W_2 + b_2$
+   - $W_1 \in \mathbb{R}^{d_{model} \times d_{ff}}$, $W_2 \in \mathbb{R}^{d_{ff} \times d_{model}}$, $d_{ff} \approx 4 d_{model}$
+   - Applied position-wise

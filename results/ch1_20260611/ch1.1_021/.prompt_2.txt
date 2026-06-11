@@ -1,0 +1,1 @@
+Explain, step by step, how a transformer neural network processes a sentence — from tokenization and embeddings through self-attention and feed-forward layers to the output distribution. Be precise and thorough.

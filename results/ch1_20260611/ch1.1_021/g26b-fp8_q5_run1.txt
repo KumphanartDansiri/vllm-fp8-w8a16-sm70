@@ -1,0 +1,112 @@
+To implement a thread-safe LRU cache in Python, the most efficient approach is to combine a `collections.OrderedDict` (which maintains insertion order and allows moving items to the end) with a `threading.Lock`.
+
+Below is the implementation followed by the `pytest` suite.
+
+### Implementation (`lru_cache.py`)
+
+```python
+import threading
+from collections import OrderedDict
+from typing import Any, Optional
+
+class LRUCache:
+    """
+    A thread-safe Least Recently Used (LRU) cache.
+    
+    Attributes:
+        capacity (int): The maximum number of items the cache can hold.
+    """
+
+    def __init__(self, capacity: int):
+        if capacity <= 0:
+            raise ValueError("Capacity must be greater than 0")
+        self.capacity = capacity
+        self.cache = OrderedDict()
+        self.lock = threading.Lock()
+
+    def get(self, key: Any) -> Optional[Any]:
+        """
+        Return the value of the key if it exists, otherwise return None.
+        Moving the accessed key to the end to mark it as most recently used.
+        """
+        with self.lock:
+            if key not in self.cache:
+                return None
+            # Move to end to mark as most recently used
+            self.cache.move_to_end(key)
+            return self.cache[key]
+
+    def put(self, key: Any, value: Any) -> None:
+        """
+        Set the value for the key. If the key exists, update the value.
+        If the cache is at capacity, evict the least recently used item.
+        """
+        with self.lock:
+            if key in self.cache:
+                # Update existing key and move to end
+                self.cache.move_to_end(key)
+            self.cache[key] = value
+            
+            if len(self.cache) > self.capacity:
+                # popitem(last=False) removes the first (oldest) item
+                self.cache.popitem(last=False)
+
+    def __len__(self) -> int:
+        """Return the current size of the cache."""
+        with self.lock:
+            return len(self.cache)
+```
+
+---
+
+### Unit Tests (`test_lru_cache.py`)
+
+To run these tests, ensure you have `pytest` installed (`pip install pytest`) and run `pytest test_lru_cache.py`.
+
+```python
+import threading
+import pytest
+from lru_cache import LRUCache
+
+def test_basic_put_get():
+    """Test basic insertion and retrieval."""
+    cache = LRUCache(2)
+    cache.put(1, "a")
+    cache.put(2, "b")
+    assert cache.get(1) == "a"
+    assert cache.get(2) == "b"
+    assert cache.get(3) is None
+
+def test_eviction():
+    """Test that the least recently used item is evicted."""
+    cache = LRUCache(2)
+    cache.put(1, "a")
+    cache.put(2, "b")
+    cache.put(3, "c")  # Should evict key 1
+    
+    assert cache.get(1) is None
+    assert cache.get(2) == "b"
+    assert cache.get(3) == "c"
+
+def test_update_existing_key():
+    """Test that updating an existing key updates its value and recency."""
+    cache = LRUCache(2)
+    cache.put(1, "a")
+    cache.put(2, "b")
+    cache.put(1, "new_a")  # Update 1, makes it most recent
+    cache.put(3, "c")      # Should evict 2, not 1
+    
+    assert cache.get(1) == "new_a"
+    assert cache.get(2) is None
+    assert cache.get(3) == "c"
+
+def test_get_updates_recency():
+    """Test that calling get() prevents an item from being evicted."""
+    cache = LRUCache(2)
+    cache.put(1, "a")
+    cache.put(2, "b")
+    cache.get(1)           # Access 1, making 2 the LRU
+    cache.put(3, "c")      # Should evict 2
+    
+    assert cache.get(1) == "a"
+    assert

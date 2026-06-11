@@ -1,0 +1,61 @@
+Here's a thinking process:
+
+1.  **Understand User Request:**
+   - **Topic:** Transformer neural network processing a sentence
+   - **Scope:** From tokenization and embeddings through self-attention and feed-forward layers to output distribution
+   - **Requirements:** Step-by-step, precise, thorough
+   - **Target Audience:** Likely someone with some ML background but wants a detailed, technical explanation
+
+2.  **Deconstruct the Transformer Pipeline:**
+   I need to cover:
+   - Input representation (tokenization, embeddings, positional encoding)
+   - Encoder/Decoder structure (though the prompt doesn't specify, I'll focus on the standard encoder-only or encoder-decoder, but typically "processes a sentence" implies either encoding or generation. I'll clarify and focus on the core transformer block, then explain both directions if needed, but keep it focused on the forward pass)
+   - Self-attention mechanism (Q, K, V, scaling, softmax, masking if applicable)
+   - Feed-forward network (MLP, activation, layer norm)
+   - Residual connections & layer normalization
+   - Output projection & distribution (logits, softmax, sampling/argmax)
+   - Mathematical precision where appropriate
+
+3.  **Step-by-Step Structure:**
+   I'll organize it logically:
+   1. Tokenization
+   2. Embedding & Positional Encoding
+   3. Transformer Block Forward Pass (repeated N times)
+      a. Multi-Head Self-Attention
+      b. Add & Norm
+      c. Feed-Forward Network
+      d. Add & Norm
+   4. Output Projection & Distribution
+   5. (Optional but important) Training vs Inference context, masking, etc.
+
+   I'll make sure each step is precise, includes formulas where relevant, and explains the "why" behind operations.
+
+4.  **Draft - Section by Section (Mental Refinement):**
+
+   **Step 1: Tokenization**
+   - Input: raw sentence string
+   - Process: split into subword tokens using a vocabulary (BPE, WordPiece, SentencePiece)
+   - Output: sequence of token IDs `[t_1, t_2, ..., t_L]` where L is sequence length
+   - Special tokens: [CLS], [SEP], [PAD], etc. (depending on architecture)
+   - Precision: vocabulary size V, each token maps to integer index in [0, V-1]
+
+   **Step 2: Embedding & Positional Encoding**
+   - Token Embedding: lookup table E ∈ ℝ^(V × d_model). Each token ID → d_model-dimensional vector.
+   - Positional Encoding: Transformers are permutation-invariant, so add position info. Can be learned or sinusoidal. Sinusoidal: PE(pos, 2i) = sin(pos/10000^(2i/d_model)), PE(pos, 2i+1) = cos(...)
+   - Combined input: X_0 = E(tokens) + PE(positions) ∈ ℝ^(L × d_model)
+   - Note: In modern transformers (e.g., RoPE, ALiBi), positional encoding is integrated differently, but I'll stick to the original for clarity, then mention alternatives.
+
+   **Step 3: Transformer Block Forward Pass (repeated N times)**
+   - Each block takes X_{l-1} ∈ ℝ^(L × d_model) and outputs X_l
+   - **3a. Multi-Head Self-Attention**
+     - Project X to Q, K, V: Q = XW^Q, K = XW^K, V = XW^V, where W^Q, W^K, W^V ∈ ℝ^(d_model × d_k)
+     - d_k = d_model / h (h = number of heads)
+     - Scaled Dot-Product Attention: Attention(Q, K, V) = softmax(QK^T / √d_k) V
+     - Multi-head: concatenate heads, project back: MultiHead(Q,K,V) = Concat(head_1,...,head_h)W^O
+     - Output: A ∈ ℝ^(L × d_model)
+     - Precision: explain scaling factor (prevents softmax saturation), softmax over sequence dimension, masking for causal/encoder (optional but important)
+   - **3b. Add & Norm (Residual + LayerNorm)**
+     - X_{attn} = LayerNorm(X_{l-1} + A)
+     - LayerNorm: normalizes across feature dimension (d_model), not batch/sequence
+   - **3c. Feed-Forward Network (FFN)**
+     - Two linear layers with activation: FFN(X) = max(0, XW_1 + b_1)W_2 + b_

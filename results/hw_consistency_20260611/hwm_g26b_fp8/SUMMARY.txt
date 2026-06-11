@@ -1,0 +1,13 @@
+## TEST A: TP4 cross-group (0-3 vs 4-7) (/mnt/models/RedHatAI/gemma-4-26B-A4B-it-FP8-Dynamic fp8, 3 rounds, 512 tok)
+  round1 A_gpu0123 (GPU group): sha=8d02baf06392e85e COHERENT
+  round1 B_gpu4567 (GPU group): sha=5083afa0e034d79d COHERENT
+  round2 A_gpu0123 (GPU group): sha=5779cdd1888d646e COHERENT
+  round2 B_gpu4567 (GPU group): sha=fcb5d66f15b13f8e COHERENT
+  round3 A_gpu0123 (GPU group): sha=5083afa0e034d79d COHERENT
+  round3 B_gpu4567 (GPU group): sha=505699358ec2eb6e COHERENT
+  -> distinct sha across all groups×rounds: 5
+  VERDICT: ⚠️ 5 distinct outputs. Check per-group: a group that ALONE differs/garbages = suspect GPU;
+           groups each-internally-consistent-but-differ = likely NVLink topology (run dcgmi diag to confirm).
+           A_gpu0123: 3 distinct across rounds (DRIFTS)
+           B_gpu4567: 3 distinct across rounds (DRIFTS)
+

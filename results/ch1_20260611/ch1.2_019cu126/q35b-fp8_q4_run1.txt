@@ -1,0 +1,51 @@
+Thinking Process:
+
+1.  **Deconstruct the user's request:**
+    *   Goal: Summarize main causes of World War I.
+    *   Format: Exactly five bullet points.
+    *   Constraint: Each bullet must be a single sentence.
+    *   Constraint: No text before or after the five bullets.
+
+2.  **Brainstorm causes of WWI:**
+    *   Militarism.
+    *   Alliances (Triple Entente vs. Triple Alliance).
+    *   Imperialism/Colonial rivalries.
+    *   Nationalism (Slavic nationalism, Pan-Slavism, etc.).
+    *   Assassination of Archduke Franz Ferdinand (the spark, often grouped with nationalism or treated as the immediate trigger, but usually, the "MAIN" acronym covers the structural causes. However, a summary of "main causes" often includes the assassination as a key factor or subsumes it under nationalism. I need to pick five distinct points. The standard historical consensus often lists Militarism, Alliances, Imperialism, Nationalism, and the Assassination as the catalyst. Or sometimes "System of Alliances" and "Militarism" are distinct. Let's aim for the five most distinct and widely recognized causes.)
+    *   *Drafting points:*
+        1.  Militarism: Arms race, military influence on government.
+        2.  Alliances: Complex web of treaties dragging countries in.
+        3.  Imperialism: Competition for colonies/resources.
+        4.  Nationalism: Ethnic pride, desire for self-determination, tension in Balkans.
+        5.  Assassination: Franz Ferdinand killed by a Serbian nationalist.
+
+3.  **Refine points into single sentences:**
+    *   *Point 1 (Militarism):* An intense arms race and the glorification of military power among European nations created a volatile environment where war seemed like a viable solution to political disputes.
+        *   *Check:* Single sentence? Yes. Covers militarism? Yes.
+    *   *Point 2 (Alliances):* A complex web of defensive treaties bound major powers together, ensuring that a localized conflict could rapidly escalate into a continental war.
+        *   *Check:* Single sentence? Yes. Covers alliances? Yes.
+    *   *Point 3 (Imperialism):* Rivalry over overseas colonies and global resources intensified tensions between established empires and rising powers, fueling competition and distrust.
+        *   *Check:* Single sentence? Yes. Covers imperialism? Yes.
+    *   *Point 4 (Nationalism):* Aggressive nationalism and ethnic aspirations, particularly in the Balkans, destabilized multi-ethnic empires and heightened hostilities between rival states.
+        *   *Check:* Single sentence? Yes. Covers nationalism? Yes.
+    *   *Point 5 (Assassination):* The assassination of Archduke Franz Ferdinand by a Serbian nationalist served as the immediate catalyst that triggered the mobilization of allied armies and the outbreak of hostilities.
+        *   *Check:* Single sentence? Yes. Covers assassination? Yes.
+
+4.  **Review against constraints:**
+    *   *Constraint:* Exactly five bullet points?
+        *   Result: 1, 2, 3, 4, 5. Yes.
+    *   *Constraint:* Each bullet must be a single sentence?
+        *   Point 1: "An intense arms race... disputes." -> One sentence. Yes.
+        *   Point 2: "A complex web... continental war." -> One sentence. Yes.
+        *   Point 3: "Rivalry over... and distrust." -> One sentence. Yes.
+        *   Point 4: "Aggressive nationalism... rival states." -> One sentence. Yes.
+        *   Point 5: "The assassination... and hostilities." -> One sentence. Yes.
+    *   *Constraint:* No text before or after?
+        *   Result: Output must start with the first bullet and end with the last bullet. No intro, no outro. Yes.
+    *   *Constraint:* Summarize main causes?
+        *   Result: Covers Militarism, Alliances, Imperialism, Nationalism, Assassination. These are the standard main causes. Yes.
+
+5.  **Final Polish (Mental Representation of Output):**
+    *   *   An intense arms race and the glorification of military power among European nations created a volatile environment where war seemed like a viable solution to political disputes.
+    *   *   A complex web of defensive treaties bound major powers together, ensuring that a localized conflict could rapidly escalate into a continental war.
+    *   *   Rivalry over overseas colonies and global resources intensified tensions between established empires and rising

@@ -1,0 +1,51 @@
+Thinking Process:
+
+1.  **Deconstruct the user's request:**
+    *   Goal: Summarize main causes of World War I.
+    *   Format: Exactly five bullet points.
+    *   Constraint: Each bullet must be a single sentence.
+    *   Constraint: No text before or after the five bullets.
+
+2.  **Brainstorm causes of WWI:**
+    *   Militarism.
+    *   Alliances (Triple Entente vs. Triple Alliance).
+    *   Imperialism/Colonial rivalries.
+    *   Nationalism (Slavic nationalism, Pan-Slavism, etc.).
+    *   Assassination of Archduke Franz Ferdinand (the spark, often grouped with nationalism or treated as the immediate trigger, but usually, the "MAIN" acronym covers the structural causes. However, a summary of "main causes" often includes the assassination as a key factor or subsumes it under nationalism. I need to select five distinct points. The standard historical consensus often lists Militarism, Alliances, Imperialism, Nationalism, and the Assassination as the catalyst. Or sometimes "System of Alliances" and "Militarism" are distinct. Let's aim for the five most distinct and widely recognized causes.)
+    *   *Drafting points:*
+        1.  Militarism: Arms race, military influence on government.
+        2.  Alliances: Complex web, domino effect.
+        3.  Imperialism: Competition for colonies/resources.
+        4.  Nationalism: Ethnic groups seeking independence, pride.
+        5.  Assassination: Franz Ferdinand, trigger.
+
+3.  **Draft the bullets (ensuring single sentence constraint):**
+    *   *Bullet 1 (Militarism):* An intense arms race and the glorification of military power created a volatile environment where nations were eager and prepared for conflict.
+        *   *Check:* Single sentence? Yes.
+    *   *Bullet 2 (Alliances):* A complex system of mutual defense treaties bound major European powers together, ensuring that a localized dispute would rapidly escalate into a continental war.
+        *   *Check:* Single sentence? Yes.
+    *   *Bullet 3 (Imperialism):* Rivalries over colonial territories and global resources fueled tensions among the great powers as they competed for economic dominance and strategic advantage.
+        *   *Check:* Single sentence? Yes.
+    *   *Bullet 4 (Nationalism):* Rising ethnic and political nationalism, particularly in the Balkans, intensified desires for self-determination and threatened the stability of multi-ethnic empires.
+        *   *Check:* Single sentence? Yes.
+    *   *Bullet 5 (Assassination):* The assassination of Archduke Franz Ferdinand by a Serbian nationalist served as the immediate catalyst that triggered the mobilization of allied armies and the outbreak of hostilities.
+        *   *Check:* Single sentence? Yes.
+
+4.  **Review and Refine:**
+    *   *Review against constraints:*
+        *   Five bullets? Yes.
+        *   Single sentence per bullet?
+        *   B1: "An intense arms race... conflict." -> One sentence. OK.
+        *   B2: "A complex system... continental war." -> One sentence. OK.
+        *   B3: "Rivalries over... strategic advantage." -> One sentence. OK.
+        *   B4: "Rising ethnic... multi-ethnic empires." -> One sentence. OK.
+        *   B5: "The assassination... hostilities." -> One sentence. OK.
+        *   No text before/after? Must ensure output starts with `*` or `-` and ends with the last period. No intro like "Here are the causes:" and no outro like "Hope this helps."
+        *   Summarize main causes? Yes, covers Militarism, Alliances, Imperialism, Nationalism, Assassination. These are the standard five.
+
+5.  **Final Polish (Mental Representation of Output):**
+    *   * An intense arms race and the glorification of military power created a volatile environment where nations were eager and prepared for conflict.
+    *   * A complex system of mutual defense treaties bound major European powers together, ensuring that a localized dispute would rapidly escalate into a continental war.
+    *   * Rivalries over colonial territories and global resources fueled tensions among the great powers as they competed for economic dominance and strategic advantage.
+    *   * Rising ethnic and political nationalism, particularly in the Balkans, intensified desires for self-determination and threatened the stability of multi-ethnic empires.
+    *   * The assassination of Archduke Franz Ferdinand by a Serbian nationalist served as the immediate catalyst that triggered the mobilization of allied armies and

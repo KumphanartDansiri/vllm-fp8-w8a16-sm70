@@ -1,0 +1,1 @@
+Implement a thread-safe LRU (least-recently-used) cache in Python supporting get(key) and put(key, value) with a fixed capacity. Use only the standard library. Include docstrings and a set of pytest unit tests covering eviction, update, and concurrency.

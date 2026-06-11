@@ -1,0 +1,64 @@
+Here's a thinking process:
+
+1.  **Understand User Request:**
+   - **Topic:** Transformer neural network processing a sentence
+   - **Scope:** From tokenization and embeddings through self-attention and feed-forward layers to output distribution
+   - **Requirements:** Step-by-step, precise, thorough
+
+2.  **Deconstruct the Transformer Pipeline:**
+   I need to cover the entire forward pass of a standard Transformer (encoder or decoder, but I'll focus on the encoder for clarity, or mention both if relevant). The key stages are:
+   - Input representation (tokenization, embedding, positional encoding)
+   - Layer normalization (pre-LN vs post-LN, I'll mention standard post-LN but note modern variants)
+   - Multi-head self-attention
+   - Residual connections
+   - Feed-forward network (FFN)
+   - Output generation (for decoder) or final representation (for encoder)
+   - I should be precise about dimensions, operations, and mathematical formulations where appropriate.
+
+3.  **Step-by-Step Breakdown:**
+
+   **Step 1: Tokenization**
+   - Convert raw text into discrete tokens
+   - Subword tokenization (BPE, WordPiece, SentencePiece)
+   - Vocabulary mapping to integer IDs
+   - Special tokens (CLS, SEP, PAD, etc.)
+   - Output: Sequence of token IDs $[t_1, t_2, ..., t_n]$
+
+   **Step 2: Embedding & Positional Encoding**
+   - Token embedding: Lookup table $E \in \mathbb{R}^{V \times d_{model}}$, maps each ID to a dense vector
+   - Positional encoding: Add positional information since transformers are permutation-invariant
+     - Sinusoidal: $PE_{(pos, 2i)} = \sin(pos/10000^{2i/d_{model}})$, etc.
+     - Learned: $P \in \mathbb{R}^{L \times d_{model}}$
+   - Combined input: $X_0 = E(t) + P$
+   - Shape: $\mathbb{R}^{n \times d_{model}}$
+
+   **Step 3: Layer Normalization (Optional but common)**
+   - Pre-LN: $X_0 = \text{LayerNorm}(X_0)$
+   - Post-LN: Applied after attention/FFN
+   - I'll stick to standard post-LN for clarity but note pre-LN is common in modern models.
+
+   **Step 4: Multi-Head Self-Attention (MHSA)**
+   - Linear projections: $W_Q, W_K, W_V \in \mathbb{R}^{d_{model} \times d_k}$
+   - Queries, Keys, Values: $Q = XW_Q$, $K = XW_K$, $V = XW_V$
+   - Scaled Dot-Product Attention per head: $\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V$
+   - Multi-head: Concatenate heads, project: $O = \text{Concat}(\text{head}_1, ..., \text{head}_h)W_O$
+   - Residual connection: $X_1 = X_0 + \text{MHSA}(X_0)$
+   - LayerNorm: $X_1 = \text{LayerNorm}(X_1)$
+
+   **Step 5: Feed-Forward Network (FFN)**
+   - Two linear layers with non-linearity: $\text{FFN}(X) = \max(0, XW_1 + b_1)W_2 + b_2$
+   - Often GELU or ReLU
+   - Sometimes expanded dimension: $d_{ff} = 4d_{model}$
+   - Residual connection: $X_2 = X_1 + \text{FFN}(X_1)$
+   - LayerNorm: $X_2 = \text{LayerNorm}(X_2)$
+
+   **Step 6: Stacking Layers**
+   - Repeat Steps 4-5 for $L$ layers
+   - Each layer has independent parameters
+   - Output after $L$ layers: $X_L \in \mathbb{R}^{n \times d_{model}}$
+
+   **Step 7: Output Generation (Decoder/Generation Task)**
+   - For language modeling: Project to vocabulary size
+   - Linear layer: $Z = X_L W_E^T + b$ (often tied embeddings)
+   - Logits: $\mathbb{R}^{n \times V}$
+   - Softmax:

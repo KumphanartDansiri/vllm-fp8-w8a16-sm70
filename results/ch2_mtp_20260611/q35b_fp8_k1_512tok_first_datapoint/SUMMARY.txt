@@ -1,0 +1,7 @@
+CH2 MTP A/B — Qwen3.6-35B-A3B-FP8 TP=4 k=1, FP8-coalesced+cudagraph+skip-mm, 512 tok — 2026-06-11T07:15:02Z
+off: OK decode=70.51 tok/s tok=512 rep=0.085 sha=50e5ad5f663de271 accept=n/a
+mtp: OK decode=70.16 tok/s tok=512 rep=0.085 sha=d0bd6061ed697a94 accept=84.9%
+
+SPEEDUP: off=70.51 -> mtp=70.16 tok/s = 1.00x
+EXACTNESS: DIFF (mtp output != baseline — check coherence + the divergence figure)
+  (acceptance is a perf signal only; usability = coherence of the mtp output, see /tmp/v100_ch2_mtp/mtp_sample.txt)

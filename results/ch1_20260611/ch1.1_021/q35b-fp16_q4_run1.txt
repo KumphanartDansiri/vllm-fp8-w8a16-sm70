@@ -1,0 +1,43 @@
+Thinking Process:
+
+1.  **Deconstruct the user's request:**
+    *   Goal: Summarize main causes of World War I.
+    *   Format: Exactly five bullet points.
+    *   Constraint: Each bullet must be a single sentence.
+    *   Constraint: No text before or after the five bullets.
+
+2.  **Brainstorm causes of WWI:**
+    *   Militarism.
+    *   Alliances (Triple Entente vs. Triple Alliance).
+    *   Imperialism.
+    *   Nationalism.
+    *   Assassination of Archduke Franz Ferdinand (the spark).
+    *   *Note:* The acronym MAIN is often used: Militarism, Alliances, Imperialism, Nationalism. The assassination is the immediate trigger. I need five points. I can combine or separate these. Usually, the "main causes" are the long-term structural ones, but the assassination is often included as a cause in summaries. To get five distinct points, I should list the four MAIN factors plus the assassination, or split one. Splitting "Alliances" into the system and the specific treaties might be redundant. Listing the four MAINs plus the assassination is the most standard approach for a five-point summary.
+
+3.  **Draft the bullet points (Mental or rough text):**
+    *   *Point 1 (Militarism):* European powers engaged in an intense arms race and glorified military power, creating a volatile environment where war seemed like a viable solution to political disputes.
+    *   *Point 2 (Alliances):* A complex web of defensive treaties bound major powers together, ensuring that a localized conflict between two nations would rapidly escalate into a continental war.
+    *   *Point 3 (Imperialism):* Competition for overseas colonies and resources fueled rivalries among European nations, intensifying tensions and fostering a desire to expand national influence at the expense of others.
+    *   *Point 4 (Nationalism):* Intense patriotic fervor and the desire for self-determination, particularly in the Balkans, destabilized multi-ethnic empires and heightened hostilities between rival states.
+    *   *Point 5 (Assassination):* The assassination of Archduke Franz Ferdinand by a Serbian nationalist served as the immediate catalyst that triggered the alliance systems and set the continent on the path to war.
+
+4.  **Review and Refine (Constraint Checking):**
+    *   *Constraint:* Exactly five bullets? Yes.
+    *   *Constraint:* Each bullet a single sentence?
+        *   Bullet 1: "European powers engaged in an intense arms race and glorified military power, creating a volatile environment where war seemed like a viable solution to political disputes." -> One sentence. Good.
+        *   Bullet 2: "A complex web of defensive treaties bound major powers together, ensuring that a localized conflict between two nations would rapidly escalate into a continental war." -> One sentence. Good.
+        *   Bullet 3: "Competition for overseas colonies and resources fueled rivalries among European nations, intensifying tensions and fostering a desire to expand national influence at the expense of others." -> One sentence. Good.
+        *   Bullet 4: "Intense patriotic fervor and the desire for self-determination, particularly in the Balkans, destabilized multi-ethnic empires and heightened hostilities between rival states." -> One sentence. Good.
+        *   Bullet 5: "The assassination of Archduke Franz Ferdinand by a Serbian nationalist served as the immediate catalyst that triggered the alliance systems and set the continent on the path to war." -> One sentence. Good.
+    *   *Constraint:* No text before or after?
+        *   Output must start with the first bullet and end with the last bullet. No intro like "Here are the causes:" and no outro like "Hope this helps."
+
+5.  **Final Polish (Mental Representation of Output):**
+    *   *   European powers engaged in an intense arms race and glorified military strength, creating a volatile atmosphere where war was increasingly viewed as a legitimate tool of foreign policy.
+    *   *   A complex system of interlocking defensive alliances bound major nations together, guaranteeing that a dispute between two countries would inevitably draw their partners into a broader conflict.
+    *   *   Rivalry over overseas colonies and global resources intensified economic and political competition among European empires, deepening mutual distrust and hostility.
+    *   *   Rising nationalism and ethnic aspirations, especially in the Balkans, destabilized multi-ethnic empires and fueled aggressive ambitions that threatened the existing balance of power.
+    *   *   The assassination of Archduke Franz Ferdinand by a Serbian nationalist acted as the immediate spark that activated the alliance networks and set the continent on an irreversible path to war.
+
+    *Check sentence count per bullet:*
+    *

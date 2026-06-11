@@ -1,0 +1,74 @@
+Here's a thinking process that leads to the suggested solution:
+
+1.  **Understand the Goal:** The objective is to implement a thread-safe Least Recently Used (LRU) cache in Python using only the standard library. It needs to support `get(key)` and `put(key, value)` operations with a fixed capacity. Additionally, it requires comprehensive docstrings and a set of `pytest` unit tests covering eviction, updates, and concurrency.
+
+2.  **Analyze the Requirements:**
+    *   **LRU Cache:** Needs to store key-value pairs. When capacity is reached, the least recently accessed item must be removed.
+    *   **Operations:** `get(key)` returns value or None (or raises error, usually None is standard for cache). `put(key, value)` inserts or updates.
+    *   **Thread-Safe:** Multiple threads can access/modify the cache simultaneously without data corruption. This implies the need for locking mechanisms (e.g., `threading.Lock` or `threading.RLock`).
+    *   **Standard Library Only:** No `functools.lru_cache` (that's a decorator, not a class implementation), no external packages like `redis` or `cachetools`.
+    *   **Documentation:** Docstrings for the class and methods.
+    *   **Testing:** `pytest` tests for functionality (eviction, update) and concurrency (thread safety).
+
+3.  **Design the Data Structure:**
+    *   To achieve $O(1)$ time complexity for both `get` and `put`, a combination of a Hash Map (Dictionary) and a Doubly Linked List is the standard approach.
+    *   *Dictionary:* Maps keys to nodes in the linked list for fast lookup.
+    *   *Doubly Linked List:* Maintains the order of usage. Head = Most Recently Used (MRU), Tail = Least Recently Used (LRU).
+    *   *Python Specifics:* Python's `collections.OrderedDict` is actually a perfect fit for this. It maintains insertion order and allows moving items to the end (most recent) in $O(1)$. Since Python 3.7+, standard `dict` maintains insertion order, but `OrderedDict` has the explicit `move_to_end` method which is crucial for LRU logic.
+    *   *Decision:* Use `collections.OrderedDict` for simplicity and standard library compliance. It handles the linked list logic internally.
+
+4.  **Thread Safety Implementation:**
+    *   Wrap critical sections (accessing the dictionary, modifying the structure) with a lock.
+    *   `threading.Lock()` is sufficient.
+    *   Every `get` and `put` call must acquire the lock before accessing the internal state and release it afterwards.
+    *   *Note:* `OrderedDict` is not thread-safe by itself.
+
+5.  **Drafting the Code (Mental or Scratchpad):**
+
+    ```python
+    import threading
+    from collections import OrderedDict
+
+    class LRUCache:
+        def __init__(self, capacity):
+            self.capacity = capacity
+            self.cache = OrderedDict()
+            self.lock = threading.Lock()
+
+        def get(self, key):
+            with self.lock:
+                if key not in self.cache:
+                    return None
+                # Move to end to mark as recently used
+                self.cache.move_to_end(key)
+                return self.cache[key]
+
+        def put(self, key, value):
+            with self.lock:
+                if key in self.cache:
+                    self.cache.move_to_end(key)
+                self.cache[key] = value
+                if len(self.cache) > self.capacity:
+                    # Pop first item (LRU)
+                    self.cache.popitem(last=False)
+    ```
+
+6.  **Refining the Code:**
+    *   Add type hinting (optional but good practice).
+    *   Add detailed docstrings.
+    *   Handle edge cases (capacity <= 0? usually raise ValueError).
+    *   Ensure the lock is released even if an exception occurs (context manager `with` handles this).
+
+7.  **Designing the Tests:**
+    *   **Setup:** Create a fixture for the cache.
+    *   **Basic Functionality:** Put, Get, Update existing key.
+    *   **Eviction:** Fill to capacity, add one more, check if oldest is gone.
+    *   **Concurrency:**
+        *   Create multiple threads.
+        *   Some threads write, some read.
+        *   Check for race conditions (e.g., size exceeding capacity, data corruption).
+        *   Use `threading.Thread`.
+        *   Verify final state consistency.
+
+8.  **Writing the Tests (pytest):**
+    *   Import `pytest`, `threading`, `time`.

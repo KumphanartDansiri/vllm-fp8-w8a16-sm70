@@ -1,0 +1,62 @@
+Thinking Process:
+
+1.  **Analyze the Request:**
+    *   Task: Summarize the main causes of World War I.
+    *   Format: Exactly five bullet points.
+    *   Constraint 1: Each bullet must be a single sentence.
+    *   Constraint 2: Do not add any text before or after the five bullets (no intro, no outro, no numbering other than bullets).
+
+2.  **Identify the Main Causes of WWI:**
+    *   Historians often refer to the MAIN causes: Militarism, Alliances, Imperialism, Nationalism.
+    *   The immediate trigger: The assassination of Archduke Franz Ferdinand.
+    *   Other factors: The July Crisis, the system of entangling alliances, arms race.
+    *   To make five distinct points, I can break down MAIN + Trigger, or group them logically.
+    *   Option A: Militarism, Alliances, Imperialism, Nationalism, Assassination. (This is the standard mnemonic approach).
+    *   Option B: Complex alliances, intense nationalism, imperial competition, military buildup, assassination of Archduke.
+
+3.  **Drafting the Bullets (adhering to constraints):**
+    *   *Draft 1:*
+        *   Intense nationalism fueled rivalries among European powers seeking dominance and self-determination.
+        *   A complex web of military alliances divided the continent into opposing camps ready to defend each other.
+        *   Imperial competition for colonies and resources created significant tension between major nations.
+        *   An arms race and widespread militarism encouraged countries to prepare for war through massive military buildup.
+        *   The assassination of Archduke Franz Ferdinand served as the immediate catalyst that triggered the conflict.
+    *   *Check:* Are they single sentences? Yes. Are there exactly five? Yes. Is there extra text? No.
+
+4.  **Refining for Conciseness and Accuracy:**
+    *   Bullet 1 (Nationalism): Intense nationalism fueled rivalries among European powers seeking dominance and self-determination. (Good)
+    *   Bullet 2 (Alliances): A complex web of military alliances divided the continent into opposing camps ready to defend each other. (Good)
+    *   Bullet 3 (Imperialism): Imperial competition for colonies and resources created significant tension between major nations. (Good)
+    *   Bullet 4 (Militarism): An arms race and widespread militarism encouraged countries to prepare for war through massive military buildup. (Good)
+    *   Bullet 5 (Trigger): The assassination of Archduke Franz Ferdinand served as the immediate catalyst that triggered the conflict. (Good)
+
+5.  **Final Review against Constraints:**
+    *   Exactly five bullet points? Yes.
+    *   Each bullet is a single sentence? Yes.
+    *   No text before or after? Yes.
+
+6.  **Final Output Generation** (matching the drafted bullets).
+
+    *   Intense nationalism fueled rivalries among European powers seeking dominance and self-determination.
+    *   A complex web of military alliances divided the continent into opposing camps ready to defend each other.
+    *   Imperial competition for colonies and resources created significant tension between major nations.
+    *   An arms race and widespread militarism encouraged countries to prepare for war through massive military buildup.
+    *   The assassination of Archduke Franz Ferdinand served as the immediate catalyst that triggered the conflict.
+
+    *Wait, let me double-check the "single sentence" constraint.*
+    *   Bullet 1: "Intense nationalism fueled rivalries among European powers seeking dominance and self-determination." (One sentence)
+    *   Bullet 2: "A complex web of military alliances divided the continent into opposing camps ready to defend each other." (One sentence)
+    *   Bullet 3: "Imperial competition for colonies and resources created significant tension between major nations." (One sentence)
+    *   Bullet 4: "An arms race and widespread militarism encouraged countries to prepare for war through massive military buildup." (One sentence)
+    *   Bullet 5: "The assassination of Archduke Franz Ferdinand served as the immediate catalyst that triggered the conflict." (One sentence)
+
+    *Check for extra text:* None.
+
+    *Ready.*
+
+7.  **Final Polish:** Just ensure the bullet style is standard (e.g., - or *). I will use standard markdown bullets.
+
+    *   Intense nationalism fueled rivalries among European powers seeking dominance and self-determination.
+    *   A complex web of military alliances divided the continent into opposing camps ready to defend each other.
+    *   Imperial competition for colonies and resources created significant tension between major nations.
+    *   An arms race and widespread militarism encouraged countries to prepare for war through massive military buildup

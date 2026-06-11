@@ -1,0 +1,42 @@
+To understand how a Transformer processes a sentence, we must follow the data as it transforms from discrete text into high-dimensional vectors, undergoes relational reasoning, and finally collapses back into a probability distribution.
+
+Here is the step-by-step journey of a sentence through a Transformer decoder or encoder.
+
+---
+
+### 1. Input Pre-processing: Tokenization and Numericalization
+Computers cannot process raw text; they process numbers.
+*   **Tokenization:** The sentence (e.g., *"The cat sat"*) is broken into smaller units called **tokens**. Modern Transformers use **Subword Tokenization** (like Byte-Pair Encoding or WordPiece). This prevents "out-of-vocabulary" errors by breaking rare words into meaningful chunks (e.g., *"unhappiness"* $\rightarrow$ *"un"*, *"happi"*, *"ness"*).
+*   **Numericalization:** Each unique token in the model's vocabulary is mapped to a specific integer ID.
+
+### 2. The Embedding Layer: Mapping to Vector Space
+The integer IDs are passed into an **Embedding Matrix**—a massive lookup table of shape `(Vocabulary Size × Embedding Dimension)`.
+*   **Semantic Mapping:** Each token ID retrieves a high-dimensional vector (e.g., 512 or 768 dimensions). In this space, words with similar meanings (like "cat" and "dog") are mathematically positioned close to one another.
+*   **Positional Encoding:** Unlike Recurrent Neural Networks (RNNs), Transformers process all tokens simultaneously and have no inherent sense of order. To fix this, we add **Positional Encodings** to the embeddings. These are vectors calculated using sine and cosine functions of different frequencies. By adding these to the word embeddings, the model can distinguish between *"The dog bit the man"* and *"The man bit the dog."*
+
+### 3. The Transformer Block: The Core Engine
+The data now enters a stack of identical layers. Each layer consists of two primary sub-layers: **Multi-Head Self-Attention** and a **Position-wise Feed-Forward Network**.
+
+#### A. Multi-Head Self-Attention (The "Context" Step)
+This is where the model learns how words relate to each other in a specific sentence.
+1.  **Linear Projections (Q, K, V):** For every token, the model creates three new vectors by multiplying the embedding by three learned weight matrices:
+    *   **Query ($Q$):** "What am I looking for?"
+    *   **Key ($K$):** "What information do I contain?"
+    *   **Value ($V$):** "If I am relevant, what information do I provide?"
+2.  **Attention Scores (The Dot-Product):** To see how much token $A$ should focus on token $B$, we take the dot product of $Q_A$ and $K_B$. A high score means they are highly relevant to each other.
+3.  **Scaling and Softmax:** The scores are divided by $\sqrt{d_k}$ (to prevent gradient explosion) and passed through a **Softmax** function. This turns the scores into probabilities that sum to 1.
+4.  **Weighted Sum:** We multiply these probabilities by the **Value ($V$)** vectors. The output is a new representation of the token that is "context-aware." (e.g., the vector for "bank" will now contain "river" information if the word "water" is nearby).
+5.  **Multi-Head:** This process happens multiple times in parallel ("heads"). One head might focus on grammar, another on entity relationships, and another on tense. The results are concatenated and projected back to the original dimension.
+
+#### B. Residual Connections and Layer Normalization
+After attention, the model performs:
+*   **Residual Connection (Skip Connection):** The original input is added back to the attention output: $\text{Output} = \text{Layer}(x) + x$. This prevents the "vanishing gradient" problem, allowing gradients to flow through deep networks.
+*   **Layer Normalization:** The values are normalized to have a mean of 0 and a variance of 1, which stabilizes training.
+
+#### C. Position-wise Feed-Forward Network (FFN)
+The context-aware vectors are passed through a standard neural network (two linear layers with a non-linear activation like ReLU or GELU in between).
+*   While Attention is about **interaction between tokens**, the FFN is about **processing each token individually**. It allows the model to refine the features extracted during the attention phase.
+*   Another Residual Connection and Layer Normalization follow this step.
+
+### 4. The Output Head: From Vectors to Words
+After passing through $N$ layers of the above, we have a final set of high

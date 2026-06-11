@@ -1,0 +1,65 @@
+Thinking Process:
+
+1.  **Analyze the Request:**
+    *   Task: Summarize the main causes of World War I.
+    *   Format: Exactly five bullet points.
+    *   Constraint 1: Each bullet must be a single sentence.
+    *   Constraint 2: Do not add any text before or after the five bullets (no intro, no outro).
+
+2.  **Identify the Main Causes of WWI:**
+    *   The standard historical mnemonic is MAIN: Militarism, Alliances, Imperialism, Nationalism.
+    *   The immediate trigger was the assassination of Archduke Franz Ferdinand.
+    *   I need to distribute these into five distinct points while ensuring they are single sentences.
+
+    *   *Draft 1 (Mental):*
+        1. Militarism led to an arms race.
+        2. Alliances divided Europe into two camps.
+        3. Imperialism caused competition for colonies.
+        4. Nationalism fueled tensions in the Balkans.
+        5. The assassination of Franz Ferdinand sparked the war.
+
+    *   *Check Constraints:*
+        *   Five bullets? Yes.
+        *   Single sentence each? Yes.
+        *   No extra text? Yes.
+
+3.  **Refine the Sentences for Clarity and Accuracy:**
+    *   Bullet 1 (Militarism): Intense militarism and an arms race among European powers created a volatile environment ready for conflict.
+    *   Bullet 2 (Alliances): A complex system of mutual defense alliances divided the continent into opposing camps that dragged nations into war.
+    *   Bullet 3 (Imperialism): Competition for overseas colonies and resources intensified rivalries between major imperial powers.
+    *   Bullet 4 (Nationalism): Rising nationalist sentiments, particularly in the Balkans, destabilized empires and fueled desires for independence.
+    *   Bullet 5 (Trigger): The assassination of Archduke Franz Ferdinand in Sarajevo served as the immediate catalyst that activated these underlying tensions.
+
+4.  **Final Review against Constraints:**
+    *   Exactly five bullets? Yes.
+    *   Each bullet is a single sentence? Yes.
+    *   No text before or after? Yes.
+
+5.  **Final Output Generation:** (Proceed to generate the bullets based on the refined draft).
+
+    *   *Self-Correction on Bullet 1:* "Intense militarism and an arms race among European powers created a volatile environment ready for conflict." -> Good.
+    *   *Self-Correction on Bullet 2:* "A complex system of mutual defense alliances divided the continent into opposing camps that dragged nations into war." -> Good.
+    *   *Self-Correction on Bullet 3:* "Competition for overseas colonies and resources intensified rivalries between major imperial powers." -> Good.
+    *   *Self-Correction on Bullet 4:* "Rising nationalist sentiments, particularly in the Balkans, destabilized empires and fueled desires for independence." -> Good.
+    *   *Self-Correction on Bullet 5:* "The assassination of Archduke Franz Ferdinand in Sarajevo served as the immediate catalyst that activated these underlying tensions." -> Good.
+
+    *Wait, let's make sure they are concise and punchy.*
+    1. Intense militarism and a naval arms race among European powers created a volatile environment primed for conflict.
+    2. A complex web of mutual defense alliances divided the continent into opposing camps that guaranteed a localized conflict would expand.
+    3. Imperialist competition for overseas colonies and resources intensified economic and political rivalries between major nations.
+    4. Rising nationalist sentiments, particularly within the Balkans, destabilized multi-ethnic empires and fueled desires for self-determination.
+    5. The assassination of Archduke Franz Ferdinand in Sarajevo served as the immediate catalyst that activated these underlying tensions.
+
+    *Check sentence count:* All are single sentences.
+    *Check bullet count:* 5.
+    *Check extra text:* None.
+
+    *Final Polish:* Ensure no markdown errors. Use standard bullet points.
+
+    *Wait, one more check:* "Do not add any text before or after the five bullets." This means no "Here is the summary:" or "I hope this helps." Just the bullets.
+
+    *Let's finalize the text.*
+    *   Intense militarism and a naval arms race among European powers created a volatile environment primed for conflict.
+    *   A complex web of mutual defense alliances divided the continent into opposing camps that guaranteed a localized conflict would expand.
+    *   Imperialist competition for overseas colonies and resources intensified economic and political rivalries between major nations.
+    *   Rising nationalist sentiments, particularly within the

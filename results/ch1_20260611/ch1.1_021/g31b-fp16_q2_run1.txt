@@ -1,0 +1,54 @@
+To understand how a Transformer processes a sentence, we must follow the data as it transforms from raw text into high-dimensional vectors and, finally, back into a probability distribution over a vocabulary.
+
+Here is the step-by-step journey of a sentence through a Transformer (specifically the architecture used in models like GPT or BERT).
+
+---
+
+### Phase 1: Input Pre-processing
+Before the neural network sees the text, the sentence must be converted into a numerical format.
+
+**1. Tokenization**
+The raw string (e.g., *"The cat sat"*) is split into smaller units called **tokens**. Modern transformers use **Subword Tokenization** (like Byte Pair Encoding or WordPiece). 
+*   *Example:* "Transformer" might be split into `["Trans", "former"]`.
+*   Each unique token is assigned a unique integer ID from a pre-defined vocabulary.
+*   *Result:* `["The", "cat", "sat"]` $\rightarrow$ `[464, 3797, 3332]`.
+
+**2. Input Embeddings**
+Integers cannot be used for math. Each token ID is passed through an **Embedding Layer** (a lookup table). This converts each ID into a high-dimensional vector (e.g., 512 or 768 dimensions).
+*   These vectors are learned during training; tokens with similar meanings end up closer together in this vector space.
+
+**3. Positional Encoding**
+Transformers process all tokens in a sentence simultaneously (parallelism), meaning they have no inherent sense of word order. To fix this, **Positional Encodings** are added to the embeddings.
+*   A vector of the same dimension as the embedding is generated using sine and cosine functions of different frequencies.
+*   This vector is **added** (element-wise) to the embedding.
+*   *Result:* The model now knows that "The" is at position 0 and "sat" is at position 2.
+
+---
+
+### Phase 2: The Transformer Block (The Core)
+A Transformer consists of a stack of identical layers. Each layer has two primary sub-components: **Multi-Head Self-Attention** and a **Feed-Forward Network**.
+
+#### Step A: Multi-Head Self-Attention (MHSA)
+This is where the model determines which words in the sentence are relevant to one another.
+
+1.  **Linear Projections (Q, K, V):** For every token vector, the model creates three new vectors by multiplying the input by three learned weight matrices:
+    *   **Query ($Q$):** "What am I looking for?"
+    *   **Key ($K$):** "What information do I contain?"
+    *   **Value ($V$):** "What information do I provide if I am relevant?"
+2.  **Calculating Attention Scores:** To find the relationship between token $i$ and token $j$, the model takes the **dot product** of $Q_i$ and $K_j$.
+    *   A high score means token $j$ is highly relevant to token $i$.
+3.  **Scaling and Softmax:** 
+    *   The scores are divided by $\sqrt{d_k}$ (scaling) to prevent gradients from exploding.
+    *   A **Softmax** function is applied, turning the scores into probabilities that sum to 1.
+    *   *Example:* For the word "bank," the attention mechanism might assign 0.8 to "river" and 0.1 to "money" based on context.
+4.  **Weighted Sum:** The softmax score is multiplied by the **Value ($V$)** vector. The final output for a token is the sum of all weighted Value vectors in the sentence.
+5.  **Multi-Head Aspect:** This process happens $N$ times in parallel (heads). One head might focus on grammar, another on entity relationships, and another on coreference. The results are concatenated and projected back to the original dimension.
+
+#### Step B: Residual Connections and Layer Normalization
+To prevent the "vanishing gradient" problem in deep networks:
+*   **Residual Connection:** The original input to the attention layer is added back to the output: $\text{Output} = \text{Layer}(x) + x$.
+*   **Layer Norm:** The resulting vector is normalized to have a mean of 0 and a variance of 1, stabilizing training.
+
+#### Step C: Position-wise Feed-Forward Network (FFN)
+Now that the model has "contextualized" the tokens via attention, it processes each token independently.
+1.  The vector passes through a linear layer, then a non-linear activation function (usually **ReLU** or **GELU**), and then another linear layer

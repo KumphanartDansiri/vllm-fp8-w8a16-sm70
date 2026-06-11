@@ -1,0 +1,56 @@
+Thinking Process:
+
+1.  **Deconstruct the user's request:**
+    *   Topic: Main causes of World War I.
+    *   Format: Exactly five bullet points.
+    *   Constraint: Each bullet must be a single sentence.
+    *   Constraint: No text before or after the five bullets.
+
+2.  **Brainstorm main causes of WWI:**
+    *   Militarism.
+    *   Alliances.
+    *   Imperialism.
+    *   Nationalism.
+    *   Assassination of Archduke Franz Ferdinand (the spark).
+    *   *Mnemonic: MAIN + Spark.*
+
+3.  **Draft bullet points (aiming for single sentences):**
+    *   *Draft 1:* Militarism led to an arms race among European powers, creating a climate where war was seen as a viable solution to conflicts.
+    *   *Draft 2:* A complex web of interlocking alliances divided Europe into opposing camps, ensuring that a localized dispute could rapidly escalate into a continental war.
+    *   *Draft 3:* Intense nationalism fueled rivalries between nations and inspired ethnic groups within empires to seek independence, destabilizing the political order.
+    *   *Draft 4:* Imperialist competition for colonies and resources heightened tensions as major powers vied for global dominance and economic advantage.
+    *   *Draft 5:* The assassination of Archduke Franz Ferdinand of Austria-Hungary served as the immediate catalyst that triggered the alliance system and plunged Europe into conflict.
+
+4.  **Review and Refine (Checking constraints):**
+    *   *Bullet 1:* Militarism led to an arms race among European powers, creating a climate where war was seen as a viable solution to conflicts. -> Single sentence? Yes.
+    *   *Bullet 2:* A complex web of interlocking alliances divided Europe into opposing camps, ensuring that a localized dispute could rapidly escalate into a continental war. -> Single sentence? Yes.
+    *   *Bullet 3:* Intense nationalism fueled rivalries between nations and inspired ethnic groups within empires to seek independence, destabilizing the political order. -> Single sentence? Yes.
+    *   *Bullet 4:* Imperialist competition for colonies and resources heightened tensions as major powers vied for global dominance and economic advantage. -> Single sentence? Yes.
+    *   *Bullet 5:* The assassination of Archduke Franz Ferdinand of Austria-Hungary served as the immediate catalyst that triggered the alliance system and plunged Europe into conflict. -> Single sentence? Yes.
+    *   *Count:* Exactly five bullets? Yes.
+    *   *Content:* Covers Militarism, Alliances, Nationalism, Imperialism, Assassination? Yes.
+    *   *Formatting:* No text before or after? Need to ensure output is just the bullets.
+
+5.  **Final Polish (Mental Representation of Output):**
+    *   *   Militarism drove an aggressive arms race among European powers, fostering a belief that military strength was essential for national security and making war an acceptable tool of policy.
+    *   *   A complex network of interlocking alliances divided Europe into opposing blocs, guaranteeing that a conflict between two nations would inevitably draw in their partners and escalate into a general war.
+    *   *   Rampant nationalism intensified rivalries between states and emboldened ethnic groups within multi-ethnic empires to demand self-determination, thereby destabilizing the existing political order.
+    *   *   Imperialist competition for overseas colonies and resources created friction as major powers vied for global dominance and economic advantage, leading to diplomatic crises and heightened tensions.
+    *   *   The assassination of Archduke Franz Ferdinand of Austria-Hungary acted as the immediate spark that activated the alliance system and triggered a cascade of declarations of war across the continent.
+
+    *Check:*
+    *   Bullet 1: Single sentence. Yes.
+    *   Bullet 2: Single sentence. Yes.
+    *   Bullet 3: Single sentence. Yes.
+    *   Bullet 4: Single sentence. Yes.
+    *   Bullet 5: Single sentence. Yes.
+    *   Five bullets. Yes.
+    *   No intro/outro. Yes.
+
+6.  **Final Output Construction:**
+    *   Produce the text exactly as refined.
+</think>
+
+*   Militarism drove an aggressive arms race among European powers, fostering a belief that military strength was essential for national security and making war an acceptable tool of policy.
+*   A complex network of interlocking alliances divided Europe into opposing blocs, guaranteeing that a conflict between two nations would inevitably draw in their partners and escalate into a general war.
+*   Rampant nationalism intensified rivalries between states and emboldened ethnic groups within multi-ethnic empires to demand self-determination, thereby destabilizing the existing

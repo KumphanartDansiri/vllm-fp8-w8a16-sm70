@@ -1,0 +1,31 @@
+==============================================================================
+CH1 — AXIS 1: SELF-STABILITY + DECODE (Q1 ×reps, temp=0)
+==============================================================================
+cell               prec  decode mean±sd (min..max)    self-stability           label
+q27b-fp16          fp16  41.52±0.01 (41.5..41.5)      1 distinct / 5 runs      Exact
+q27b-fp8           fp8   38.57±0.03 (38.5..38.6)      1 distinct / 5 runs      Exact
+q35b-fp16          fp16  15.77±0.00 (15.8..15.8)      1 distinct / 5 runs      Exact
+q35b-fp8           fp8   79.11±0.01 (79.1..79.1)      1 distinct / 5 runs      Exact
+
+==============================================================================
+CH1 — AXIS 2: FAITHFULNESS  FP8 vs comparator  (Q2..Q5, greedy-token agreement)
+  gold=FP16 (mid models, real faithfulness) | Int4 for 122B = SPEED-only, NOT gold
+==============================================================================
+
+[q27b]  FP8 vs FP16 (FP16 gold)
+  Q   label      agree%  FP8 coh  cmp coh 
+  2   Stable       12.4% True     True      (factual)
+  3   Stable       28.0% True     True      (reasoning)
+  4   Stable        7.3% True     True      (structure)
+  5   Stable        6.9% True     True      (code)
+
+[q35b]  FP8 vs FP16 (FP16 gold)
+  Q   label      agree%  FP8 coh  cmp coh 
+  2   Stable        8.5% True     True      (factual)
+  3   Stable        0.6% True     True      (reasoning)
+  4   Stable        9.6% True     True      (structure)
+  5   Stable        4.2% True     True      (code)
+
+NOTE: Exact across precisions is NOT expected (FP8≠FP16 numerics). FP16-gold pairs top out at
+'Stable' (coherent, drift within FP noise); Int4 pairs = 'Coherent' (no gold). Read the saved
+*_q*_run*.txt for side-by-side. Decode numbers: see Axis-1 table + manifest.csv.

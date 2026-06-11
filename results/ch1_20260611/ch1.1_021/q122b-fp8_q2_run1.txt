@@ -1,0 +1,47 @@
+Here's a thinking process that leads to the explanation of how a transformer processes a sentence:
+
+1.  **Deconstruct the Request:**
+    *   **Topic:** Transformer Neural Network processing a sentence.
+    *   **Scope:** From tokenization to output distribution.
+    *   **Requirements:** Step-by-step, precise, thorough.
+    *   **Target Audience:** Likely someone with some technical background (given the specific terminology requested), but needs a clear, structured explanation.
+
+2.  **Initial Outline & Structure:**
+    *   Introduction: Briefly define the Transformer architecture (Encoder-Decoder vs. Encoder-only, but focus on the general flow, likely assuming an Encoder-Decoder or Encoder-only context like BERT/GPT). Let's aim for a general "Sequence-to-Sequence" or "Next Token Prediction" flow, as that covers the core mechanics best. I will structure it around the standard Encoder-Decoder model (like the original "Attention Is All You Need" paper) but acknowledge variations (like GPT/BERT).
+    *   Step 1: Input Representation (Tokenization & Embeddings).
+    *   Step 2: Positional Encoding (Crucial for Transformers).
+    *   Step 3: The Encoder Stack (Self-Attention + Feed-Forward).
+    *   Step 4: The Decoder Stack (Masked Self-Attention + Cross-Attention + Feed-Forward).
+    *   Step 5: Output Projection & Softmax.
+    *   Step 6: Training/Inference nuances (Teacher Forcing vs. Autoregressive).
+    *   Conclusion: Summary of the flow.
+
+3.  **Drafting Content - Step-by-Step:**
+
+    *   *Step 1: Tokenization.* Need to explain subword tokenization (BPE/WordPiece). Why? To handle OOV (Out of Vocabulary). Convert text to IDs.
+    *   *Step 2: Embeddings.* Lookup table. Vector representation. Dimension $d_{model}$.
+    *   *Step 3: Positional Encoding.* Transformers don't have recurrence. Need to inject order info. Sinusoidal or Learned. Add to embeddings.
+    *   *Step 4: Multi-Head Self-Attention (The Core).*
+        *   Query, Key, Value ($Q, K, V$).
+        *   Dot product attention mechanism ($\text{softmax}(\frac{QK^T}{\sqrt{d_k}})V$).
+        *   Scaling factor (why? gradient stability).
+        *   Multi-head (different subspaces).
+        *   Residual connection + Layer Norm (Pre-Norm vs. Post-Norm - stick to Post-Norm for original paper clarity, mention Pre-Norm as common variant).
+    *   *Step 5: Feed-Forward Network (FFN).* Point-wise. Two linear layers with ReLU/GELU. Same input/output dim.
+    *   *Step 6: Decoder Specifics (if applicable).*
+        *   Masked Self-Attention (prevent looking ahead).
+        *   Cross-Attention (attend to Encoder output).
+        *   *Self-Correction:* To be most thorough, I should explain the *Encoder* flow first (like BERT) and then the *Decoder* flow (like GPT/Translation), or pick one paradigm. The prompt asks "processes a sentence... to output distribution." This sounds like Next Token Prediction (GPT style) or Translation. I will describe the **Encoder-Decoder** architecture as the canonical "Transformer" but explicitly mention how **Encoder-only** (BERT) and **Decoder-only** (GPT) differ slightly in the final steps. Actually, the most generic "processing a sentence" usually implies understanding (Encoder) or generation (Decoder). I will focus on the **Encoder-Decoder** structure as it's the most complete, but clarify the flow for generation.
+        *   *Decision:* I will structure it as a generic Transformer block flow, then distinguish Encoder vs. Decoder roles.
+    *   *Step 7: Output Layer.* Linear projection to vocabulary size. Softmax for probabilities.
+
+4.  **Refining Technical Details (Precision Check):**
+    *   *Dimensions:* Mention $d_{model}$, $d_k$, $d_v$, $h$ (heads).
+    *   *Math:* Write out the attention formula clearly.
+    *   *Normalization:* LayerNorm placement (Post-LN vs. Pre-LN). I'll describe Post-LN (original) but note Pre-LN is common now.
+    *   *Residuals:* Add & Norm.
+    *   *Masking:* Explain causal masking in the decoder.
+
+5.  **Review and Formatting:**
+    *   Use bolding for key terms.
+    *

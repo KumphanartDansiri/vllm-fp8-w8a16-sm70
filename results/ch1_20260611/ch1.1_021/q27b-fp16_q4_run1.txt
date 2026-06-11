@@ -1,0 +1,58 @@
+Thinking Process:
+
+1.  **Deconstruct the user's request:**
+    *   Topic: Main causes of World War I.
+    *   Format: Exactly five bullet points.
+    *   Constraint: Each bullet must be a single sentence.
+    *   Constraint: No text before or after the five bullets.
+
+2.  **Brainstorm main causes of WWI:**
+    *   Common acronyms: MAIN (Militarism, Alliances, Imperialism, Nationalism).
+    *   Immediate cause: Assassination of Archduke Franz Ferdinand.
+    *   Other factors: Schlieffen Plan, arms race, Balkan tensions.
+
+3.  **Draft bullet points (aiming for five distinct causes, single sentences):**
+    *   *Draft 1:* Militarism led to an arms race and aggressive military planning among European powers.
+    *   *Draft 2:* A complex web of secret alliances obligated nations to support their partners, turning a regional conflict into a continental war.
+    *   *Draft 3:* Imperialist competition for colonies and resources created intense rivalry and tension between major powers.
+    *   *Draft 4:* Rising nationalism fueled desires for independence in regions like the Balkans and intensified patriotic fervor across Europe.
+    *   *Draft 5:* The assassination of Archduke Franz Ferdinand of Austria-Hungary served as the immediate spark that triggered the chain reaction of declarations of war.
+
+4.  **Review and Refine (Checking constraints):**
+    *   *Bullet 1:* Militarism led to an arms race and aggressive military planning among European powers. -> Single sentence? Yes. Cause? Yes.
+    *   *Bullet 2:* A complex web of secret alliances obligated nations to support their partners, turning a regional conflict into a continental war. -> Single sentence? Yes. Cause? Yes.
+    *   *Bullet 3:* Imperialist competition for colonies and resources created intense rivalry and tension between major powers. -> Single sentence? Yes. Cause? Yes.
+    *   *Bullet 4:* Rising nationalism fueled desires for independence in regions like the Balkans and intensified patriotic fervor across Europe. -> Single sentence? Yes. Cause? Yes.
+    *   *Bullet 5:* The assassination of Archduke Franz Ferdinand of Austria-Hungary served as the immediate spark that triggered the chain reaction of declarations of war. -> Single sentence? Yes. Cause? Yes.
+    *   *Count:* Five bullets? Yes.
+    *   *Format:* Bullet points? Yes.
+    *   *Text before/after:* None? Yes.
+
+5.  **Final Polish (Mental representation of output):**
+    *   *   Militarism drove an aggressive arms race and the development of rigid war plans that heightened tensions among European powers.
+    *   *   A complex system of interlocking alliances obligated nations to defend their partners, ensuring that a localized dispute would rapidly escalate into a general war.
+    *   *   Imperialist competition for overseas colonies and global resources fostered intense rivalry and diplomatic friction between major empires.
+    *   *   Rising nationalism fueled desires for self-determination in unstable regions like the Balkans while simultaneously stoking aggressive patriotic fervor across Europe.
+    *   *   The assassination of Archduke Franz Ferdinand of Austria-Hungary acted as the immediate catalyst that set off the chain reaction of diplomatic ultimatums and declarations of war.
+
+    *Check:*
+    *   Bullet 1: Single sentence. Good.
+    *   Bullet 2: Single sentence. Good.
+    *   Bullet 3: Single sentence. Good.
+    *   Bullet 4: Single sentence. Good.
+    *   Bullet 5: Single sentence. Good.
+    *   Total: 5 bullets.
+    *   No intro/outro.
+
+6.  **Final Output Construction:**
+    *   Present the polished bullets exactly as requested.
+
+    *   Militarism drove an aggressive arms race and the development of rigid war plans that heightened tensions among European powers.
+    *   A complex system of interlocking alliances obligated nations to defend their partners, ensuring that a localized dispute would rapidly escalate into a general war.
+    *   Imperialist competition for overseas colonies and global resources fostered intense rivalry and diplomatic friction between major empires.
+    *   Rising nationalism fueled desires for self-determination in unstable regions like the Balkans while simultaneously stoking aggressive patriotic fervor across Europe.
+    *   The assassination of Archduke Franz Ferdinand of Austria-Hungary acted as the immediate catalyst that set off the chain reaction of diplomatic ultimatums and declarations of war.
+
+    *Wait, let me double-check the "single sentence" constraint on the drafted output.*
+    *   "Militarism drove... powers." -> One sentence.
+   
