@@ -40,7 +40,13 @@ for s in torchext triton torch inductor; do mkdir -p "$HOME/.cache/vllm-v100-${C
 gpus(){ local n="$1" i o=""; for((i=0;i<n;i++));do o+="${o:+,}$i";done; echo "$o"; }
 # Union of block-FP8 (Qwen) + CT (gemma Dynamic) knobs — same set as ch1_reliability_bench so the off
 # arm IS the Ch1 production cell; irrelevant ones no-op per quant family.
-FP8ENV="-e VLLM_V100_FP8_COALESCED_GEMV=1 -e VLLM_V100_FP8_COALESCED_UNROLL=4 -e VLLM_V100_FP8_COALESCED_M_UNROLL=4 -e VLLM_V100_FP8_COALESCED_GEMV_M_MAX=8 -e VLLM_V100_FP8_MOE_W13_COALESCED=1 -e VLLM_V100_FP8_MOE_FALLBACK=1 -e VLLM_V100_FP8_MOE_GROUPED_ROUTED_GEMM=1 -e VLLM_V100_FP8_MOE_GROUPED_MAX_ROUTE_SLOTS=128 -e VLLM_V100_FP8_MOE_FAST_ROUTE_PREP=1 -e VLLM_V100_CT_FP8_RESIDENT=1 -e VLLM_V100_CT_FP8_RESIDENT_SELFCHECK=1 -e VLLM_V100_CT_MOE_W13_RESIDENT=1 -e VLLM_V100_CT_MOE_W13_FREE_FP16=1 -e VLLM_V100_CT_MOE_W2_GROUPED=1 -e VLLM_V100_CT_MOE_W13_COALESCED=1"
+# ROUTE_SLOTS overridable: k>1 captures larger decode buckets (M up to 48), route_count=M*topk can exceed
+# the default 128 cap → grouped path returns None → per-expert loop runs torch.unique().tolist()/.item()
+# (CPU syncs) → cudagraph capture crash (cudaErrorStreamCaptureInvalidated). Raise to >= max_capture_M*topk
+# (k=2: 48*8=384; use 512 for margin) to keep the sync-free grouped kernel active during capture. Only
+# affects route_count 129-512 (large-M capture/concurrency); normal k=1 decode (<=128) is unchanged.
+ROUTE_SLOTS="${VLLM_V100_FP8_MOE_GROUPED_MAX_ROUTE_SLOTS:-128}"
+FP8ENV="-e VLLM_V100_FP8_COALESCED_GEMV=1 -e VLLM_V100_FP8_COALESCED_UNROLL=4 -e VLLM_V100_FP8_COALESCED_M_UNROLL=4 -e VLLM_V100_FP8_COALESCED_GEMV_M_MAX=8 -e VLLM_V100_FP8_MOE_W13_COALESCED=1 -e VLLM_V100_FP8_MOE_FALLBACK=1 -e VLLM_V100_FP8_MOE_GROUPED_ROUTED_GEMM=1 -e VLLM_V100_FP8_MOE_GROUPED_MAX_ROUTE_SLOTS=${ROUTE_SLOTS} -e VLLM_V100_FP8_MOE_FAST_ROUTE_PREP=1 -e VLLM_V100_CT_FP8_RESIDENT=1 -e VLLM_V100_CT_FP8_RESIDENT_SELFCHECK=1 -e VLLM_V100_CT_MOE_W13_RESIDENT=1 -e VLLM_V100_CT_MOE_W13_FREE_FP16=1 -e VLLM_V100_CT_MOE_W2_GROUPED=1 -e VLLM_V100_CT_MOE_W13_COALESCED=1"
 [[ "$PREC" != "fp8" ]] && FP8ENV="-e VLLM_V100_FP8_COALESCED_GEMV=0"
 CPFLAG=(--no-enable-chunked-prefill); [[ "$CHUNKED" == "1" ]] && CPFLAG=()
 
@@ -126,12 +132,15 @@ PY
     if [[ -n "$k" ]]; then
         curl -s "http://localhost:${PORT}/metrics" 2>/dev/null | grep -E "^vllm:spec_decode" > "$OUT/${arm}_metrics_spec.txt" || true
         acc=$(python3 -c "
+# Match the AGGREGATE counters exactly. NOTE: 'num_accepted_tokens' has THREE _total variants
+# (the aggregate + _per_pos_total{position=0,1,...}); a loose 'startswith+total' grabs the last
+# per-position line (e.g. 285) instead of the aggregate (633) and reports a wrong, too-low rate.
 a=d=0.0
 for ln in open('$OUT/${arm}_metrics_spec.txt'):
- if ln.startswith('vllm:spec_decode_num_accepted_tokens') and 'total' in ln:
+ if ln.startswith('vllm:spec_decode_num_accepted_tokens_total{'):
   try:a=float(ln.split()[-1])
   except:pass
- if ln.startswith('vllm:spec_decode_num_draft_tokens') and 'total' in ln:
+ if ln.startswith('vllm:spec_decode_num_draft_tokens_total{'):
   try:d=float(ln.split()[-1])
   except:pass
 print(f'{a/d:.1%}' if d>0 else 'n/a')" 2>/dev/null||echo n/a)

@@ -1,0 +1,3 @@
+Capturing CUDA graphs (decode, FULL):  20%|██        | 1/5 [00:01<00:06,  1.60s/it]Capturing CUDA graphs (decode, FULL):  40%|████      | 2/5 [00:02<00:02,  1.06it/s](Worker_TP0 pid=634) [serve_fp8_v100 pid=634] kernel variant counts after 2000 calls: A.1=1800 (90%), WMMA=200 (10%)
+Capturing CUDA graphs (decode, FULL):  60%|██████    | 3/5 [00:02<00:01,  1.34it/s]Capturing CUDA graphs (decode, FULL):  80%|████████  | 4/5 [00:03<00:00,  1.56it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 5/5 [00:03<00:00,  1.37it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 5/5 [00:03<00:00,  1.26it/s]
+(Worker_TP0 pid=634) INFO 06-12 04:49:40 [gpu_model_runner.py:6243] Graph capturing finished in 5 secs, took 0.14 GiB
