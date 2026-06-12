@@ -1,0 +1,62 @@
+[k-chain 05:03:07Z] === 122B KLIST=2,3 ===
+[ch2-mtp] === arm=off  model=Qwen3.5-122B-A10B-FP8 prec=fp8 TP=8 baseline ===
+[ch2-mtp]   ...loading off (60s)
+[ch2-mtp]   ...loading off (120s)
+[ch2-mtp]   ...loading off (180s)
+[ch2-mtp]   ...loading off (240s)
+off: OK decode=45.82 tok/s (wall=45.28) tok=1024 chunks=1024 ttft=0.29s rep=0.083 sha=598374af8dfd2fb4 accept=n/a
+[ch2-mtp]   stopping ch2_off
+[ch2-mtp] === arm=mtp2  model=Qwen3.5-122B-A10B-FP8 prec=fp8 TP=8 MTP k=2 ===
+[ch2-mtp]   ...loading mtp2 (60s)
+[ch2-mtp]   ...loading mtp2 (120s)
+[ch2-mtp]   ...loading mtp2 (180s)
+[ch2-mtp]   ...loading mtp2 (240s)
+mtp2: OK decode=65.59 tok/s (wall=64.40) tok=1024 chunks=406 ttft=0.30s rep=0.086 sha=e4c6795ff0af334b accept=76.7%
+[ch2-mtp]   stopping ch2_mtp2
+[ch2-mtp] === arm=mtp3  model=Qwen3.5-122B-A10B-FP8 prec=fp8 TP=8 MTP k=3 ===
+[ch2-mtp]   ...loading mtp3 (60s)
+[ch2-mtp]   ...loading mtp3 (120s)
+[ch2-mtp]   ...loading mtp3 (180s)
+[ch2-mtp]   ...loading mtp3 (240s)
+mtp3: OK decode=74.53 tok/s (wall=72.92) tok=1024 chunks=342 ttft=0.32s rep=0.090 sha=b11bcebf2668304a accept=67.2%
+[ch2-mtp]   stopping ch2_mtp3
+
+k=2: SPEEDUP off=45.82 -> mtp=65.59 tok/s = 1.43x | accept=76.7% | EXACTNESS: DIFF (check coherence: diff results/ch2_mtp_k23_slots512_122b/off_sample.txt results/ch2_mtp_k23_slots512_122b/mtp2_sample.txt)
+k=3: SPEEDUP off=45.82 -> mtp=74.53 tok/s = 1.63x | accept=67.2% | EXACTNESS: DIFF (check coherence: diff results/ch2_mtp_k23_slots512_122b/off_sample.txt results/ch2_mtp_k23_slots512_122b/mtp3_sample.txt)
+  (acceptance is a perf signal only; usability = coherence of the mtp output; spec-init/capture evidence in results/ch2_mtp_k23_slots512_122b/*_spec_init.txt, *_cudagraph.txt)
+[ch2-mtp] ==== CH2 MTP SUMMARY ====
+CH2 MTP A/B/N — Qwen3.5-122B-A10B-FP8 prec=fp8 TP=8 KLIST='2 3', cudagraph+skip-mm+coalesced, maxlen=4096, 1024 tok, chunked=0 — 2026-06-12T05:03:07Z
+off: OK decode=45.82 tok/s (wall=45.28) tok=1024 chunks=1024 ttft=0.29s rep=0.083 sha=598374af8dfd2fb4 accept=n/a
+mtp2: OK decode=65.59 tok/s (wall=64.40) tok=1024 chunks=406 ttft=0.30s rep=0.086 sha=e4c6795ff0af334b accept=76.7%
+mtp3: OK decode=74.53 tok/s (wall=72.92) tok=1024 chunks=342 ttft=0.32s rep=0.090 sha=b11bcebf2668304a accept=67.2%
+
+k=2: SPEEDUP off=45.82 -> mtp=65.59 tok/s = 1.43x | accept=76.7% | EXACTNESS: DIFF (check coherence: diff results/ch2_mtp_k23_slots512_122b/off_sample.txt results/ch2_mtp_k23_slots512_122b/mtp2_sample.txt)
+k=3: SPEEDUP off=45.82 -> mtp=74.53 tok/s = 1.63x | accept=67.2% | EXACTNESS: DIFF (check coherence: diff results/ch2_mtp_k23_slots512_122b/off_sample.txt results/ch2_mtp_k23_slots512_122b/mtp3_sample.txt)
+  (acceptance is a perf signal only; usability = coherence of the mtp output; spec-init/capture evidence in results/ch2_mtp_k23_slots512_122b/*_spec_init.txt, *_cudagraph.txt)
+[k-chain 05:17:52Z] === 35B KLIST=2 ===
+[ch2-mtp] === arm=off  model=Qwen3.6-35B-A3B-FP8 prec=fp8 TP=4 baseline ===
+[ch2-mtp]   ...loading off (60s)
+[ch2-mtp]   ...loading off (120s)
+[ch2-mtp]   ...loading off (180s)
+[ch2-mtp]   ...loading off (240s)
+off: OK decode=70.08 tok/s (wall=69.11) tok=1024 chunks=1024 ttft=0.22s rep=0.084 sha=b98018eb1f1c5192 accept=n/a
+[ch2-mtp]   stopping ch2_off
+[ch2-mtp] === arm=mtp2  model=Qwen3.6-35B-A3B-FP8 prec=fp8 TP=4 MTP k=2 ===
+[ch2-mtp]   ...loading mtp2 (60s)
+[ch2-mtp]   ...loading mtp2 (120s)
+[ch2-mtp]   ...loading mtp2 (180s)
+[ch2-mtp]   ...loading mtp2 (240s)
+[ch2-mtp]   ...loading mtp2 (300s)
+mtp2: OK decode=86.77 tok/s (wall=85.14) tok=1024 chunks=424 ttft=0.24s rep=0.089 sha=adda10d7599136fd accept=71.3%
+[ch2-mtp]   stopping ch2_mtp2
+
+k=2: SPEEDUP off=70.08 -> mtp=86.77 tok/s = 1.24x | accept=71.3% | EXACTNESS: DIFF (check coherence: diff results/ch2_mtp2_slots512_35b/off_sample.txt results/ch2_mtp2_slots512_35b/mtp2_sample.txt)
+  (acceptance is a perf signal only; usability = coherence of the mtp output; spec-init/capture evidence in results/ch2_mtp2_slots512_35b/*_spec_init.txt, *_cudagraph.txt)
+[ch2-mtp] ==== CH2 MTP SUMMARY ====
+CH2 MTP A/B/N — Qwen3.6-35B-A3B-FP8 prec=fp8 TP=4 KLIST='2', cudagraph+skip-mm+coalesced, maxlen=4096, 1024 tok, chunked=0 — 2026-06-12T05:17:52Z
+off: OK decode=70.08 tok/s (wall=69.11) tok=1024 chunks=1024 ttft=0.22s rep=0.084 sha=b98018eb1f1c5192 accept=n/a
+mtp2: OK decode=86.77 tok/s (wall=85.14) tok=1024 chunks=424 ttft=0.24s rep=0.089 sha=adda10d7599136fd accept=71.3%
+
+k=2: SPEEDUP off=70.08 -> mtp=86.77 tok/s = 1.24x | accept=71.3% | EXACTNESS: DIFF (check coherence: diff results/ch2_mtp2_slots512_35b/off_sample.txt results/ch2_mtp2_slots512_35b/mtp2_sample.txt)
+  (acceptance is a perf signal only; usability = coherence of the mtp output; spec-init/capture evidence in results/ch2_mtp2_slots512_35b/*_spec_init.txt, *_cudagraph.txt)
+[k-chain 05:27:49Z] === DONE ===

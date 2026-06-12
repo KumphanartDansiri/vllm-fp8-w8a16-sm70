@@ -1,0 +1,8 @@
+CH2 MTP A/B/N — Qwen3.5-122B-A10B-FP8 prec=fp8 TP=8 KLIST='2 3', cudagraph+skip-mm+coalesced, maxlen=4096, 1024 tok, chunked=0 — 2026-06-12T05:03:07Z
+off: OK decode=45.82 tok/s (wall=45.28) tok=1024 chunks=1024 ttft=0.29s rep=0.083 sha=598374af8dfd2fb4 accept=n/a
+mtp2: OK decode=65.59 tok/s (wall=64.40) tok=1024 chunks=406 ttft=0.30s rep=0.086 sha=e4c6795ff0af334b accept=76.7%
+mtp3: OK decode=74.53 tok/s (wall=72.92) tok=1024 chunks=342 ttft=0.32s rep=0.090 sha=b11bcebf2668304a accept=67.2%
+
+k=2: SPEEDUP off=45.82 -> mtp=65.59 tok/s = 1.43x | accept=76.7% | EXACTNESS: DIFF (check coherence: diff results/ch2_mtp_k23_slots512_122b/off_sample.txt results/ch2_mtp_k23_slots512_122b/mtp2_sample.txt)
+k=3: SPEEDUP off=45.82 -> mtp=74.53 tok/s = 1.63x | accept=67.2% | EXACTNESS: DIFF (check coherence: diff results/ch2_mtp_k23_slots512_122b/off_sample.txt results/ch2_mtp_k23_slots512_122b/mtp3_sample.txt)
+  (acceptance is a perf signal only; usability = coherence of the mtp output; spec-init/capture evidence in results/ch2_mtp_k23_slots512_122b/*_spec_init.txt, *_cudagraph.txt)
