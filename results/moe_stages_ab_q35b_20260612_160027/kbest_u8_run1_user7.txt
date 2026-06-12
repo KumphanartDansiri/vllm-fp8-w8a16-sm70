@@ -1,0 +1,30 @@
+Here's a thinking thinking sequence
+
+1.  **Deconstruct the user:**
+    *   Topic: Art of France.
+    *   Format: Detailed, multi-section essay.
+    *   Structure: Clear subsections with headings.
+    *   Requirement: Develop each section at length.
+
+2.  **Initial brainstorming and outlining:**
+    *   *Scope:* French art is vast, spanning from prehistoric cave paintings to contemporary installations. I need to cover the major movements and periods without getting bogged down in too much detail, while still meeting the "at length" requirement.
+    *   *Key Periods/Movements:*
+        *   Prehistoric/Roman (brief mention as foundation).
+        *   Medieval/Romanesque/Gothic (Cathedrals, illuminated manuscripts).
+        *   Renaissance (Francis I, Fontainebleau).
+        *   Baroque/Classicism (Le Brun, Poussin, Louis XIV, Versailles).
+        *   Rococo (Fragonard, Boucher, lighter tone).
+        *   Neoclassicism (David, Ingres, revolution).
+        *   Romanticism (Delacroix).
+        *   Realism (Courbet).
+        *   Impressionism (Monet, Renoir, the big one).
+        *   Post-Impressionism (Cézanne, Gauguin, Van Gogh - though Van Gogh is Dutch, he worked in France; better to focus on Cézanne, Seurat, Toulouse-Lautrec).
+        *   Fauvism (Matisse).
+        *   Cubism (Picasso, Braque - crucial to mention they were in France).
+        *   Surrealism (Dalí, Magritte, Ernst - Paris as a hub).
+        *   Abstract/Post-WWII (Tachisme, Supports/Surfaces).
+        *   Contemporary (Boltanski, Anish Kapoor - though British, works in France; better to stick to French artists like Pierre Huyghe or the Centre Pompidou era).
+    *   *Drafting the Outline:*
+        *   Introduction: Define French art's global impact, the role of the state/patronage, and the evolution from tradition to avant-garde.
+        *   Section 1: Foundations and the Medieval Masterpiece (Romanesque/Gothic).
+        *   Section

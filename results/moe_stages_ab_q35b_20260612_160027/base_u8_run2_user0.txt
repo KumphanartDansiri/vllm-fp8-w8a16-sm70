@@ -1,0 +1,33 @@
+Here's a thinking thinking sequence
+
+1.  **Deconstruct the user:**
+    *   Topic: History of France.
+    *   Format: Detailed, multi-section essay.
+    *   Structure: Clear subsections with headings.
+    *   Depth: Develop each section at length.
+
+2.  **Initial planning and outlining:**
+    *   *Scope:* France has a vast history. I need to cover key periods without getting bogged down in every single king or battle. A chronological approach is best for a general history essay.
+    *   *Key Periods:*
+        *   Prehistory/Antiquity (Gauls, Romans).
+        *   Early Middle Ages (Franks, Charlemagne).
+        *   High/Late Middle Ages (Capetians, Hundred Years' War).
+        *   Renaissance/Early Modern (Valois, Bourbons, Wars of Religion, Absolutism).
+        *   Revolution/Napoleon (1789, Empire).
+        *   19th Century (Instability, Republics, Empire).
+        *   20th Century (World Wars, Decolonization, Modern France).
+    *   *Drafting Headings:*
+        *   Introduction.
+        *   I. Ancient Gaul and Roman Conquest.
+        *   II. The Frankish Kingdom and the Carolingian Renaissance.
+        *   III. The Capetian Dynasty and the Consolidation of the Realm.
+        *   IV. The Hundred Years' War and the Dawn of the Early Modern Era.
+        *   V. Absolutism, Enlightenment, and the Road to Revolution.
+        *   VI. The French Revolution and the Napoleonic Era.
+        *   VII. The Turbulent Nineteenth Century: Republics and Empires.
+        *   VIII. The Twentieth Century: World Wars, Decolonization, and Modernity.
+        *   Conclusion.
+
+3.  **Fleshing out each section (Mental content generation and expansion):**
+    *   *Introduction:* Define France's geographical and cultural significance. Mention the continuity and change. Thesis: France's history is a narrative of centralization, revolution, and cultural influence.
+    *   *I. Ancient Gaul/Rome:* Vercingetorix, Caesar, Gallo-Roman synthesis. Christianity's arrival. This sets the stage for

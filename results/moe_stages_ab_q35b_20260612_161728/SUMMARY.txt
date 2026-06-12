@@ -1,0 +1,8 @@
+MoE num_stages A/B — q35b (/mnt/models/Qwen/Qwen3.6-35B-A3B) E=256 N=128 TP=4 ns=8 gentok=1024 — 2026-06-12T16:17:28Z
+plugin: plugin-patch ACTIVE banners = 6 (expect >=1)
+plugin run1: tok=1024 decode=65.93 tok/s ttft=0.27s rep=0.071 sha=71a7e87997150163
+plugin run2: tok=1024 decode=65.93 tok/s ttft=0.26s rep=0.071 sha=71a7e87997150163
+plugin run3: tok=1024 decode=65.94 tok/s ttft=0.25s rep=0.071 sha=71a7e87997150163
+
+== MEANS ==
+plugin: decode_mean=65.93 min=65.93 max=65.94 n=3

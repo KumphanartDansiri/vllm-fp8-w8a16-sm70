@@ -18,7 +18,8 @@
 # Usage:  ./tools/moe_stages_ab_vllm021.sh                 # q35b, arms base s4 s3 s2
 #         MODEL_KEY=g26b ./tools/moe_stages_ab_vllm021.sh  # gemma 26B-A4B
 #         ARMS="base s2" NRUN=2 ...                        # subset / quicker
-# Env: MODEL_KEY ARMS IMAGE PORT GPUS NRUN GENTOK MAXLEN NS GPUMEM OUT
+#         NUSERS=8 ARMS="base kbest" ...                   # concurrent streams (decode M=NUSERS)
+# Env: MODEL_KEY ARMS IMAGE PORT GPUS NRUN GENTOK MAXLEN NS NUSERS GPUMEM OUT
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 PROJECT_ROOT="$(pwd)"
@@ -38,6 +39,7 @@ GPUS="${GPUS:-0,1,2,3}"
 PORT="${PORT:-8023}"
 MAXLEN="${MAXLEN:-8192}"
 NS="${NS:-8}"
+NUSERS="${NUSERS:-1}"
 GENTOK="${GENTOK:-1024}"
 NRUN="${NRUN:-3}"
 GPUMEM="${GPUMEM:-0.92}"
@@ -98,12 +100,21 @@ run_arm() {
     local arm="$1" cfgdir_rel="" envargs=() cname slog
     cname="moeab_${MODEL_KEY}_${arm}"
     slog="$OUT/${arm}_serve.log"
-    if [[ "$arm" != base ]]; then
+    # Arms are isolated from the plugin's volta default-config patch
+    # (VLLM_V100_MOE_FP16_TUNED, default ON in vllm_serve) so base measures
+    # STOCK and sN/kbest measure the JSON mechanism alone. Arm "plugin"
+    # measures the monkey-patch itself: patch ON, no config folder.
+    if [[ "$arm" == plugin ]]; then
+        envargs=(-e "VLLM_V100_MOE_FP16_TUNED=1")
+    else
+        envargs=(-e "VLLM_V100_MOE_FP16_TUNED=0")
+    fi
+    if [[ "$arm" != base && "$arm" != plugin ]]; then
         cfgdir_rel="$OUT/cfg_${arm}"
         local st="${arm#s}"
         local fn; fn=$(write_cfg "$cfgdir_rel" "$st") || { echo "$arm: FAIL cfg gen" | tee -a "$SUMMARY"; return 1; }
         note "$arm: wrote $cfgdir_rel/$fn"
-        envargs=(-e "VLLM_TUNED_CONFIG_FOLDER=/work/$cfgdir_rel")
+        envargs+=(-e "VLLM_TUNED_CONFIG_FOLDER=/work/$cfgdir_rel")
     fi
     clean_box_guard || { echo "$arm: SKIP (GPUs $GPUS busy)" | tee -a "$SUMMARY"; return 1; }
 
@@ -147,6 +158,17 @@ run_arm() {
     if [[ "$arm" == base ]]; then
         picked=$(grep -c "Using default MoE config" "$slog" || true)
         echo "$arm: config-miss warnings in log = $picked (expect >=1)" | tee -a "$SUMMARY"
+        if grep -q "volta moe default-config patch ACTIVE" "$slog"; then
+            echo "$arm: FAIL — plugin patch leaked into base arm" | tee -a "$SUMMARY"
+            docker stop "$cname" >/dev/null 2>&1 || true; wait "$lpid" 2>/dev/null || true; return 1
+        fi
+    elif [[ "$arm" == plugin ]]; then
+        picked=$(grep -c "volta moe default-config patch ACTIVE" "$slog" || true)
+        echo "$arm: plugin-patch ACTIVE banners = $picked (expect >=1)" | tee -a "$SUMMARY"
+        if [[ "$picked" -eq 0 ]]; then
+            echo "$arm: FAIL — plugin patch not active" | tee -a "$SUMMARY"
+            docker stop "$cname" >/dev/null 2>&1 || true; wait "$lpid" 2>/dev/null || true; return 1
+        fi
     else
         picked=$(grep -c "Using configuration from /work/$cfgdir_rel" "$slog" || true)
         echo "$arm: override pickup lines = $picked (expect >=1)" | tee -a "$SUMMARY"
@@ -161,6 +183,62 @@ run_arm() {
         -d "{\"model\":\"$SERVED\",\"messages\":[{\"role\":\"user\",\"content\":\"Say hi.\"}],\"max_tokens\":16,\"temperature\":0}" >/dev/null 2>&1 || true
 
     local i v
+    if [[ "$NUSERS" -gt 1 ]]; then
+        for i in $(seq 1 "$NRUN"); do
+            v=$(python3 - "$PORT" "$SERVED" "$GENTOK" "$NUSERS" "$OUT/${arm}_u${NUSERS}_run${i}" <<'PY'
+import hashlib, json, sys, threading, time, urllib.request
+port, served, tok, nusers, prefix = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), sys.argv[5]
+aspects = ["history", "geography", "economy", "culture", "cuisine", "politics", "science", "art"]
+res = [None] * nusers
+def one(u):
+    prompt = (f"Write a detailed, multi-section essay on the {aspects[u % len(aspects)]} of France. "
+              "Use clear subsections with headings and develop each at length.")
+    body=json.dumps({"model":served,"stream":True,"max_tokens":tok,"temperature":0,"ignore_eos":True,
+     "stream_options":{"include_usage":True},"messages":[{"role":"user","content":prompt}]}).encode()
+    req=urllib.request.Request(f"http://localhost:{port}/v1/chat/completions", data=body,
+                               headers={"Content-Type":"application/json"})
+    tf=tl=None; n=0; ch=[]; ut=0
+    with urllib.request.urlopen(req, timeout=2400) as r:
+        for raw in r:
+            line=raw.decode("utf-8","ignore").strip()
+            if not line.startswith("data:"): continue
+            d=line[5:].strip()
+            if d=="[DONE]": break
+            try: j=json.loads(d)
+            except Exception: continue
+            uu=j.get("usage")
+            if uu and uu.get("completion_tokens"): ut=int(uu["completion_tokens"])
+            c=j.get("choices") or []
+            delta=c[0]["delta"].get("content") if c else None
+            if delta:
+                now=time.time()
+                if tf is None: tf=now
+                tl=now; n+=1; ch.append(delta)
+    s="".join(ch); open(f"{prefix}_user{u}.txt","w").write(s)
+    mt=ut or n
+    dec=(mt-1)/(tl-tf) if tf and tl and tl>tf and mt>1 else float("nan")
+    w=s.split()
+    rep=(max((w.count(x) for x in set(w)),default=0)/len(w)) if w else 1.0
+    res[u]=(mt, dec, tf, tl, rep)
+ths=[threading.Thread(target=one, args=(u,)) for u in range(nusers)]
+t0=time.time()
+for t in ths: t.start()
+for t in ths: t.join()
+ok=[r for r in res if r and r[1]==r[1]]
+per=[r[1] for r in ok]
+tot=sum(r[0] for r in ok)
+span=max(r[3] for r in ok)-min(r[2] for r in ok)
+agg=tot/span if span>0 else float("nan")
+worst_rep=max(r[4] for r in ok)
+print(f"{len(ok)}/{nusers}\t{min(per):.2f}\t{sum(per)/len(per):.2f}\t{max(per):.2f}\t{agg:.2f}\t{worst_rep:.3f}")
+PY
+)
+            echo "$arm run${i}: users_ok=$(cut -f1 <<<"$v") per-user decode min=$(cut -f2 <<<"$v") mean=$(cut -f3 <<<"$v") max=$(cut -f4 <<<"$v") tok/s | aggregate=$(cut -f5 <<<"$v") tok/s | worst_rep=$(cut -f6 <<<"$v")" | tee -a "$SUMMARY"
+        done
+        docker stop "$cname" >/dev/null 2>&1 || true; wait "$lpid" 2>/dev/null || true
+        sleep 5
+        return 0
+    fi
     for i in $(seq 1 "$NRUN"); do
         v=$(python3 - "$PORT" "$SERVED" "$GENTOK" "$OUT/${arm}_run${i}.txt" <<'PY'
 import hashlib, json, sys, time, urllib.request

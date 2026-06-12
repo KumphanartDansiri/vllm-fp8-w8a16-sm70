@@ -1,0 +1,30 @@
+Here's a thinking thinking sequence
+
+1.  **Deconstruct the user:**
+    *   Topic: Cuisine of France.
+    *   Format: Detailed, multi-section essay.
+    *   Structure: Clear subsections with headings.
+    *   Requirement: Develop each section at length.
+
+2.  **Initial brainstorming and outlining:**
+    *   *What are the key aspects of French cuisine?*
+        *   History/Origins (Roman, medieval, Renaissance, Escoffier).
+        *   Regional diversity (North vs. South, wine regions, coastal vs. inland).
+        *   Techniques/Philosophy (Mother sauces, knife skills, mise en place, terroir).
+        *   Meals/Rituals (Structure of a meal, bread, cheese, wine pairing).
+        *   Global influence (Haute cuisine, Michelin, French chefs abroad).
+        *   Modern trends (Nouvelle cuisine, farm-to-table, fusion).
+    *   *Drafting the Outline:*
+        *   Introduction: Hook, definition, UNESCO status, thesis (diversity, technique, culture).
+        *   Section 1: Historical Evolution.
+        *   Section 2: Regional Diversity (Terroir).
+        *   Section 3: Culinary Techniques and Philosophy.
+        *   Section 4: The Structure of the Meal and Social Rituals.
+        *   Section 5: Global Influence and Modern Evolution.
+        *   Conclusion: Summary, enduring legacy.
+
+3.  **Fleshing out each section (Drafting content with "at length" requirement):**
+    *   *Introduction:* Mention "Gastronomic meal of the French" UNESCO inscription. Emphasize that it's not just food; it's a way of life. Thesis: French cuisine is a tapestry woven from historical refinement, profound regional diversity, rigorous technique, and a deep respect for ingredients.
+    *   *Section 1: Historical Evolution.*
+        *   *Keywords:* Roman influence, Medieval spices, Catherine de' Medici (myth vs. reality), La Varenne, Escoffier, Brigade system.
+        *   *Content:* Start with Romans (wine, olive oil). Move to Middle Ages (spices, sugar, display). Renaissance (Catherine de' Medici bringing chefs to France, though historians nuance this). 17th/18

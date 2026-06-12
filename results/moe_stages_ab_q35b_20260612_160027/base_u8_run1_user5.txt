@@ -1,0 +1,35 @@
+Here's a thinking thinking sequence
+
+1.  **Deconstruct the user's request:**
+    *   Topic: Politics of France.
+    *   Format: Detailed, multi-section essay.
+    *   Structure: Clear subsections with headings.
+    *   Depth: Develop each section at length.
+
+2.  **Initial brainstorming and outlining:**
+    *   *What are the key aspects of French politics?*
+        *   History (Republics, Revolution, Monarchy, Empire).
+        *   Constitution (Fifth Republic, Semi-presidential system).
+        *   Institutions (President, Parliament, Government, Judiciary, Constitutional Council).
+        *   Political Landscape (Parties, Left/Right, Far-Right, Far-Left, Centrists).
+        *   Electoral System (Two-round system, Proportional representation for some).
+        *   Key Issues (Secularism/Laïcité, Immigration, EU, Economy, Social movements).
+        *   Recent developments (Macron, Le Pen, Yellow Vests, 2024 elections?).
+        *   *Structure proposal:*
+        *   Introduction.
+        *   Historical Context.
+        *   Constitutional Framework (Fifth Republic).
+        *   Key Institutions.
+        *   Political Landscape/Parties.
+        *   Electoral System.
+        *   Core Ideological Themes (Laïcité, etc.).
+        *   Contemporary Challenges.
+        *   Conclusion.
+
+3.  **Fleshing out each section (Drafting content mentally or in rough notes):**
+    *   *Introduction:* France as a major European power, unique political culture, stability of the Fifth Republic, tension between centralization and decentralization.
+    *   *Historical Context:* Need to mention the cycle of regimes. 1789 Revolution is crucial. 5 Republics. The shift from the weak Fourth Republic to the strong Fifth Republic under de Gaulle. This explains the current power structure.
+    *   *Constitutional Framework:* The Fifth Republic Constitution of 1958. Semi-presidentialism. This is the defining feature. Dual executive. "Rationalized parliamentarism."
+    *   *Key Institutions:*
+        *   *President:* Head of state, significant powers (Article 16, dissolving assembly, foreign policy, nuclear button). Direct election since 1962.
+        *

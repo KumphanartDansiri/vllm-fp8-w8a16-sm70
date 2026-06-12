@@ -2319,6 +2319,43 @@ def _maybe_log_tensor_hashes(layer, weight, scale):
     )
 
 
+def _patch_volta_moe_default_config():
+    """Volta-fit fused-MoE default config (fp16/bf16 unquantized MoE only).
+
+    Replaces only the small-M branch of fused_moe.get_default_config on sm_70:
+    stock picks BLOCK_SIZE_K=128 (and num_stages=4) for M<=64, which
+    register-spills Triton's Volta codegen; spill traffic contends on HBM and
+    the cost grows ~linearly with M. Measured (Qwen3.6-35B-A3B / gemma-4-26B
+    shapes, results/moe_decode_msweep_*): BLOCK_K=64 tiles are 2.3x faster at
+    M=1 and up to 9.6x at M=16; e2e 15.57 -> 65.87 tok/s (4.23x, bit-identical
+    output) single-stream. M<=4 wants 16/32/64 w4; M=8..64 wants 16/128/64 w8.
+    The config-file lookup (in-tree JSON or VLLM_TUNED_CONFIG_FOLDER) runs
+    BEFORE this fallback and still wins if present.  Gate: set
+    VLLM_V100_MOE_FP16_TUNED=0 to restore stock behavior (e.g. for A/B runs).
+    """
+    if os.environ.get("VLLM_V100_MOE_FP16_TUNED", "1") != "1" or not _is_volta():
+        return
+    from vllm.model_executor.layers.fused_moe import fused_moe as _fm
+
+    _orig_get_default_config = _fm.get_default_config
+
+    def volta_get_default_config(M, E, N, K, topk, dtype, block_shape=None):
+        if dtype is None and M <= 64:
+            if M <= 4:
+                return {"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 32,
+                        "BLOCK_SIZE_K": 64, "GROUP_SIZE_M": 1, "SPLIT_K": 1,
+                        "num_warps": 4, "num_stages": 2}
+            return {"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 128,
+                    "BLOCK_SIZE_K": 64, "GROUP_SIZE_M": 1, "SPLIT_K": 1,
+                    "num_warps": 8, "num_stages": 2}
+        return _orig_get_default_config(M, E, N, K, topk, dtype, block_shape)
+
+    _fm.get_default_config = volta_get_default_config
+    print(f"[serve_fp8_v100 pid={os.getpid()}] volta moe default-config patch "
+          "ACTIVE (fp16/bf16 fused-MoE small-M -> BLOCK_K=64 tiles; "
+          "VLLM_V100_MOE_FP16_TUNED=0 to disable)", flush=True)
+
+
 def _patch_vllm_for_v100():
     """Apply the four patches that make vLLM 0.18.0 work on V100 for block-FP8.
     Called once at module import time, BEFORE vllm.entrypoints.openai.api_server.
@@ -2719,6 +2756,20 @@ def _patch_vllm_for_v100():
     except Exception as exc:
         print(f"[serve_fp8_v100 pid={os.getpid()}] fa_v100 prefill patch "
               f"skipped: {type(exc).__name__}: {exc}", flush=True)
+
+    # Additive, env-gated (VLLM_V100_MOE_FP16_TUNED=1, DEFAULT ON): Volta-fit
+    # fused-MoE default config for unquantized (fp16/bf16) MoE. Stock
+    # get_default_config picks BLOCK_K=128/num_stages=4 for decode-sized M,
+    # which register-spills Triton's sm_70 codegen — measured 2.3-9.6x slower
+    # than BLOCK_K=64 tiles (results/moe_decode_msweep_*, e2e 4.2x single-stream
+    # validated 2026-06-12). Only the config-MISS fallback is patched: a tuned
+    # JSON (in-tree or VLLM_TUNED_CONFIG_FOLDER) still takes priority, and
+    # quantized dtypes (our FP8 path included) are untouched.
+    try:
+        _patch_volta_moe_default_config()
+    except Exception as exc:
+        print(f"[serve_fp8_v100 pid={os.getpid()}] volta moe default-config "
+              f"patch skipped: {type(exc).__name__}: {exc}", flush=True)
 
     print(f"[serve_fp8_v100 pid={os.getpid()}] Patches applied: "
           "min_cap=70, use_marlin=False on V100, apply() routed to our kernel "

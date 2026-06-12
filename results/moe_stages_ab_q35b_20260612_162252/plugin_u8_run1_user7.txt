@@ -1,0 +1,25 @@
+Here's a thinking thinking sequence
+
+1.  **Deconstruct the user:**
+    *   Topic: Art of France.
+    *   Format: Detailed, multi-section essay.
+    *   Structure: Clear subsections with headings.
+    *   Requirement: Develop each section at length.
+
+2.  **Initial brainstorming and outlining:**
+    *   *Scope:* French art is vast, spanning from prehistoric cave paintings to contemporary installations. I need to cover major movements, key periods, and defining characteristics.
+    *   *Potential Sections:*
+        *   Introduction: Define French art, its global influence, the role of Paris, the patronage system.
+        *   Medieval/Romanesque/Gothic: Cathedrals, illuminated manuscripts.
+        *   Renaissance/Baroque: Influence from Italy, Fontainebleau, Poussin, Le Brun.
+        *   17th/18th Century: Classicism vs. Rococo, Louis XIV vs. Louis XV, Neoclassicism.
+        *   19th Century: This is huge. Romanticism, Realism, Impressionism, Post-Impressionism. This needs significant weight.
+        *   20th Century: Fauvism, Cubism, Surrealism, Abstract Expressionism (though American, Paris was the hub), Nouveau Réalisme.
+        *   Architecture/Sculpture: Should these be separate or integrated? Integrated is usually better for flow, but architecture is so important in France. I'll integrate architecture into periods or have a dedicated section on "Architectural Legacy." A dedicated section might break the chronological flow. Better to weave architecture into the chronological sections or have a "Key Themes" section. I think weaving is safer for a standard essay structure, but I'll ensure architecture gets its due in the relevant headings.
+        *   Contemporary: Current state, Centre Pompidou, FRACs.
+        *   Conclusion: Summary of impact, legacy.
+
+    *   *Refined Outline:*
+        *   *Introduction:* The crucible of Western art, institutional power (Academy, Salon), Paris as capital of art.
+        *   *Medieval Foundations: Faith and Stone:* Romanesque, Gothic, Chartres, Sainte-Chapelle.
+        *   *The Renaissance and the Baroque: Italian Echoes and Absolute Power:* School of Fontainebleau, Pou

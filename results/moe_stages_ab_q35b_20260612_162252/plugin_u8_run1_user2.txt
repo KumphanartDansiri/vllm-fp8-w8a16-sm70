@@ -1,0 +1,32 @@
+Here's a thinking thinking sequence
+
+1.  **Deconstruct the user:**
+    *   Topic: Economy of France.
+    *   Format: Detailed, multi-section essay.
+    *   Structure: Clear subsections with headings.
+    *   Requirement: Develop each section at length.
+
+2.  **Initial brainstorming and outlining:**
+    *   *What are the key aspects of the French economy?*
+        *   GDP, ranking (G7, EU), services vs. industry vs. agriculture.
+        *   Key sectors: Tourism, luxury goods, aerospace, nuclear energy, agriculture (CAP).
+        *   Government role: Dirigisme, welfare state, public sector size.
+        *   Labor market: Unemployment, strikes, labor laws (Revenu de Solidarité Active, 35-hour week, recent reforms).
+        *   EU integration: Eurozone, single market, trade.
+        *   Challenges: Debt, deficit, aging population, transition to green economy, competitiveness.
+        *   Future outlook: Innovation, startups, "France 2030".
+
+    *   *Drafting the Outline:*
+        *   Introduction: Overview, global standing, characteristics.
+        *   Historical Context: Post-war boom, dirigisme, EU integration.
+        *   Sectoral Composition: Services, Industry, Agriculture.
+        *   Government Role and Economic Model: Welfare, public spending, reforms.
+        *   Labor Market and Social Dynamics: Unemployment, strikes, reforms.
+        *   International Trade and EU Integration: Exports, imports, Euro.
+        *   Challenges and Structural Issues: Debt, deficit, demographics, green transition.
+        *   Future Outlook and Strategic Initiatives: France 2030, startups, green tech.
+        *   Conclusion: Summary, resilience, balance.
+
+3.  **Fleshing out each section (Mental content generation and expansion):**
+    *   *Introduction:* France is the second-largest economy in the EU, G7 member. Mixed economy. High standard of living. Key adjectives: Diversified, state-influenced, service-oriented.
+    *   *Historical Context:* Mention "Trente Glorieuses" (1945-1973). Post-war reconstruction. Shift from dirigisme to liberalization in the 80s/90s. Maastricht Treaty, Euro adoption.

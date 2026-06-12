@@ -1,0 +1,35 @@
+Here's a thinking thinking sequence
+
+1.  **Deconstruct the user:**
+    *   Topic: Geography of France.
+    *   Format: Detailed, multi-section essay.
+    *   Structure: Clear subsections with headings.
+    *   Requirement: Develop each section at length.
+
+2.  **Initial brainstorming and outlining:**
+    *   *What are the key aspects of French geography?*
+        *   Location, borders, shape ("L'Hexagone").
+        *   Physical geography: Mountains, plains, rivers, coastlines.
+        *   Climate: Diversity due to latitude, altitude, and proximity to the sea.
+        *   Regions: Metropolitan vs. Overseas.
+        *   Human geography: Population distribution, urbanization, agriculture.
+        *   Environmental issues: Sustainability, biodiversity.
+    *   *Drafting the Outline:*
+        *   Introduction: Overview, "L'Hexagone", significance.
+        *   Section 1: Location and Borders.
+        *   Section 2: Physical Landscape (Mountains, Plains, Rivers).
+        *   Section 3: Coastlines and Maritime Territory.
+        *   Section 4: Climate Diversity.
+        *   Section 5: Overseas Territories (DROM-COM).
+        *   Section 6: Human Geography and Urbanization.
+        *   Section 7: Environmental Challenges and Sustainability.
+        *   Conclusion: Summary, synthesis.
+
+3.  **Fleshing out each section (Mental content generation and expansion):**
+    *   *Introduction:* Mention "L'Hexagone". Mention it's the largest country in Western Europe. Mention the blend of physical and human geography.
+    *   *Location/Borders:* Neighbors: Belgium, Luxembourg, Germany, Switzerland, Italy, Monaco, Spain, Andorra. Maritime neighbors: UK, Netherlands, etc. Shape is hexagonal. Strategic position in Europe.
+    *   *Physical Landscape:*
+        *   *Mountains:* Alps (Mont Blanc), Pyrenees, Jura, Vosges, Massif Central, Corsica. Mention geological origins.
+        *   *Plains/Basins:* Paris Basin (crucial for agriculture), Aquitaine Basin.
+        *   *Rivers:* Seine, Loire, Rhône, Garonne. Importance for transport and agriculture. Watersheds.
+    *   *Coast

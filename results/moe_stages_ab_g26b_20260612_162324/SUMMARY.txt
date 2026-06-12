@@ -1,0 +1,6 @@
+MoE num_stages A/B — g26b (/mnt/models/google/gemma-4-26B-A4B-it) E=128 N=176 TP=4 ns=8 gentok=512 — 2026-06-12T16:23:24Z
+plugin: plugin-patch ACTIVE banners = 6 (expect >=1)
+plugin run1: users_ok=8/8 per-user decode min=17.30 mean=18.77 max=19.25 tok/s | aggregate=138.08 tok/s | worst_rep=0.107
+plugin run2: users_ok=8/8 per-user decode min=19.08 mean=19.13 max=19.17 tok/s | aggregate=152.33 tok/s | worst_rep=0.098
+
+== MEANS ==
