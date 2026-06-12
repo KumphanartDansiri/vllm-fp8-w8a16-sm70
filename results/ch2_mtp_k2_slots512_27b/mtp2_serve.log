@@ -1,0 +1,444 @@
+
+==========
+== CUDA ==
+==========
+
+CUDA Version 12.6.3
+
+Container image Copyright (c) 2016-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+This container image and its contents are governed by the NVIDIA Deep Learning Container License.
+By pulling and using the container, you accept the terms and conditions of this license:
+https://developer.nvidia.com/ngc/nvidia-deep-learning-container-license
+
+A copy of this license is made available in this container at /NGC-DL-CONTAINER-LICENSE for your convenience.
+
+[serve_fp8_v100] Compiling FP8 W8A16 kernel for sm_70 ...
+[serve_fp8_v100] Kernel compiled OK.
+[serve_fp8_v100 pid=1] applying V100 FP8 patches (volta=True)
+[serve_fp8_v100 ct pid=1] compressed-tensors W8A16-FP8 patched for sm_70 (min_cap=70; FP8-resident channel=on, else dequant-to-FP16). W8A8 left at cap=89 so its fallback to W8A16 fires.
+[serve_fp8_v100 ct-moe pid=1] compressed-tensors FP8 MoE patched for sm_70 (dequant experts->FP16 + unquantized FP16 fused-MoE). CHANNEL/TENSOR only; FP16-resident.
+[fa_v100_prefill pid=1] disabled (VLLM_V100_FLASH_ATTN unset)
+[serve_fp8_v100 pid=1] Patches applied: min_cap=70, use_marlin=False on V100, apply() routed to our kernel for block_quant, FP8 MoE fallback=on, fail-closed for non-block FP8.
+(APIServer pid=1) INFO 06-12 06:50:36 [utils.py:306] 
+(APIServer pid=1) INFO 06-12 06:50:36 [utils.py:306]        █     █     █▄   ▄█
+(APIServer pid=1) INFO 06-12 06:50:36 [utils.py:306]  ▄▄ ▄█ █     █     █ ▀▄▀ █  version 0.21.0
+(APIServer pid=1) INFO 06-12 06:50:36 [utils.py:306]   █▄█▀ █     █     █     █  model   /mnt/models/Qwen/Qwen3.6-27B-FP8
+(APIServer pid=1) INFO 06-12 06:50:36 [utils.py:306]    ▀▀  ▀▀▀▀▀ ▀▀▀▀▀ ▀     ▀
+(APIServer pid=1) INFO 06-12 06:50:36 [utils.py:306] 
+(APIServer pid=1) INFO 06-12 06:50:36 [utils.py:240] non-default args: {'host': '0.0.0.0', 'port': 8021, 'model': '/mnt/models/Qwen/Qwen3.6-27B-FP8', 'dtype': 'float16', 'max_model_len': 4096, 'served_model_name': ['ch2'], 'tensor_parallel_size': 4, 'gpu_memory_utilization': 0.9, 'skip_mm_profiling': True, 'max_num_seqs': 8, 'enable_chunked_prefill': False, 'speculative_config': {'method': 'mtp', 'num_speculative_tokens': 2}, 'compilation_config': {'mode': <CompilationMode.NONE: 0>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': [], 'ir_enable_torch_wrap': None, 'splitting_ops': None, 'compile_mm_encoder': False, 'cudagraph_mm_encoder': False, 'encoder_cudagraph_token_budgets': [], 'encoder_cudagraph_max_vision_items_per_batch': 0, 'encoder_cudagraph_max_frames_per_batch': None, 'compile_sizes': None, 'compile_ranges_endpoints': None, 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'size_asserts': False, 'alignment_asserts': False, 'scalar_asserts': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.FULL_DECODE_ONLY: (2, 0)>, 'cudagraph_num_of_warmups': 0, 'cudagraph_capture_sizes': None, 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': None, 'pass_config': {}, 'max_cudagraph_capture_size': None, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False, 'assume_32_bit_indexing': False}, 'local_cache_dir': None, 'fast_moe_cold_start': None, 'static_all_moe_layers': []}}
+(APIServer pid=1) WARNING 06-12 06:50:36 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_FP8_MOE_W13_COALESCED
+(APIServer pid=1) WARNING 06-12 06:50:36 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_CT_FP8_RESIDENT_SELFCHECK
+(APIServer pid=1) WARNING 06-12 06:50:36 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_CT_MOE_W2_GROUPED
+(APIServer pid=1) WARNING 06-12 06:50:36 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_CT_MOE_W13_RESIDENT
+(APIServer pid=1) WARNING 06-12 06:50:36 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_FP8_MOE_FALLBACK
+(APIServer pid=1) WARNING 06-12 06:50:36 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_FP8_MOE_GROUPED_ROUTED_GEMM
+(APIServer pid=1) WARNING 06-12 06:50:36 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_FP8_COALESCED_GEMV_M_MAX
+(APIServer pid=1) WARNING 06-12 06:50:36 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_FP8_COALESCED_UNROLL
+(APIServer pid=1) WARNING 06-12 06:50:36 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_ATTENTION_BACKEND
+(APIServer pid=1) WARNING 06-12 06:50:36 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_CT_MOE_W13_FREE_FP16
+(APIServer pid=1) WARNING 06-12 06:50:36 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_FP8_MOE_FAST_ROUTE_PREP
+(APIServer pid=1) WARNING 06-12 06:50:36 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_FP8_MOE_GROUPED_MAX_ROUTE_SLOTS
+(APIServer pid=1) WARNING 06-12 06:50:36 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_CT_FP8_RESIDENT
+(APIServer pid=1) WARNING 06-12 06:50:36 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_FP8_COALESCED_GEMV
+(APIServer pid=1) WARNING 06-12 06:50:36 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_FP8_COALESCED_M_UNROLL
+(APIServer pid=1) WARNING 06-12 06:50:36 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_CT_MOE_W13_COALESCED
+(APIServer pid=1) INFO 06-12 06:50:53 [model.py:568] Resolved architecture: Qwen3_5ForConditionalGeneration
+(APIServer pid=1) WARNING 06-12 06:50:53 [model.py:2035] Casting torch.bfloat16 to torch.float16.
+(APIServer pid=1) INFO 06-12 06:50:53 [model.py:1697] Using max model len 4096
+(APIServer pid=1) WARNING 06-12 06:50:53 [arg_utils.py:2318] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+(APIServer pid=1) INFO 06-12 06:51:10 [model.py:568] Resolved architecture: Qwen3_5MTP
+(APIServer pid=1) WARNING 06-12 06:51:10 [model.py:2035] Casting torch.bfloat16 to torch.float16.
+(APIServer pid=1) INFO 06-12 06:51:10 [model.py:1697] Using max model len 262144
+(APIServer pid=1) WARNING 06-12 06:51:10 [speculative.py:668] Enabling num_speculative_tokens > 1 will run multiple times of forward on same MTP layer,which may result in lower acceptance rate
+(APIServer pid=1) INFO 06-12 06:51:10 [speculative.py:841] Overriding draft model max model len from 262144 to 4096
+(APIServer pid=1) INFO 06-12 06:51:10 [vllm.py:886] Asynchronous scheduling is enabled.
+(APIServer pid=1) WARNING 06-12 06:51:10 [vllm.py:960] Inductor compilation was disabled by user settings, optimizations settings that are only active during inductor compilation will be ignored.
+(APIServer pid=1) INFO 06-12 06:51:10 [kernel.py:212] Final IR op priority after setting platform defaults: IrOpPriorityConfig(rms_norm=['vllm_c', 'native'], fused_add_rms_norm=['vllm_c', 'native'])
+(APIServer pid=1) WARNING 06-12 06:51:10 [vllm.py:1455] max_num_scheduled_tokens is set to 4096 based on the speculative decoding settings. This may lead to suboptimal performance. Consider increasing max_num_batched_tokens to accommodate the additional draft token slots, or decrease num_speculative_tokens or max_num_seqs.
+(APIServer pid=1) INFO 06-12 06:51:10 [compilation.py:303] Enabled custom fusions: norm_quant, act_quant
+(APIServer pid=1) [transformers] `Qwen2VLImageProcessorFast` is deprecated. The `Fast` suffix for image processors has been removed; use `Qwen2VLImageProcessor` instead.
+(APIServer pid=1) [transformers] The `use_fast` parameter is deprecated and will be removed in a future version. Use `backend="torchvision"` instead of `use_fast=True`, or `backend="pil"` instead of `use_fast=False`.
+[serve_fp8_v100] Compiling FP8 W8A16 kernel for sm_70 ...
+[serve_fp8_v100] Kernel compiled OK.
+[serve_fp8_v100 pid=480] applying V100 FP8 patches (volta=True)
+[serve_fp8_v100 ct pid=480] compressed-tensors W8A16-FP8 patched for sm_70 (min_cap=70; FP8-resident channel=on, else dequant-to-FP16). W8A8 left at cap=89 so its fallback to W8A16 fires.
+[serve_fp8_v100 ct-moe pid=480] compressed-tensors FP8 MoE patched for sm_70 (dequant experts->FP16 + unquantized FP16 fused-MoE). CHANNEL/TENSOR only; FP16-resident.
+[fa_v100_prefill pid=480] disabled (VLLM_V100_FLASH_ATTN unset)
+[serve_fp8_v100 pid=480] Patches applied: min_cap=70, use_marlin=False on V100, apply() routed to our kernel for block_quant, FP8 MoE fallback=on, fail-closed for non-block FP8.
+(EngineCore pid=480) INFO 06-12 06:51:53 [core.py:109] Initializing a V1 LLM engine (v0.21.0) with config: model='/mnt/models/Qwen/Qwen3.6-27B-FP8', speculative_config=SpeculativeConfig(method='mtp', model='/mnt/models/Qwen/Qwen3.6-27B-FP8', num_spec_tokens=2), tokenizer='/mnt/models/Qwen/Qwen3.6-27B-FP8', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.float16, max_seq_len=4096, download_dir=None, load_format=auto, tensor_parallel_size=4, pipeline_parallel_size=1, data_parallel_size=1, decode_context_parallel_size=1, dcp_comm_backend=ag_rs, disable_custom_all_reduce=False, quantization=fp8, quantization_config=None, enforce_eager=False, enable_return_routed_experts=False, kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='', reasoning_parser_plugin='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None, kv_cache_metrics=False, kv_cache_metrics_sample=0.01, cudagraph_metrics=False, enable_layerwise_nvtx_tracing=False, enable_mfu_metrics=False, enable_mm_processor_stats=False, enable_logging_iteration_details=False), seed=0, served_model_name=ch2, enable_prefix_caching=False, enable_chunked_prefill=False, pooler_config=None, compilation_config={'mode': <CompilationMode.NONE: 0>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': ['+quant_fp8', 'all', '+quant_fp8'], 'ir_enable_torch_wrap': False, 'splitting_ops': [], 'compile_mm_encoder': False, 'cudagraph_mm_encoder': False, 'encoder_cudagraph_token_budgets': [], 'encoder_cudagraph_max_vision_items_per_batch': 0, 'encoder_cudagraph_max_frames_per_batch': None, 'compile_sizes': [], 'compile_ranges_endpoints': [4096], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'size_asserts': False, 'alignment_asserts': False, 'scalar_asserts': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.FULL_DECODE_ONLY: (2, 0)>, 'cudagraph_num_of_warmups': 1, 'cudagraph_capture_sizes': [1, 2, 4, 8, 16, 24, 32, 40, 48], 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {'fuse_norm_quant': True, 'fuse_act_quant': True, 'fuse_attn_quant': False, 'enable_sp': False, 'fuse_gemm_comms': False, 'fuse_allreduce_rms': False, 'fuse_act_padding': False}, 'max_cudagraph_capture_size': 48, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False, 'assume_32_bit_indexing': False}, 'local_cache_dir': None, 'fast_moe_cold_start': False, 'static_all_moe_layers': []}, kernel_config=KernelConfig(ir_op_priority=IrOpPriorityConfig(rms_norm=['vllm_c', 'native'], fused_add_rms_norm=['vllm_c', 'native']), enable_flashinfer_autotune=False, moe_backend='auto')
+(EngineCore pid=480) WARNING 06-12 06:51:53 [multiproc_executor.py:1029] Reducing Torch parallelism from 40 threads to 1 to avoid unnecessary CPU contention. Set OMP_NUM_THREADS in the external environment to tune this value as needed.
+(EngineCore pid=480) INFO 06-12 06:51:53 [multiproc_executor.py:139] DP group leader: node_rank=0, node_rank_within_dp=0, master_addr=127.0.0.1, mq_connect_ip=172.17.0.2 (local), world_size=4, local_world_size=4
+[serve_fp8_v100] Compiling FP8 W8A16 kernel for sm_70 ...
+[serve_fp8_v100] Kernel compiled OK.
+[serve_fp8_v100 pid=634] applying V100 FP8 patches (volta=True)
+[serve_fp8_v100 ct pid=634] compressed-tensors W8A16-FP8 patched for sm_70 (min_cap=70; FP8-resident channel=on, else dequant-to-FP16). W8A8 left at cap=89 so its fallback to W8A16 fires.
+[serve_fp8_v100 ct-moe pid=634] compressed-tensors FP8 MoE patched for sm_70 (dequant experts->FP16 + unquantized FP16 fused-MoE). CHANNEL/TENSOR only; FP16-resident.
+[fa_v100_prefill pid=634] disabled (VLLM_V100_FLASH_ATTN unset)
+[serve_fp8_v100 pid=634] Patches applied: min_cap=70, use_marlin=False on V100, apply() routed to our kernel for block_quant, FP8 MoE fallback=on, fail-closed for non-block FP8.
+[transformers] `Qwen2VLImageProcessorFast` is deprecated. The `Fast` suffix for image processors has been removed; use `Qwen2VLImageProcessor` instead.
+(Worker pid=634) INFO 06-12 06:52:11 [parallel_state.py:1410] world_size=4 rank=0 local_rank=0 distributed_init_method=tcp://127.0.0.1:44973 backend=nccl
+[serve_fp8_v100] Compiling FP8 W8A16 kernel for sm_70 ...
+[serve_fp8_v100] Kernel compiled OK.
+[serve_fp8_v100 pid=642] applying V100 FP8 patches (volta=True)
+[serve_fp8_v100 ct pid=642] compressed-tensors W8A16-FP8 patched for sm_70 (min_cap=70; FP8-resident channel=on, else dequant-to-FP16). W8A8 left at cap=89 so its fallback to W8A16 fires.
+[serve_fp8_v100 ct-moe pid=642] compressed-tensors FP8 MoE patched for sm_70 (dequant experts->FP16 + unquantized FP16 fused-MoE). CHANNEL/TENSOR only; FP16-resident.
+[fa_v100_prefill pid=642] disabled (VLLM_V100_FLASH_ATTN unset)
+[serve_fp8_v100 pid=642] Patches applied: min_cap=70, use_marlin=False on V100, apply() routed to our kernel for block_quant, FP8 MoE fallback=on, fail-closed for non-block FP8.
+[transformers] `Qwen2VLImageProcessorFast` is deprecated. The `Fast` suffix for image processors has been removed; use `Qwen2VLImageProcessor` instead.
+(Worker pid=642) INFO 06-12 06:52:26 [parallel_state.py:1410] world_size=4 rank=1 local_rank=1 distributed_init_method=tcp://127.0.0.1:44973 backend=nccl
+[serve_fp8_v100] Compiling FP8 W8A16 kernel for sm_70 ...
+[serve_fp8_v100] Kernel compiled OK.
+[serve_fp8_v100 pid=653] applying V100 FP8 patches (volta=True)
+[serve_fp8_v100 ct pid=653] compressed-tensors W8A16-FP8 patched for sm_70 (min_cap=70; FP8-resident channel=on, else dequant-to-FP16). W8A8 left at cap=89 so its fallback to W8A16 fires.
+[serve_fp8_v100 ct-moe pid=653] compressed-tensors FP8 MoE patched for sm_70 (dequant experts->FP16 + unquantized FP16 fused-MoE). CHANNEL/TENSOR only; FP16-resident.
+[fa_v100_prefill pid=653] disabled (VLLM_V100_FLASH_ATTN unset)
+[serve_fp8_v100 pid=653] Patches applied: min_cap=70, use_marlin=False on V100, apply() routed to our kernel for block_quant, FP8 MoE fallback=on, fail-closed for non-block FP8.
+[transformers] `Qwen2VLImageProcessorFast` is deprecated. The `Fast` suffix for image processors has been removed; use `Qwen2VLImageProcessor` instead.
+(Worker pid=653) INFO 06-12 06:52:41 [parallel_state.py:1410] world_size=4 rank=2 local_rank=2 distributed_init_method=tcp://127.0.0.1:44973 backend=nccl
+[serve_fp8_v100] Compiling FP8 W8A16 kernel for sm_70 ...
+[serve_fp8_v100] Kernel compiled OK.
+[serve_fp8_v100 pid=669] applying V100 FP8 patches (volta=True)
+[serve_fp8_v100 ct pid=669] compressed-tensors W8A16-FP8 patched for sm_70 (min_cap=70; FP8-resident channel=on, else dequant-to-FP16). W8A8 left at cap=89 so its fallback to W8A16 fires.
+[serve_fp8_v100 ct-moe pid=669] compressed-tensors FP8 MoE patched for sm_70 (dequant experts->FP16 + unquantized FP16 fused-MoE). CHANNEL/TENSOR only; FP16-resident.
+[fa_v100_prefill pid=669] disabled (VLLM_V100_FLASH_ATTN unset)
+[serve_fp8_v100 pid=669] Patches applied: min_cap=70, use_marlin=False on V100, apply() routed to our kernel for block_quant, FP8 MoE fallback=on, fail-closed for non-block FP8.
+[transformers] `Qwen2VLImageProcessorFast` is deprecated. The `Fast` suffix for image processors has been removed; use `Qwen2VLImageProcessor` instead.
+(Worker pid=669) INFO 06-12 06:52:57 [parallel_state.py:1410] world_size=4 rank=3 local_rank=3 distributed_init_method=tcp://127.0.0.1:44973 backend=nccl
+(Worker pid=634) <frozen importlib._bootstrap_external>:1297: FutureWarning: The cuda.cudart module is deprecated and will be removed in a future release, please switch to use the cuda.bindings.runtime module instead.
+(Worker pid=634) <frozen importlib._bootstrap_external>:1297: FutureWarning: The cuda.nvrtc module is deprecated and will be removed in a future release, please switch to use the cuda.bindings.nvrtc module instead.
+(Worker pid=653) <frozen importlib._bootstrap_external>:1297: FutureWarning: The cuda.cudart module is deprecated and will be removed in a future release, please switch to use the cuda.bindings.runtime module instead.
+(Worker pid=653) <frozen importlib._bootstrap_external>:1297: FutureWarning: The cuda.nvrtc module is deprecated and will be removed in a future release, please switch to use the cuda.bindings.nvrtc module instead.
+(Worker pid=634) INFO 06-12 06:52:58 [pynccl.py:111] vLLM is using nccl==2.28.9
+(Worker pid=669) <frozen importlib._bootstrap_external>:1297: FutureWarning: The cuda.cudart module is deprecated and will be removed in a future release, please switch to use the cuda.bindings.runtime module instead.
+(Worker pid=669) <frozen importlib._bootstrap_external>:1297: FutureWarning: The cuda.nvrtc module is deprecated and will be removed in a future release, please switch to use the cuda.bindings.nvrtc module instead.
+(Worker pid=642) <frozen importlib._bootstrap_external>:1297: FutureWarning: The cuda.cudart module is deprecated and will be removed in a future release, please switch to use the cuda.bindings.runtime module instead.
+(Worker pid=642) <frozen importlib._bootstrap_external>:1297: FutureWarning: The cuda.nvrtc module is deprecated and will be removed in a future release, please switch to use the cuda.bindings.nvrtc module instead.
+(Worker pid=634) WARNING 06-12 06:52:59 [symm_mem.py:66] SymmMemCommunicator: Device capability 7.0 not supported, communicator is not available.
+(Worker pid=642) (Worker pid=669) WARNING 06-12 06:52:59 [symm_mem.py:66] SymmMemCommunicator: Device capability 7.0 not supported, communicator is not available.
+WARNING 06-12 06:52:59 [symm_mem.py:66] SymmMemCommunicator: Device capability 7.0 not supported, communicator is not available.
+(Worker pid=653) WARNING 06-12 06:52:59 [symm_mem.py:66] SymmMemCommunicator: Device capability 7.0 not supported, communicator is not available.
+(Worker pid=634) INFO 06-12 06:52:59 [parallel_state.py:1723] rank 0 in world size 4 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 0, EP rank N/A, EPLB rank N/A
+(Worker pid=634) WARNING 06-12 06:52:59 [topk_topp_sampler.py:61] FlashInfer top-p/top-k sampling not supported on compute capability 7.0; falling back to PyTorch-native sampler. Set VLLM_USE_FLASHINFER_SAMPLER=0 to silence.
+(Worker pid=634) WARNING 06-12 06:52:59 [__init__.py:204] min_p and logit_bias parameters won't work with speculative decoding.
+(Worker pid=642) WARNING 06-12 06:52:59 [__init__.py:204] min_p and logit_bias parameters won't work with speculative decoding.
+(Worker pid=653) WARNING 06-12 06:52:59 [__init__.py:204] min_p and logit_bias parameters won't work with speculative decoding.
+(Worker pid=669) WARNING 06-12 06:52:59 [__init__.py:204] min_p and logit_bias parameters won't work with speculative decoding.
+(Worker pid=634) [transformers] The `use_fast` parameter is deprecated and will be removed in a future version. Use `backend="torchvision"` instead of `use_fast=True`, or `backend="pil"` instead of `use_fast=False`.
+(Worker pid=653) [transformers] The `use_fast` parameter is deprecated and will be removed in a future version. Use `backend="torchvision"` instead of `use_fast=True`, or `backend="pil"` instead of `use_fast=False`.
+(Worker pid=642) [transformers] The `use_fast` parameter is deprecated and will be removed in a future version. Use `backend="torchvision"` instead of `use_fast=True`, or `backend="pil"` instead of `use_fast=False`.
+(Worker pid=669) [transformers] The `use_fast` parameter is deprecated and will be removed in a future version. Use `backend="torchvision"` instead of `use_fast=True`, or `backend="pil"` instead of `use_fast=False`.
+(Worker_TP0 pid=634) INFO 06-12 06:53:15 [gpu_model_runner.py:4857] Starting to load model /mnt/models/Qwen/Qwen3.6-27B-FP8...
+(Worker_TP0 pid=634) ERROR 06-12 06:53:16 [fa_utils.py:171] Cannot use FA version 2 is not supported due to FA2 is only supported on devices with compute capability >= 8
+(Worker_TP0 pid=634) INFO 06-12 06:53:16 [mm_encoder_attention.py:372] Using AttentionBackendEnum.TORCH_SDPA for MMEncoderAttention.
+(Worker_TP0 pid=634) INFO 06-12 06:53:16 [__init__.py:393] Selected TritonFp8BlockScaledMMKernel for Fp8LinearMethod
+(Worker_TP0 pid=634) INFO 06-12 06:53:16 [gdn_linear_attn.py:169] Using Triton/FLA GDN prefill kernel
+(Worker_TP1 pid=642) ERROR 06-12 06:53:16 [fa_utils.py:171] Cannot use FA version 2 is not supported due to FA2 is only supported on devices with compute capability >= 8
+(Worker_TP0 pid=634) INFO 06-12 06:53:16 [cuda.py:372] Using TRITON_ATTN attention backend out of potential backends: ['TRITON_ATTN', 'FLEX_ATTENTION'].
+(Worker_TP2 pid=653) ERROR 06-12 06:53:16 [fa_utils.py:171] Cannot use FA version 2 is not supported due to FA2 is only supported on devices with compute capability >= 8
+(Worker_TP3 pid=669) ERROR 06-12 06:53:16 [fa_utils.py:171] Cannot use FA version 2 is not supported due to FA2 is only supported on devices with compute capability >= 8
+(Worker_TP0 pid=634) INFO 06-12 06:53:17 [weight_utils.py:938] Filesystem type for checkpoints: EXT4. Checkpoint size: 28.75 GiB. Available RAM: 477.66 GiB.
+(Worker_TP0 pid=634) INFO 06-12 06:53:17 [weight_utils.py:961] Auto-prefetch is disabled because the filesystem (EXT4) is not a recognized network FS (NFS/Lustre). If you want to force prefetching, start vLLM with --safetensors-load-strategy=prefetch.
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:   0% Completed | 0/66 [00:00<?, ?it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:   3% Completed | 2/66 [00:00<00:03, 16.89it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:   6% Completed | 4/66 [00:00<00:03, 17.71it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:   9% Completed | 6/66 [00:00<00:03, 17.67it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  12% Completed | 8/66 [00:00<00:03, 17.58it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  15% Completed | 10/66 [00:00<00:03, 17.41it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  18% Completed | 12/66 [00:00<00:03, 17.48it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  21% Completed | 14/66 [00:00<00:02, 17.43it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  24% Completed | 16/66 [00:00<00:02, 17.50it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  27% Completed | 18/66 [00:01<00:02, 17.49it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  30% Completed | 20/66 [00:01<00:02, 17.51it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  33% Completed | 22/66 [00:01<00:02, 17.52it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  36% Completed | 24/66 [00:01<00:02, 17.63it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  39% Completed | 26/66 [00:01<00:02, 17.65it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  42% Completed | 28/66 [00:01<00:02, 17.59it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  45% Completed | 30/66 [00:01<00:02, 17.38it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  48% Completed | 32/66 [00:01<00:01, 17.45it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  52% Completed | 34/66 [00:01<00:01, 17.39it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  55% Completed | 36/66 [00:02<00:01, 17.31it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  58% Completed | 38/66 [00:02<00:01, 17.29it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  61% Completed | 40/66 [00:02<00:01, 17.17it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  64% Completed | 42/66 [00:02<00:01, 17.25it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  67% Completed | 44/66 [00:02<00:01, 17.41it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  70% Completed | 46/66 [00:02<00:01, 17.39it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  73% Completed | 48/66 [00:02<00:01, 17.45it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  76% Completed | 50/66 [00:02<00:00, 17.49it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  79% Completed | 52/66 [00:02<00:00, 17.56it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  82% Completed | 54/66 [00:03<00:00, 17.57it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  85% Completed | 56/66 [00:03<00:00, 17.53it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  88% Completed | 58/66 [00:03<00:00, 17.58it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  91% Completed | 60/66 [00:03<00:00, 17.68it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  94% Completed | 62/66 [00:03<00:00, 17.60it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  97% Completed | 64/66 [00:03<00:00, 17.70it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards: 100% Completed | 66/66 [00:06<00:00,  2.41it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards: 100% Completed | 66/66 [00:06<00:00, 10.72it/s]
+(Worker_TP0 pid=634) 
+(Worker_TP0 pid=634) INFO 06-12 06:53:23 [default_loader.py:397] Loading weights took 6.23 seconds
+(Worker_TP0 pid=634) [V100-FP8-BANNER rank=0 pid=634] patched PWAL fired (block_quant=True, layer.prefix=language_model.model.layers.0.linear_attn.in_proj_qkvz)
+(Worker_TP1 pid=642) [V100-FP8-BANNER rank=1 pid=642] patched PWAL fired (block_quant=True, layer.prefix=language_model.model.layers.0.linear_attn.in_proj_qkvz)
+(Worker_TP0 pid=634) [V100-FP8-HASH rank=0 pid=634] layers.0.linear_attn.in_proj_qkvz  (layer.prefix=language_model.model.layers.0.linear_attn.in_proj_qkvz)
+(Worker_TP0 pid=634)   weight  shape=(4096, 5120) dtype=torch.float8_e4m3fn stride=(5120, 1) contig=True sha256=c8ea330f8410c833d553e9d8aafa5e03 head=[237, 112, 71, 114] tail=[96, 217, 234, 110]
+(Worker_TP0 pid=634)   scale   shape=(32, 40) dtype=torch.float16 stride=(40, 1) contig=True sha256=4a44d4778b2ac6bfd2168e61077f1531 head=[0.0001811981201171875, 0.0001773834228515625, 0.00020122528076171875, 0.0002079010009765625] tail=[0.00016689300537109375, 0.0002002716064453125, 0.0001773834228515625, 0.0001888275146484375]
+(Worker_TP0 pid=634)   weight_block_size=[128, 128]
+(Worker_TP3 pid=669) [V100-FP8-BANNER rank=3 pid=669] patched PWAL fired (block_quant=True, layer.prefix=language_model.model.layers.0.linear_attn.in_proj_qkvz)
+(Worker_TP0 pid=634) [V100-FP8-HASH rank=0 pid=634] layers.0.linear_attn.out_proj  (layer.prefix=language_model.model.layers.0.linear_attn.out_proj)
+(Worker_TP0 pid=634)   weight  shape=(5120, 1536) dtype=torch.float8_e4m3fn stride=(1536, 1) contig=True sha256=71a41418aa68ddbc0753fdad4f3b2225 head=[227, 83, 225, 96] tail=[237, 84, 95, 240]
+(Worker_TP0 pid=634)   scale   shape=(40, 12) dtype=torch.float16 stride=(12, 1) contig=True sha256=7c6e3e6bcfd162eb595b2928e5b7cb1b head=[0.00023365020751953125, 0.00022602081298828125, 0.0002040863037109375, 0.00023651123046875] tail=[0.000255584716796875, 0.0002460479736328125, 0.0003032684326171875, 0.00023365020751953125]
+(Worker_TP0 pid=634)   weight_block_size=[128, 128]
+(Worker_TP1 pid=642) [V100-FP8-HASH rank=1 pid=642] layers.0.linear_attn.in_proj_qkvz  (layer.prefix=language_model.model.layers.0.linear_attn.in_proj_qkvz)
+(Worker_TP1 pid=642)   weight  shape=(4096, 5120) dtype=torch.float8_e4m3fn stride=(5120, 1) contig=True sha256=a6403f911e391f50d2d4f32644d72446 head=[104, 115, 74, 243] tail=[224, 103, 238, 105]
+(Worker_TP1 pid=642)   scale   shape=(32, 40) dtype=torch.float16 stride=(40, 1) contig=True sha256=0b2abd63e6155bf31c789096806b10f4 head=[0.00014781951904296875, 0.00015544891357421875, 0.00015926361083984375, 0.0001621246337890625] tail=[0.0002956390380859375, 0.0004711151123046875, 0.00016880035400390625, 0.000213623046875]
+(Worker_TP1 pid=642)   weight_block_size=[128, 128]
+(Worker_TP1 pid=642) [V100-FP8-HASH rank=1 pid=642] layers.0.linear_attn.out_proj  (layer.prefix=language_model.model.layers.0.linear_attn.out_proj)
+(Worker_TP1 pid=642)   weight  shape=(5120, 1536) dtype=torch.float8_e4m3fn stride=(1536, 1) contig=True sha256=c370bc806e3173fd4c18ccadffd82078 head=[225, 225, 225, 225] tail=[103, 102, 78, 106]
+(Worker_TP1 pid=642)   scale   shape=(40, 12) dtype=torch.float16 stride=(12, 1) contig=True sha256=56006a1e978e0cc0778135ed23516cb4 head=[0.00020694732666015625, 0.0002117156982421875, 0.0002765655517578125, 0.00024127960205078125] tail=[0.00020313262939453125, 0.0002689361572265625, 0.000396728515625, 0.0002689361572265625]
+(Worker_TP1 pid=642)   weight_block_size=[128, 128]
+(Worker_TP3 pid=669) [V100-FP8-HASH rank=3 pid=669] layers.0.linear_attn.in_proj_qkvz  (layer.prefix=language_model.model.layers.0.linear_attn.in_proj_qkvz)
+(Worker_TP3 pid=669)   weight  shape=(4096, 5120) dtype=torch.float8_e4m3fn stride=(5120, 1) contig=True sha256=abb9e2ed3eb5068b2b9b30885ff60620 head=[105, 75, 68, 92] tail=[226, 240, 96, 217]
+(Worker_TP3 pid=669)   scale   shape=(32, 40) dtype=torch.float16 stride=(40, 1) contig=True sha256=321d00e40bd92495f613fc61e0eb3a60 head=[0.0002651214599609375, 0.000263214111328125, 0.00019073486328125, 0.0002193450927734375] tail=[0.00017642974853515625, 0.0001621246337890625, 0.00016880035400390625, 0.00018596649169921875]
+(Worker_TP3 pid=669)   weight_block_size=[128, 128]
+(Worker_TP0 pid=634) [V100-FP8-HASH rank=0 pid=634] layers.0.mlp.down_proj  (layer.prefix=language_model.model.layers.0.mlp.down_proj)
+(Worker_TP0 pid=634)   weight  shape=(5120, 4352) dtype=torch.float8_e4m3fn stride=(4352, 1) contig=True sha256=425ea72d515f076ba92840ef8da75fd4 head=[227, 232, 240, 231] tail=[219, 104, 98, 114]
+(Worker_TP0 pid=634)   scale   shape=(40, 34) dtype=torch.float16 stride=(34, 1) contig=True sha256=e53a627f60c08e2f1584d3a136070299 head=[0.00010776519775390625, 0.0001583099365234375, 0.00015163421630859375, 0.000110626220703125] tail=[0.000118255615234375, 9.918212890625e-05, 0.00021076202392578125, 0.00011014938354492188]
+(Worker_TP0 pid=634)   weight_block_size=[128, 128]
+(Worker_TP3 pid=669) [V100-FP8-HASH rank=3 pid=669] layers.0.linear_attn.out_proj  (layer.prefix=language_model.model.layers.0.linear_attn.out_proj)
+(Worker_TP3 pid=669)   weight  shape=(5120, 1536) dtype=torch.float8_e4m3fn stride=(1536, 1) contig=True sha256=ad0433a45652a0c58f60388d112216e8 head=[101, 202, 105, 242] tail=[229, 96, 102, 105]
+(Worker_TP3 pid=669)   scale   shape=(40, 12) dtype=torch.float16 stride=(12, 1) contig=True sha256=61e425854b126c08b4a6272ceb585b70 head=[0.00018596649169921875, 0.00018024444580078125, 0.00022125244140625, 0.000308990478515625] tail=[0.0003376007080078125, 0.00017642974853515625, 0.00020694732666015625, 0.00021839141845703125]
+(Worker_TP3 pid=669)   weight_block_size=[128, 128]
+(Worker_TP2 pid=653) [V100-FP8-BANNER rank=2 pid=653] patched PWAL fired (block_quant=True, layer.prefix=language_model.model.layers.0.linear_attn.in_proj_qkvz)
+(Worker_TP1 pid=642) [V100-FP8-HASH rank=1 pid=642] layers.0.mlp.down_proj  (layer.prefix=language_model.model.layers.0.mlp.down_proj)
+(Worker_TP1 pid=642)   weight  shape=(5120, 4352) dtype=torch.float8_e4m3fn stride=(4352, 1) contig=True sha256=619fcbcdcfb9fcdc1b112c8a04c5a96c head=[80, 210, 233, 102] tail=[112, 232, 117, 236]
+(Worker_TP1 pid=642)   scale   shape=(40, 34) dtype=torch.float16 stride=(34, 1) contig=True sha256=aff35c66df5e0f059484d891d2ab6cc5 head=[0.00010156631469726562, 0.00013065338134765625, 0.00013065338134765625, 0.00010633468627929688] tail=[0.00010251998901367188, 0.00011205673217773438, 0.000118255615234375, 9.441375732421875e-05]
+(Worker_TP1 pid=642)   weight_block_size=[128, 128]
+(Worker_TP0 pid=634) [V100-FP8-HASH rank=0 pid=634] layers.3.self_attn.qkv_proj  (layer.prefix=language_model.model.layers.3.self_attn.qkv_proj)
+(Worker_TP0 pid=634)   weight  shape=(3584, 5120) dtype=torch.float8_e4m3fn stride=(5120, 1) contig=True sha256=9d6daad1151228b41930b56ddc7145a8 head=[237, 98, 223, 89] tail=[85, 97, 227, 94]
+(Worker_TP0 pid=634)   scale   shape=(28, 40) dtype=torch.float16 stride=(40, 1) contig=True sha256=696499e5c1e022729fbe0810c5636a3d head=[0.00012683868408203125, 0.0001354217529296875, 0.0001506805419921875, 0.0001392364501953125] tail=[0.0001430511474609375, 0.0001506805419921875, 0.0001354217529296875, 0.0001430511474609375]
+(Worker_TP0 pid=634)   weight_block_size=[128, 128]
+(Worker_TP3 pid=669) [V100-FP8-HASH rank=3 pid=669] layers.0.mlp.down_proj  (layer.prefix=language_model.model.layers.0.mlp.down_proj)
+(Worker_TP3 pid=669)   weight  shape=(5120, 4352) dtype=torch.float8_e4m3fn stride=(4352, 1) contig=True sha256=736ec91cdccb87558bd90d0d919def71 head=[214, 236, 231, 110] tail=[107, 106, 237, 96]
+(Worker_TP3 pid=669)   scale   shape=(40, 34) dtype=torch.float16 stride=(34, 1) contig=True sha256=87e9c3a0e019a78b5c5ba4a63b03583c head=[8.821487426757812e-05, 0.00012302398681640625, 8.821487426757812e-05, 0.0001583099365234375] tail=[8.678436279296875e-05, 9.441375732421875e-05, 9.393692016601562e-05, 9.965896606445312e-05]
+(Worker_TP3 pid=669)   weight_block_size=[128, 128]
+(Worker_TP0 pid=634) [V100-FP8-HASH rank=0 pid=634] layers.3.self_attn.o_proj  (layer.prefix=language_model.model.layers.3.self_attn.o_proj)
+(Worker_TP0 pid=634)   weight  shape=(5120, 1536) dtype=torch.float8_e4m3fn stride=(1536, 1) contig=True sha256=59645626d00ed1e8d1ac3d4b0adb5072 head=[116, 234, 233, 89] tail=[82, 232, 216, 118]
+(Worker_TP0 pid=634)   scale   shape=(40, 12) dtype=torch.float16 stride=(12, 1) contig=True sha256=50960bd38154f81439656f1610046a6b head=[0.00014019012451171875, 0.0001544952392578125, 0.00014400482177734375, 0.00014972686767578125] tail=[0.00015163421630859375, 0.0001430511474609375, 0.000152587890625, 0.00014400482177734375]
+(Worker_TP0 pid=634)   weight_block_size=[128, 128]
+(Worker_TP2 pid=653) [V100-FP8-HASH rank=2 pid=653] layers.0.linear_attn.in_proj_qkvz  (layer.prefix=language_model.model.layers.0.linear_attn.in_proj_qkvz)
+(Worker_TP2 pid=653)   weight  shape=(4096, 5120) dtype=torch.float8_e4m3fn stride=(5120, 1) contig=True sha256=1c924ac877ad78956cf2e7e58c93cf49 head=[231, 226, 106, 119] tail=[230, 96, 101, 237]
+(Worker_TP2 pid=653)   scale   shape=(32, 40) dtype=torch.float16 stride=(40, 1) contig=True sha256=51152af90daebfde05097f6b4f4d6205 head=[0.00016498565673828125, 0.00016689300537109375, 0.00014591217041015625, 0.00016689300537109375] tail=[0.00015544891357421875, 0.00014781951904296875, 0.00020122528076171875, 0.00014781951904296875]
+(Worker_TP2 pid=653)   weight_block_size=[128, 128]
+(Worker_TP1 pid=642) [V100-FP8-HASH rank=1 pid=642] layers.3.self_attn.qkv_proj  (layer.prefix=language_model.model.layers.3.self_attn.qkv_proj)
+(Worker_TP1 pid=642)   weight  shape=(3584, 5120) dtype=torch.float8_e4m3fn stride=(5120, 1) contig=True sha256=71e05136e6b0867c3734afad2daf2aa1 head=[233, 234, 106, 82] tail=[108, 214, 208, 109]
+(Worker_TP1 pid=642)   scale   shape=(28, 40) dtype=torch.float16 stride=(40, 1) contig=True sha256=9bb09785c62d78dd75061574870a728e head=[0.00013828277587890625, 0.00018310546875, 0.000339508056640625, 0.0001506805419921875] tail=[0.00014591217041015625, 0.00016689300537109375, 0.0001659393310546875, 0.0001678466796875]
+(Worker_TP1 pid=642)   weight_block_size=[128, 128]
+(Worker_TP2 pid=653) [V100-FP8-HASH rank=2 pid=653] layers.0.linear_attn.out_proj  (layer.prefix=language_model.model.layers.0.linear_attn.out_proj)
+(Worker_TP2 pid=653)   weight  shape=(5120, 1536) dtype=torch.float8_e4m3fn stride=(1536, 1) contig=True sha256=01c9c5d2535de8fbfee5d392e41a1fbb head=[199, 81, 105, 105] tail=[89, 234, 105, 89]
+(Worker_TP2 pid=653)   scale   shape=(40, 12) dtype=torch.float16 stride=(12, 1) contig=True sha256=57edf93096db57e80d42e61b4f28a265 head=[0.0001888275146484375, 0.0003204345703125, 0.0002346038818359375, 0.0001850128173828125] tail=[0.0001583099365234375, 0.0002841949462890625, 0.0003185272216796875, 0.00023746490478515625]
+(Worker_TP2 pid=653)   weight_block_size=[128, 128]
+(Worker_TP1 pid=642) [V100-FP8-HASH rank=1 pid=642] layers.3.self_attn.o_proj  (layer.prefix=language_model.model.layers.3.self_attn.o_proj)
+(Worker_TP1 pid=642)   weight  shape=(5120, 1536) dtype=torch.float8_e4m3fn stride=(1536, 1) contig=True sha256=9bc4191b0f90a4df39e19626b9ecf44f head=[118, 234, 226, 92] tail=[226, 225, 242, 243]
+(Worker_TP1 pid=642)   scale   shape=(40, 12) dtype=torch.float16 stride=(12, 1) contig=True sha256=842b2ddb0c881b3e646d5542067ac6c9 head=[0.00014400482177734375, 0.00014781951904296875, 0.0001373291015625, 0.00014209747314453125] tail=[0.0001373291015625, 0.0001316070556640625, 0.0001392364501953125, 0.0001354217529296875]
+(Worker_TP1 pid=642)   weight_block_size=[128, 128]
+(Worker_TP3 pid=669) [V100-FP8-HASH rank=3 pid=669] layers.3.self_attn.qkv_proj  (layer.prefix=language_model.model.layers.3.self_attn.qkv_proj)
+(Worker_TP3 pid=669)   weight  shape=(3584, 5120) dtype=torch.float8_e4m3fn stride=(5120, 1) contig=True sha256=256d52fd0b5b5027512cb75970995d67 head=[107, 77, 229, 228] tail=[79, 233, 218, 223]
+(Worker_TP3 pid=669)   scale   shape=(28, 40) dtype=torch.float16 stride=(40, 1) contig=True sha256=41762f6535a4e9c4cb02d65ecbffb8bd head=[0.0002040863037109375, 0.0002288818359375, 0.000705718994140625, 0.00018978118896484375] tail=[0.00016498565673828125, 0.0001583099365234375, 0.0002384185791015625, 0.00020694732666015625]
+(Worker_TP3 pid=669)   weight_block_size=[128, 128]
+(Worker_TP3 pid=669) [V100-FP8-HASH rank=3 pid=669] layers.3.self_attn.o_proj  (layer.prefix=language_model.model.layers.3.self_attn.o_proj)
+(Worker_TP3 pid=669)   weight  shape=(5120, 1536) dtype=torch.float8_e4m3fn stride=(1536, 1) contig=True sha256=3394ff3a11845d27a2fafad0610da346 head=[234, 224, 193, 232] tail=[105, 170, 83, 230]
+(Worker_TP3 pid=669)   scale   shape=(40, 12) dtype=torch.float16 stride=(12, 1) contig=True sha256=0a40f168c80ef0dae317e274cadf19d0 head=[0.0001983642578125, 0.00020694732666015625, 0.0003566741943359375, 0.00017070770263671875] tail=[0.00020122528076171875, 0.00019359588623046875, 0.0001392364501953125, 0.00020694732666015625]
+(Worker_TP3 pid=669)   weight_block_size=[128, 128]
+(Worker_TP0 pid=634) INFO 06-12 06:53:23 [gpu_model_runner.py:4881] Loading drafter model...
+(Worker_TP2 pid=653) [V100-FP8-HASH rank=2 pid=653] layers.0.mlp.down_proj  (layer.prefix=language_model.model.layers.0.mlp.down_proj)
+(Worker_TP2 pid=653)   weight  shape=(5120, 4352) dtype=torch.float8_e4m3fn stride=(4352, 1) contig=True sha256=2b65040a55db10dbe9099f8163cd4834 head=[112, 101, 107, 98] tail=[239, 235, 224, 237]
+(Worker_TP2 pid=653)   scale   shape=(40, 34) dtype=torch.float16 stride=(34, 1) contig=True sha256=537a70ab4f7a550a4c897b7dd07098ac head=[0.00011014938354492188, 0.00012874603271484375, 0.00014019012451171875, 0.00010251998901367188] tail=[8.916854858398438e-05, 8.487701416015625e-05, 0.00010061264038085938, 8.678436279296875e-05]
+(Worker_TP2 pid=653)   weight_block_size=[128, 128]
+(Worker_TP0 pid=634) INFO 06-12 06:53:23 [vllm.py:886] Asynchronous scheduling is enabled.
+(Worker_TP0 pid=634) WARNING 06-12 06:53:23 [vllm.py:960] Inductor compilation was disabled by user settings, optimizations settings that are only active during inductor compilation will be ignored.
+(Worker_TP0 pid=634) INFO 06-12 06:53:23 [kernel.py:212] Final IR op priority after setting platform defaults: IrOpPriorityConfig(rms_norm=['vllm_c', 'native'], fused_add_rms_norm=['vllm_c', 'native'])
+(Worker_TP0 pid=634) WARNING 06-12 06:53:23 [vllm.py:1455] max_num_scheduled_tokens is set to 4096 based on the speculative decoding settings. This may lead to suboptimal performance. Consider increasing max_num_batched_tokens to accommodate the additional draft token slots, or decrease num_speculative_tokens or max_num_seqs.
+(Worker_TP0 pid=634) INFO 06-12 06:53:23 [compilation.py:303] Enabled custom fusions: norm_quant, act_quant
+(Worker_TP0 pid=634) INFO 06-12 06:53:23 [weight_utils.py:938] Filesystem type for checkpoints: EXT4. Checkpoint size: 28.75 GiB. Available RAM: 477.67 GiB.
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:   0% Completed | 0/66 [00:00<?, ?it/s]
+(Worker_TP1 pid=642) WARNING 06-12 06:53:23 [vllm.py:960] Inductor compilation was disabled by user settings, optimizations settings that are only active during inductor compilation will be ignored.
+(Worker_TP1 pid=642) INFO 06-12 06:53:23 [kernel.py:212] Final IR op priority after setting platform defaults: IrOpPriorityConfig(rms_norm=['vllm_c', 'native'], fused_add_rms_norm=['vllm_c', 'native'])
+(Worker_TP2 pid=653) [V100-FP8-HASH rank=2 pid=653] layers.3.self_attn.qkv_proj  (layer.prefix=language_model.model.layers.3.self_attn.qkv_proj)
+(Worker_TP2 pid=653)   weight  shape=(3584, 5120) dtype=torch.float8_e4m3fn stride=(5120, 1) contig=True sha256=7fe7ff56a916c0b1b7f523fa74b98992 head=[89, 228, 167, 117] tail=[111, 239, 74, 234]
+(Worker_TP2 pid=653)   scale   shape=(28, 40) dtype=torch.float16 stride=(40, 1) contig=True sha256=38e9a0b70b1fe78398276f1d6d3d341d head=[0.0001316070556640625, 0.00019550323486328125, 0.0003719329833984375, 0.00012874603271484375] tail=[0.00015354156494140625, 0.0001583099365234375, 0.00016307830810546875, 0.00014972686767578125]
+(Worker_TP2 pid=653)   weight_block_size=[128, 128]
+(Worker_TP3 pid=669) WARNING 06-12 06:53:23 [vllm.py:960] Inductor compilation was disabled by user settings, optimizations settings that are only active during inductor compilation will be ignored.
+(Worker_TP3 pid=669) INFO 06-12 06:53:23 [kernel.py:212] Final IR op priority after setting platform defaults: IrOpPriorityConfig(rms_norm=['vllm_c', 'native'], fused_add_rms_norm=['vllm_c', 'native'])
+(Worker_TP2 pid=653) [V100-FP8-HASH rank=2 pid=653] layers.3.self_attn.o_proj  (layer.prefix=language_model.model.layers.3.self_attn.o_proj)
+(Worker_TP2 pid=653)   weight  shape=(5120, 1536) dtype=torch.float8_e4m3fn stride=(1536, 1) contig=True sha256=8ac5433eeeb4c20f3b94c8737cb3ed6d head=[104, 243, 218, 94] tail=[198, 211, 99, 108]
+(Worker_TP2 pid=653)   scale   shape=(40, 12) dtype=torch.float16 stride=(12, 1) contig=True sha256=da7197978c9de9334c9299b31de3554d head=[0.00014495849609375, 0.000152587890625, 0.00013637542724609375, 0.00016307830810546875] tail=[0.00024127960205078125, 0.0003337860107421875, 0.0001506805419921875, 0.00013637542724609375]
+(Worker_TP2 pid=653)   weight_block_size=[128, 128]
+(Worker_TP2 pid=653) WARNING 06-12 06:53:23 [vllm.py:960] Inductor compilation was disabled by user settings, optimizations settings that are only active during inductor compilation will be ignored.
+(Worker_TP2 pid=653) INFO 06-12 06:53:23 [kernel.py:212] Final IR op priority after setting platform defaults: IrOpPriorityConfig(rms_norm=['vllm_c', 'native'], fused_add_rms_norm=['vllm_c', 'native'])
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards:  98% Completed | 65/66 [00:00<00:00, 195.82it/s]
+(Worker_TP0 pid=634) Loading safetensors checkpoint shards: 100% Completed | 66/66 [00:02<00:00, 26.38it/s]
+(Worker_TP0 pid=634)  
+(Worker_TP0 pid=634) INFO 06-12 06:53:26 [default_loader.py:397] Loading weights took 2.56 seconds
+(Worker_TP0 pid=634) [V100-FP8-HASH rank=0 pid=634] layers.0.mlp.down_proj  (layer.prefix=mtp.layers.0.mlp.down_proj)
+(Worker_TP0 pid=634)   weight  shape=(5120, 4352) dtype=torch.float8_e4m3fn stride=(4352, 1) contig=True sha256=c9b36f21497ea617962a950ec9527320 head=[201, 220, 70, 78] tail=[81, 243, 87, 216]
+(Worker_TP0 pid=634)   scale   shape=(40, 34) dtype=torch.float16 stride=(34, 1) contig=True sha256=c221f1fb54033ce96fb630ab926b1fe6 head=[0.0002765655517578125, 0.0001392364501953125, 0.0001506805419921875, 0.00018024444580078125] tail=[0.00021457672119140625, 0.00012063980102539062, 0.00013065338134765625, 0.00011587142944335938]
+(Worker_TP0 pid=634)   weight_block_size=[128, 128]
+(Worker_TP1 pid=642) [V100-FP8-HASH rank=1 pid=642] layers.0.mlp.down_proj  (layer.prefix=mtp.layers.0.mlp.down_proj)
+(Worker_TP1 pid=642)   weight  shape=(5120, 4352) dtype=torch.float8_e4m3fn stride=(4352, 1) contig=True sha256=6f526964f54bef222f037139893b6147 head=[203, 226, 110, 217] tail=[229, 215, 66, 89]
+(Worker_TP1 pid=642)   scale   shape=(40, 34) dtype=torch.float16 stride=(34, 1) contig=True sha256=30d593e65777360ba2e24cd20640b74d head=[0.0001544952392578125, 0.0001678466796875, 0.000244140625, 0.00023555755615234375] tail=[0.0001506805419921875, 0.0001239776611328125, 0.00013065338134765625, 0.00018024444580078125]
+(Worker_TP1 pid=642)   weight_block_size=[128, 128]
+(Worker_TP3 pid=669) [V100-FP8-HASH rank=3 pid=669] layers.0.mlp.down_proj  (layer.prefix=mtp.layers.0.mlp.down_proj)
+(Worker_TP3 pid=669)   weight  shape=(5120, 4352) dtype=torch.float8_e4m3fn stride=(4352, 1) contig=True sha256=bbb064f2e59d64db84678f465fc8de27 head=[114, 234, 116, 103] tail=[65, 83, 232, 223]
+(Worker_TP3 pid=669)   scale   shape=(40, 34) dtype=torch.float16 stride=(34, 1) contig=True sha256=21c38c9fc2d1e5d6891d98f5468fe59f head=[0.0001735687255859375, 0.00019359588623046875, 0.00016021728515625, 0.00016689300537109375] tail=[0.00015926361083984375, 0.0001850128173828125, 0.000152587890625, 0.00018405914306640625]
+(Worker_TP3 pid=669)   weight_block_size=[128, 128]
+(Worker_TP2 pid=653) [V100-FP8-HASH rank=2 pid=653] layers.0.mlp.down_proj  (layer.prefix=mtp.layers.0.mlp.down_proj)
+(Worker_TP2 pid=653)   weight  shape=(5120, 4352) dtype=torch.float8_e4m3fn stride=(4352, 1) contig=True sha256=057a990cbfb1d65bf00a448428b3a2fb head=[112, 102, 239, 223] tail=[109, 89, 84, 86]
+(Worker_TP2 pid=653)   scale   shape=(40, 34) dtype=torch.float16 stride=(34, 1) contig=True sha256=59c1a01fa3091d7a34c2e40ff479b604 head=[0.0001583099365234375, 0.0003414154052734375, 0.00019168853759765625, 0.00013065338134765625] tail=[0.00016689300537109375, 0.0001430511474609375, 0.000255584716796875, 0.00018024444580078125]
+(Worker_TP2 pid=653)   weight_block_size=[128, 128]
+(Worker_TP0 pid=634) INFO 06-12 06:53:28 [llm_base_proposer.py:1274] Detected MTP model. Sharing target model embedding weights with the draft model.
+(Worker_TP0 pid=634) INFO 06-12 06:53:28 [llm_base_proposer.py:1330] Detected MTP model. Sharing target model lm_head weights with the draft model.
+(Worker_TP1 pid=642) INFO 06-12 06:53:28 [llm_base_proposer.py:1274] Detected MTP model. Sharing target model embedding weights with the draft model.
+(Worker_TP1 pid=642) INFO 06-12 06:53:28 [llm_base_proposer.py:1330] Detected MTP model. Sharing target model lm_head weights with the draft model.
+(Worker_TP3 pid=669) INFO 06-12 06:53:28 [llm_base_proposer.py:1274] Detected MTP model. Sharing target model embedding weights with the draft model.
+(Worker_TP3 pid=669) INFO 06-12 06:53:28 [llm_base_proposer.py:1330] Detected MTP model. Sharing target model lm_head weights with the draft model.
+(Worker_TP2 pid=653) INFO 06-12 06:53:28 [llm_base_proposer.py:1274] Detected MTP model. Sharing target model embedding weights with the draft model.
+(Worker_TP2 pid=653) INFO 06-12 06:53:28 [llm_base_proposer.py:1330] Detected MTP model. Sharing target model lm_head weights with the draft model.
+(Worker_TP0 pid=634) INFO 06-12 06:53:29 [gpu_model_runner.py:4959] Model loading took 7.48 GiB memory and 12.493488 seconds
+(Worker_TP0 pid=634) INFO 06-12 06:53:29 [interface.py:645] Setting attention block size to 800 tokens to ensure that attention page size is >= mamba page size.
+(Worker_TP0 pid=634) INFO 06-12 06:53:29 [interface.py:669] Padding mamba page size by 0.88% to ensure that mamba page size and attention page size are exactly equal.
+(Worker_TP1 pid=642) INFO 06-12 06:53:29 [interface.py:645] Setting attention block size to 800 tokens to ensure that attention page size is >= mamba page size.
+(Worker_TP1 pid=642) INFO 06-12 06:53:29 [interface.py:669] Padding mamba page size by 0.88% to ensure that mamba page size and attention page size are exactly equal.
+(Worker_TP3 pid=669) INFO 06-12 06:53:29 [interface.py:645] Setting attention block size to 800 tokens to ensure that attention page size is >= mamba page size.
+(Worker_TP3 pid=669) INFO 06-12 06:53:29 [interface.py:669] Padding mamba page size by 0.88% to ensure that mamba page size and attention page size are exactly equal.
+(Worker_TP2 pid=653) INFO 06-12 06:53:29 [interface.py:645] Setting attention block size to 800 tokens to ensure that attention page size is >= mamba page size.
+(Worker_TP2 pid=653) INFO 06-12 06:53:29 [interface.py:669] Padding mamba page size by 0.88% to ensure that mamba page size and attention page size are exactly equal.
+(Worker_TP3 pid=669) INFO 06-12 06:53:30 [gpu_model_runner.py:5893] Skipping memory profiling for multimodal encoder and encoder cache.
+(Worker_TP1 pid=642) INFO 06-12 06:53:30 [gpu_model_runner.py:5893] Skipping memory profiling for multimodal encoder and encoder cache.
+(Worker_TP0 pid=634) INFO 06-12 06:53:30 [gpu_model_runner.py:5893] Skipping memory profiling for multimodal encoder and encoder cache.
+(Worker_TP2 pid=653) INFO 06-12 06:53:30 [gpu_model_runner.py:5893] Skipping memory profiling for multimodal encoder and encoder cache.
+(Worker_TP2 pid=653) WARNING 06-12 06:53:34 [kv_cache_utils.py:1152] Add 3 padding layers, may waste at most 6.25% KV cache memory
+(Worker_TP1 pid=642) WARNING 06-12 06:53:34 [kv_cache_utils.py:1152] Add 3 padding layers, may waste at most 6.25% KV cache memory
+(Worker_TP3 pid=669) WARNING 06-12 06:53:34 [kv_cache_utils.py:1152] Add 3 padding layers, may waste at most 6.25% KV cache memory
+(Worker_TP0 pid=634) WARNING 06-12 06:53:34 [kv_cache_utils.py:1152] Add 3 padding layers, may waste at most 6.25% KV cache memory
+(Worker_TP2 pid=653) INFO 06-12 06:53:34 [gpu_model_runner.py:6063] Profiling CUDA graph memory: FULL=5 (largest=24)
+(Worker_TP1 pid=642) INFO 06-12 06:53:34 [gpu_model_runner.py:6063] Profiling CUDA graph memory: FULL=5 (largest=24)
+(Worker_TP3 pid=669) INFO 06-12 06:53:34 [gpu_model_runner.py:6063] Profiling CUDA graph memory: FULL=5 (largest=24)
+(Worker_TP0 pid=634) INFO 06-12 06:53:34 [gpu_model_runner.py:6063] Profiling CUDA graph memory: FULL=5 (largest=24)
+(Worker_TP0 pid=634) [serve_fp8_v100 pid=634] kernel variant counts after 1000 calls: A.1=736 (74%), WMMA=264 (26%)
+(Worker_TP2 pid=653) INFO 06-12 06:53:38 [custom_all_reduce.py:215] Registering 256 cuda graph addresses
+(Worker_TP1 pid=642) (Worker_TP0 pid=634) INFO 06-12 06:53:38 [custom_all_reduce.py:215] Registering 256 cuda graph addresses
+INFO 06-12 06:53:38 [custom_all_reduce.py:215] Registering 256 cuda graph addresses
+(Worker_TP3 pid=669) INFO 06-12 06:53:38 [custom_all_reduce.py:215] Registering 256 cuda graph addresses
+(Worker_TP0 pid=634) INFO 06-12 06:53:39 [gpu_model_runner.py:6142] Estimated CUDA graph memory: 0.12 GiB total
+(Worker_TP3 pid=669) INFO 06-12 06:53:39 [gpu_model_runner.py:6142] Estimated CUDA graph memory: 0.12 GiB total
+(Worker_TP1 pid=642) INFO 06-12 06:53:39 [gpu_model_runner.py:6142] Estimated CUDA graph memory: 0.12 GiB total
+(Worker_TP2 pid=653) INFO 06-12 06:53:39 [gpu_model_runner.py:6142] Estimated CUDA graph memory: 0.12 GiB total
+(Worker_TP0 pid=634) INFO 06-12 06:53:39 [gpu_worker.py:462] Available KV cache memory: 19.45 GiB
+(Worker_TP0 pid=634) INFO 06-12 06:53:39 [gpu_worker.py:477] CUDA graph memory profiling is enabled (default since v0.21.0). The current --gpu-memory-utilization=0.9000 is equivalent to --gpu-memory-utilization=0.8964 without CUDA graph memory profiling. To maintain the same effective KV cache size as before, increase --gpu-memory-utilization to 0.9036. To disable, set VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=0.
+(Worker_TP1 pid=642) INFO 06-12 06:53:39 [gpu_worker.py:477] CUDA graph memory profiling is enabled (default since v0.21.0). The current --gpu-memory-utilization=0.9000 is equivalent to --gpu-memory-utilization=0.8964 without CUDA graph memory profiling. To maintain the same effective KV cache size as before, increase --gpu-memory-utilization to 0.9036. To disable, set VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=0.
+(Worker_TP2 pid=653) INFO 06-12 06:53:39 [gpu_worker.py:477] CUDA graph memory profiling is enabled (default since v0.21.0). The current --gpu-memory-utilization=0.9000 is equivalent to --gpu-memory-utilization=0.8964 without CUDA graph memory profiling. To maintain the same effective KV cache size as before, increase --gpu-memory-utilization to 0.9036. To disable, set VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=0.
+(Worker_TP3 pid=669) INFO 06-12 06:53:39 [gpu_worker.py:477] CUDA graph memory profiling is enabled (default since v0.21.0). The current --gpu-memory-utilization=0.9000 is equivalent to --gpu-memory-utilization=0.8964 without CUDA graph memory profiling. To maintain the same effective KV cache size as before, increase --gpu-memory-utilization to 0.9036. To disable, set VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=0.
+(EngineCore pid=480) WARNING 06-12 06:53:39 [kv_cache_utils.py:1152] Add 3 padding layers, may waste at most 6.25% KV cache memory
+(EngineCore pid=480) INFO 06-12 06:53:39 [kv_cache_utils.py:1710] GPU KV cache size: 409,326 tokens
+(EngineCore pid=480) INFO 06-12 06:53:39 [kv_cache_utils.py:1711] Maximum concurrency for 4,096 tokens per request: 99.93x
+(Worker_TP3 pid=669) (Worker_TP2 pid=653) INFO 06-12 06:53:39 [kernel_warmup.py:44] Skipping FlashInfer autotune because it is disabled.
+INFO 06-12 06:53:39 [kernel_warmup.py:44] Skipping FlashInfer autotune because it is disabled.
+(Worker_TP0 pid=634) (Worker_TP1 pid=642) INFO 06-12 06:53:39 [kernel_warmup.py:44] Skipping FlashInfer autotune because it is disabled.
+INFO 06-12 06:53:39 [kernel_warmup.py:44] Skipping FlashInfer autotune because it is disabled.
+(Worker_TP0 pid=634) Capturing CUDA graphs (decode, FULL):   0%|          | 0/5 [00:00<?, ?it/s]Capturing CUDA graphs (decode, FULL):  20%|██        | 1/5 [00:02<00:08,  2.04s/it](Worker_TP0 pid=634) [serve_fp8_v100 pid=634] kernel variant counts after 2000 calls: A.1=1736 (87%), WMMA=264 (13%)
+Capturing CUDA graphs (decode, FULL):  40%|████      | 2/5 [00:02<00:03,  1.26s/it]Capturing CUDA graphs (decode, FULL):  60%|██████    | 3/5 [00:03<00:01,  1.11it/s](Worker_TP0 pid=634) [serve_fp8_v100 pid=634] kernel variant counts after 3000 calls: Coalesced GEMV-M=116 (4%), A.1=2620 (87%), WMMA=264 (9%)
+Capturing CUDA graphs (decode, FULL):  80%|████████  | 4/5 [00:03<00:00,  1.41it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 5/5 [00:04<00:00,  1.32it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 5/5 [00:04<00:00,  1.12it/s]
+(Worker_TP3 pid=669) INFO 06-12 06:53:44 [custom_all_reduce.py:215] Registering 640 cuda graph addresses
+(Worker_TP1 pid=642) (Worker_TP2 pid=653) INFO 06-12 06:53:44 [custom_all_reduce.py:215] Registering 640 cuda graph addresses
+INFO 06-12 06:53:44 [custom_all_reduce.py:215] Registering 640 cuda graph addresses
+(Worker_TP0 pid=634) INFO 06-12 06:53:44 [custom_all_reduce.py:215] Registering 640 cuda graph addresses
+(Worker_TP3 pid=669) INFO 06-12 06:53:45 [gpu_worker.py:621] CUDA graph pool memory: 0.08 GiB (actual), 0.12 GiB (estimated), difference: 0.03 GiB (40.5%).
+(Worker_TP0 pid=634) INFO 06-12 06:53:45 [gpu_model_runner.py:6243] Graph capturing finished in 5 secs, took 0.08 GiB
+(Worker_TP2 pid=653) INFO 06-12 06:53:45 [gpu_worker.py:621] CUDA graph pool memory: 0.08 GiB (actual), 0.12 GiB (estimated), difference: 0.03 GiB (40.5%).
+(Worker_TP0 pid=634) INFO 06-12 06:53:45 [gpu_worker.py:621] CUDA graph pool memory: 0.08 GiB (actual), 0.12 GiB (estimated), difference: 0.03 GiB (40.5%).
+(Worker_TP1 pid=642) INFO 06-12 06:53:45 [gpu_worker.py:621] CUDA graph pool memory: 0.08 GiB (actual), 0.12 GiB (estimated), difference: 0.03 GiB (40.5%).
+(Worker_TP0 pid=634) [serve_fp8_v100 pid=634] kernel variant counts after 4000 calls: Coalesced GEMV-M=1116 (28%), A.1=2620 (66%), WMMA=264 (7%)
+(Worker_TP0 pid=634) (Worker_TP2 pid=653) INFO 06-12 06:53:45 [jit_monitor.py:54] Kernel JIT monitor activated — Triton JIT compilations during inference will be logged as warnings.
+INFO 06-12 06:53:45 [jit_monitor.py:54] Kernel JIT monitor activated — Triton JIT compilations during inference will be logged as warnings.
+(Worker_TP3 pid=669) INFO 06-12 06:53:45 [jit_monitor.py:54] Kernel JIT monitor activated — Triton JIT compilations during inference will be logged as warnings.
+(Worker_TP1 pid=642) INFO 06-12 06:53:45 [jit_monitor.py:54] Kernel JIT monitor activated — Triton JIT compilations during inference will be logged as warnings.
+(EngineCore pid=480) INFO 06-12 06:53:45 [core.py:306] init engine (profile, create kv cache, warmup model) took 15.63 s
+(EngineCore pid=480) [transformers] `Qwen2VLImageProcessorFast` is deprecated. The `Fast` suffix for image processors has been removed; use `Qwen2VLImageProcessor` instead.
+(EngineCore pid=480) [transformers] The `use_fast` parameter is deprecated and will be removed in a future version. Use `backend="torchvision"` instead of `use_fast=True`, or `backend="pil"` instead of `use_fast=False`.
+(EngineCore pid=480) INFO 06-12 06:54:03 [vllm.py:886] Asynchronous scheduling is enabled.
+(EngineCore pid=480) WARNING 06-12 06:54:03 [vllm.py:960] Inductor compilation was disabled by user settings, optimizations settings that are only active during inductor compilation will be ignored.
+(EngineCore pid=480) INFO 06-12 06:54:03 [kernel.py:212] Final IR op priority after setting platform defaults: IrOpPriorityConfig(rms_norm=['vllm_c', 'native'], fused_add_rms_norm=['vllm_c', 'native'])
+(EngineCore pid=480) WARNING 06-12 06:54:03 [vllm.py:1455] max_num_scheduled_tokens is set to 4096 based on the speculative decoding settings. This may lead to suboptimal performance. Consider increasing max_num_batched_tokens to accommodate the additional draft token slots, or decrease num_speculative_tokens or max_num_seqs.
+(EngineCore pid=480) INFO 06-12 06:54:03 [compilation.py:303] Enabled custom fusions: norm_quant, act_quant
+(APIServer pid=1) INFO 06-12 06:54:03 [api_server.py:613] Supported tasks: ['generate']
+(APIServer pid=1) WARNING 06-12 06:54:03 [model.py:1454] Default vLLM sampling parameters have been overridden by the model's `generation_config.json`: `{'temperature': 1.0, 'top_k': 20, 'top_p': 0.95}`. If this is not intended, please relaunch vLLM instance with `--generation-config vllm`.
+(APIServer pid=1) INFO 06-12 06:54:05 [hf.py:483] Detected the chat template content format to be 'string'. You can set `--chat-template-content-format` to override this.
+(APIServer pid=1) INFO 06-12 06:54:48 [base.py:224] Multi-modal warmup completed in 43.450s
+(APIServer pid=1) INFO 06-12 06:54:51 [base.py:224] Readonly multi-modal warmup completed in 2.729s
+(APIServer pid=1) INFO 06-12 06:54:51 [api_server.py:617] Starting vLLM server on http://0.0.0.0:8021
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:37] Available routes are:
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:46] Route: /openapi.json, Methods: GET, HEAD
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:46] Route: /docs, Methods: GET, HEAD
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:46] Route: /docs/oauth2-redirect, Methods: GET, HEAD
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:46] Route: /redoc, Methods: GET, HEAD
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:46] Route: /tokenize, Methods: POST
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:46] Route: /detokenize, Methods: POST
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:46] Route: /load, Methods: GET
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:46] Route: /version, Methods: GET
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:46] Route: /health, Methods: GET
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:46] Route: /metrics, Methods: GET
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:46] Route: /v1/models, Methods: GET
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:46] Route: /ping, Methods: GET
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:46] Route: /ping, Methods: POST
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:46] Route: /invocations, Methods: POST
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:46] Route: /v1/chat/completions, Methods: POST
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:46] Route: /v1/chat/completions/batch, Methods: POST
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:46] Route: /v1/responses, Methods: POST
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:46] Route: /v1/responses/{response_id}, Methods: GET
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:46] Route: /v1/responses/{response_id}/cancel, Methods: POST
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:46] Route: /v1/completions, Methods: POST
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:46] Route: /v1/messages, Methods: POST
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:46] Route: /v1/messages/count_tokens, Methods: POST
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:46] Route: /inference/v1/generate, Methods: POST
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:46] Route: /scale_elastic_ep, Methods: POST
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:46] Route: /is_scaling_elastic_ep, Methods: POST
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:46] Route: /generative_scoring, Methods: POST
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:46] Route: /v1/chat/completions/render, Methods: POST
+(APIServer pid=1) INFO 06-12 06:54:51 [launcher.py:46] Route: /v1/completions/render, Methods: POST
+(APIServer pid=1) INFO:     Started server process [1]
+(APIServer pid=1) INFO:     Waiting for application startup.
+(APIServer pid=1) INFO:     Application startup complete.
+(APIServer pid=1) INFO:     172.17.0.1:52418 - "GET /health HTTP/1.1" 200 OK
+(Worker_TP0 pid=634) WARNING 06-12 06:54:58 [jit_monitor.py:103] Triton kernel JIT compilation during inference: _zero_kv_blocks_kernel. This causes a latency spike; consider extending warmup to cover this shape/config.
+(Worker_TP0 pid=634) WARNING 06-12 06:54:58 [jit_monitor.py:103] Triton kernel JIT compilation during inference: _compute_slot_mapping_kernel. This causes a latency spike; consider extending warmup to cover this shape/config.
+(Worker_TP0 pid=634) WARNING 06-12 06:54:58 [jit_monitor.py:103] Triton kernel JIT compilation during inference: eagle_prepare_next_token_padded_kernel. This causes a latency spike; consider extending warmup to cover this shape/config.
+(Worker_TP0 pid=634) WARNING 06-12 06:54:58 [jit_monitor.py:103] Triton kernel JIT compilation during inference: eagle_step_slot_mapping_metadata_kernel. This causes a latency spike; consider extending warmup to cover this shape/config.
+(Worker_TP0 pid=634) WARNING 06-12 06:54:59 [jit_monitor.py:103] Triton kernel JIT compilation during inference: _triton_mrope_forward. This causes a latency spike; consider extending warmup to cover this shape/config.
+(Worker_TP0 pid=634) WARNING 06-12 06:55:01 [jit_monitor.py:103] Triton kernel JIT compilation during inference: kernel_unified_attention. This causes a latency spike; consider extending warmup to cover this shape/config.
+(Worker_TP0 pid=634) WARNING 06-12 06:55:01 [jit_monitor.py:103] Triton kernel JIT compilation during inference: reduce_segments. This causes a latency spike; consider extending warmup to cover this shape/config.
+(Worker_TP0 pid=634) WARNING 06-12 06:55:01 [jit_monitor.py:103] Triton kernel JIT compilation during inference: rejection_greedy_sample_kernel. This causes a latency spike; consider extending warmup to cover this shape/config.
+(Worker_TP0 pid=634) WARNING 06-12 06:55:01 [jit_monitor.py:103] Triton kernel JIT compilation during inference: eagle_prepare_inputs_padded_kernel. This causes a latency spike; consider extending warmup to cover this shape/config.
+(APIServer pid=1) INFO:     172.17.0.1:52432 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+(APIServer pid=1) INFO:     172.17.0.1:56162 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+(Worker_TP0 pid=634) WARNING 06-12 06:55:02 [jit_monitor.py:103] Triton kernel JIT compilation during inference: layer_norm_fwd_kernel. This causes a latency spike; consider extending warmup to cover this shape/config.
+(APIServer pid=1) INFO 06-12 06:55:02 [loggers.py:271] Engine 000: Avg prompt throughput: 0.2 tokens/s, Avg generation throughput: 0.3 tokens/s, Running: 0 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.0%, Prefix cache hit rate: 0.0%
+(APIServer pid=1) INFO 06-12 06:55:02 [metrics.py:101] SpecDecoding metrics: Mean acceptance length: 3.00, Accepted throughput: 0.17 tokens/s, Drafted throughput: 0.17 tokens/s, Accepted: 10 tokens, Drafted: 10 tokens, Per-position acceptance rate: 1.000, 1.000, Avg Draft acceptance rate: 100.0%
+(Worker_TP0 pid=634) [serve_fp8_v100 pid=634] kernel variant counts after 5000 calls: Coalesced GEMV=144 (3%), Coalesced GEMV-M=1452 (29%), A.1=3140 (63%), WMMA=264 (5%)
+(APIServer pid=1) INFO 06-12 06:55:12 [loggers.py:271] Engine 000: Avg prompt throughput: 4.2 tokens/s, Avg generation throughput: 34.7 tokens/s, Running: 1 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.7%, Prefix cache hit rate: 0.0%
+(APIServer pid=1) INFO 06-12 06:55:12 [metrics.py:101] SpecDecoding metrics: Mean acceptance length: 2.54, Accepted throughput: 21.00 tokens/s, Drafted throughput: 27.20 tokens/s, Accepted: 210 tokens, Drafted: 272 tokens, Per-position acceptance rate: 0.897, 0.647, Avg Draft acceptance rate: 77.2%
+(Worker_TP0 pid=634) [serve_fp8_v100 pid=634] kernel variant counts after 6000 calls: Coalesced GEMV=644 (11%), Coalesced GEMV-M=1952 (33%), A.1=3140 (52%), WMMA=264 (4%)
+(APIServer pid=1) INFO 06-12 06:55:22 [loggers.py:271] Engine 000: Avg prompt throughput: 0.0 tokens/s, Avg generation throughput: 34.9 tokens/s, Running: 1 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.7%, Prefix cache hit rate: 0.0%
+(APIServer pid=1) INFO 06-12 06:55:22 [metrics.py:101] SpecDecoding metrics: Mean acceptance length: 2.49, Accepted throughput: 20.90 tokens/s, Drafted throughput: 28.00 tokens/s, Accepted: 209 tokens, Drafted: 280 tokens, Per-position acceptance rate: 0.886, 0.607, Avg Draft acceptance rate: 74.6%
+(Worker_TP0 pid=634) [serve_fp8_v100 pid=634] kernel variant counts after 7000 calls: Coalesced GEMV=1144 (16%), Coalesced GEMV-M=2452 (35%), A.1=3140 (45%), WMMA=264 (4%)
+(Worker_TP0 pid=634) [serve_fp8_v100 pid=634] kernel variant counts after 8000 calls: Coalesced GEMV=1644 (21%), Coalesced GEMV-M=2952 (37%), A.1=3140 (39%), WMMA=264 (3%)
+(APIServer pid=1) INFO:     172.17.0.1:52134 - "GET /metrics HTTP/1.1" 200 OK
+(EngineCore pid=480) INFO 06-12 06:55:32 [core.py:1242] Shutdown initiated (timeout=0)
+(EngineCore pid=480) INFO 06-12 06:55:32 [core.py:1265] Shutdown complete
+(Worker_TP1 pid=642) INFO 06-12 06:55:32 [multiproc_executor.py:872] WorkerProc shutting down.
+(Worker_TP2 pid=653) INFO 06-12 06:55:32 [multiproc_executor.py:872] WorkerProc shutting down.
+(Worker_TP3 pid=669) INFO 06-12 06:55:32 [multiproc_executor.py:872] WorkerProc shutting down.
+(Worker_TP0 pid=634) INFO 06-12 06:55:32 [multiproc_executor.py:775] Parent process exited, terminating worker queues
+(Worker_TP0 pid=634) INFO 06-12 06:55:32 [multiproc_executor.py:872] WorkerProc shutting down.
+(APIServer pid=1) INFO:     Shutting down
+(APIServer pid=1) INFO:     Waiting for application shutdown.
+(APIServer pid=1) INFO:     Application shutdown complete.
+(APIServer pid=1) INFO:     Finished server process [1]
