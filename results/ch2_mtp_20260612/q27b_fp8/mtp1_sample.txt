@@ -1,0 +1,51 @@
+Here's a thinking thinking sequence
+
+1.  **Deconstruct the user's request:**
+    *   Topic: History, Geography, Economy, and Culture of France.
+    *   Format: Detailed, multi-section essay.
+    *   Structure: Clear subsections with headings.
+    *   Depth: Develop each section at length.
+
+2.  **Brainstorm and Outline (Mental or rough draft of structure):**
+    *   *Introduction:* Needs to hook the reader, define France's significance, and outline the essay's scope. Keywords: Hexagon, global influence, diversity, resilience.
+    *   *Geography:* Physical features, climate, regions, overseas territories.
+        *   Subsections: Topography, Climate, Hydrography, Overseas France.
+    *   *History:* Chronological approach is best.
+        *   Subsections: Ancient Gaul/Rome, Middle Ages/Monarchy, Revolution/Republics, Modern Era/WWII/EU.
+    *   *Economy:* Sectors, strengths, challenges, global role.
+        *   Subsections: Overview/Structure, Key Sectors (Agriculture, Tourism, Industry, Tech), Challenges/Future.
+    *   *Culture:* Arts, language, cuisine, lifestyle, values.
+        *   Subsections: Language/Literature, Arts/Architecture, Cuisine/Gastronomy, Social Values/Laïcité.
+    *   *Conclusion:* Summarize main points, reflect on France's enduring legacy and future trajectory.
+
+3.  **Flesh out each section (Drafting content with detail):**
+    *   *Introduction:* France is more than Paris. It's a cultural powerhouse, a founding EU member, with a complex history. Mention the "Hexagon."
+    *   *Geography:*
+        *   *Topography:* Alps, Pyrenees, Massif Central, Paris Basin. Mention the "Hexagon" shape.
+        *   *Climate:* Mediterranean south, Oceanic west, Continental east, Mountain.
+        *   *Hydrography:* Seine, Loire, Rhone.
+        *   *Overseas:* DOM-TOM, vast EEZ. This is crucial for a "detailed" essay.
+    *   *History:*
+        *   *Ancient:* Gauls, Caesar, Romanization, Clovis (Franks).
+        *   *Medieval/Royal:* Capetians, Hundred Years' War, Joan of Arc, Renaissance, Louis XIV (Absolutism).
+        *   *Revolution:* 1789, Enlightenment, Napoleon, Napoleonic Code.
+        *   *19th/20th:* 19th-century instability, WWI (Verdun), WWII (Vichy/Resistance), De Gaulle, Fifth Republic, Decolonization, EU integration.
+    *   *Economy:*
+        *   *Overview:* 7th largest GDP, mixed economy, strong state role.
+        *   *Sectors:* Agriculture (EU leader, wine), Tourism (most visited), Luxury goods (LVMH, etc.), Aerospace (Airbus), Nuclear energy.
+        *   *Challenges:* Unemployment, debt, strikes, digital transition.
+    *   *Culture:*
+        *   *Language:* French as a global language, Académie Française.
+        *   *Arts:* Impressionism, Literature (Voltaire, Hugo, Camus), Cinema.
+        *   *Cuisine:* UNESCO heritage, wine culture, regional diversity.
+        *   *Values:* Laïcité (secularism), Liberty/Equality/Fraternity, Social model.
+    *   *Conclusion:* Synthesize. France balances tradition and modernity. It remains a key player globally.
+
+4.  **Review and Refine (Self-Correction/Simulation):**
+    *   *Critique:* Did I mention overseas territories enough? *Adjustment:* Ensure "Outre-mer" is highlighted in Geography and Economy.
+    *   *Critique:* Is the history too focused on Paris? *Adjustment:* Mention regional conflicts or the diversity of the kingdom.
+    *   *Critique:* Is the economy section too dry? *Adjustment:* Add specific examples like Airbus, LVMH, and the nuclear fleet.
+    *   *Critique:* Are the headings clear? *Adjustment:* Use hierarchical headings (e.g., I. Geography, A. Topography...).
+    *   *Critique:* Is the tone appropriate? *Adjustment:* Maintain an informative, academic yet accessible tone.
+    *   *Critique:* Did I cover "Laïcité"? *Adjustment:* This is essential for French culture/politics. Add a specific mention in Culture.
+    *   *Critique:* Length check. *

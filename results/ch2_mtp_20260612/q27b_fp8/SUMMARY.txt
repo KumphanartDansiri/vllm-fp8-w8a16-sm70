@@ -1,0 +1,6 @@
+CH2 MTP A/B/N — Qwen3.6-27B-FP8 prec=fp8 TP=4 KLIST='1', cudagraph+skip-mm+coalesced, maxlen=4096, 1024 tok, chunked=0 — 2026-06-12T03:19:04Z
+off: OK decode=36.28 tok/s (wall=34.81) tok=1024 chunks=1024 ttft=1.22s rep=0.095 sha=6f0ab8f64aabb27c accept=n/a
+mtp1: OK decode=26.48 tok/s (wall=25.68) tok=1024 chunks=545 ttft=1.24s rep=0.095 sha=6f0ab8f64aabb27c accept=88.4%
+
+k=1: SPEEDUP off=36.28 -> mtp=26.48 tok/s = 0.73x | accept=88.4% | EXACTNESS: EXACT (token-for-token == baseline)
+  (acceptance is a perf signal only; usability = coherence of the mtp output; spec-init/capture evidence in results/ch2_mtp_20260612/q27b_fp8/*_spec_init.txt, *_cudagraph.txt)

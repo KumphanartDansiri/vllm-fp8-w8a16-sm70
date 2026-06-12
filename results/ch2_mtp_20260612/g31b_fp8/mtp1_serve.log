@@ -1,0 +1,100 @@
+
+==========
+== CUDA ==
+==========
+
+CUDA Version 12.6.3
+
+Container image Copyright (c) 2016-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+This container image and its contents are governed by the NVIDIA Deep Learning Container License.
+By pulling and using the container, you accept the terms and conditions of this license:
+https://developer.nvidia.com/ngc/nvidia-deep-learning-container-license
+
+A copy of this license is made available in this container at /NGC-DL-CONTAINER-LICENSE for your convenience.
+
+[serve_fp8_v100] Compiling FP8 W8A16 kernel for sm_70 ...
+[serve_fp8_v100] Kernel compiled OK.
+[serve_fp8_v100 pid=1] applying V100 FP8 patches (volta=True)
+[serve_fp8_v100 ct pid=1] compressed-tensors W8A16-FP8 patched for sm_70 (min_cap=70; FP8-resident channel=on, else dequant-to-FP16). W8A8 left at cap=89 so its fallback to W8A16 fires.
+[serve_fp8_v100 ct-moe pid=1] compressed-tensors FP8 MoE patched for sm_70 (dequant experts->FP16 + unquantized FP16 fused-MoE). CHANNEL/TENSOR only; FP16-resident.
+[fa_v100_prefill pid=1] disabled (VLLM_V100_FLASH_ATTN unset)
+[serve_fp8_v100 pid=1] Patches applied: min_cap=70, use_marlin=False on V100, apply() routed to our kernel for block_quant, FP8 MoE fallback=on, fail-closed for non-block FP8.
+(APIServer pid=1) INFO 06-12 03:46:07 [utils.py:306] 
+(APIServer pid=1) INFO 06-12 03:46:07 [utils.py:306]        █     █     █▄   ▄█
+(APIServer pid=1) INFO 06-12 03:46:07 [utils.py:306]  ▄▄ ▄█ █     █     █ ▀▄▀ █  version 0.21.0
+(APIServer pid=1) INFO 06-12 03:46:07 [utils.py:306]   █▄█▀ █     █     █     █  model   /mnt/models/RedHatAI/gemma-4-31B-it-FP8-Dynamic
+(APIServer pid=1) INFO 06-12 03:46:07 [utils.py:306]    ▀▀  ▀▀▀▀▀ ▀▀▀▀▀ ▀     ▀
+(APIServer pid=1) INFO 06-12 03:46:07 [utils.py:306] 
+(APIServer pid=1) INFO 06-12 03:46:07 [utils.py:240] non-default args: {'host': '0.0.0.0', 'port': 8021, 'model': '/mnt/models/RedHatAI/gemma-4-31B-it-FP8-Dynamic', 'dtype': 'float16', 'max_model_len': 4096, 'served_model_name': ['ch2'], 'tensor_parallel_size': 4, 'gpu_memory_utilization': 0.9, 'skip_mm_profiling': True, 'max_num_seqs': 8, 'enable_chunked_prefill': False, 'speculative_config': {'method': 'mtp', 'num_speculative_tokens': 1}, 'compilation_config': {'mode': <CompilationMode.NONE: 0>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': [], 'ir_enable_torch_wrap': None, 'splitting_ops': None, 'compile_mm_encoder': False, 'cudagraph_mm_encoder': False, 'encoder_cudagraph_token_budgets': [], 'encoder_cudagraph_max_vision_items_per_batch': 0, 'encoder_cudagraph_max_frames_per_batch': None, 'compile_sizes': None, 'compile_ranges_endpoints': None, 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'size_asserts': False, 'alignment_asserts': False, 'scalar_asserts': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.FULL_DECODE_ONLY: (2, 0)>, 'cudagraph_num_of_warmups': 0, 'cudagraph_capture_sizes': None, 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': None, 'pass_config': {}, 'max_cudagraph_capture_size': None, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False, 'assume_32_bit_indexing': False}, 'local_cache_dir': None, 'fast_moe_cold_start': None, 'static_all_moe_layers': []}}
+(APIServer pid=1) WARNING 06-12 03:46:07 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_FP8_MOE_W13_COALESCED
+(APIServer pid=1) WARNING 06-12 03:46:07 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_CT_FP8_RESIDENT_SELFCHECK
+(APIServer pid=1) WARNING 06-12 03:46:07 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_CT_MOE_W2_GROUPED
+(APIServer pid=1) WARNING 06-12 03:46:07 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_CT_MOE_W13_RESIDENT
+(APIServer pid=1) WARNING 06-12 03:46:07 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_FP8_MOE_FALLBACK
+(APIServer pid=1) WARNING 06-12 03:46:07 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_FP8_MOE_GROUPED_ROUTED_GEMM
+(APIServer pid=1) WARNING 06-12 03:46:07 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_FP8_COALESCED_GEMV_M_MAX
+(APIServer pid=1) WARNING 06-12 03:46:07 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_FP8_COALESCED_UNROLL
+(APIServer pid=1) WARNING 06-12 03:46:07 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_ATTENTION_BACKEND
+(APIServer pid=1) WARNING 06-12 03:46:07 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_CT_MOE_W13_FREE_FP16
+(APIServer pid=1) WARNING 06-12 03:46:07 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_FP8_MOE_FAST_ROUTE_PREP
+(APIServer pid=1) WARNING 06-12 03:46:07 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_FP8_MOE_GROUPED_MAX_ROUTE_SLOTS
+(APIServer pid=1) WARNING 06-12 03:46:07 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_CT_FP8_RESIDENT
+(APIServer pid=1) WARNING 06-12 03:46:07 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_FP8_COALESCED_GEMV
+(APIServer pid=1) WARNING 06-12 03:46:07 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_FP8_COALESCED_M_UNROLL
+(APIServer pid=1) WARNING 06-12 03:46:07 [envs.py:1866] Unknown vLLM environment variable detected: VLLM_V100_CT_MOE_W13_COALESCED
+(APIServer pid=1) INFO 06-12 03:46:24 [model.py:568] Resolved architecture: Gemma4ForConditionalGeneration
+(APIServer pid=1) WARNING 06-12 03:46:24 [model.py:2035] Casting torch.bfloat16 to torch.float16.
+(APIServer pid=1) INFO 06-12 03:46:24 [model.py:1697] Using max model len 4096
+(APIServer pid=1) WARNING 06-12 03:46:24 [arg_utils.py:2318] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+(APIServer pid=1) INFO 06-12 03:46:24 [model.py:568] Resolved architecture: Gemma4ForConditionalGeneration
+(APIServer pid=1) WARNING 06-12 03:46:24 [model.py:2035] Casting torch.bfloat16 to torch.float16.
+(APIServer pid=1) INFO 06-12 03:46:24 [model.py:1697] Using max model len 262144
+(APIServer pid=1) Traceback (most recent call last):
+(APIServer pid=1)   File "<frozen runpy>", line 198, in _run_module_as_main
+(APIServer pid=1)   File "<frozen runpy>", line 88, in _run_code
+(APIServer pid=1)   File "/work/src/fp8_w8a16_sm70/vllm_serve.py", line 2738, in <module>
+(APIServer pid=1)     runpy.run_module("vllm.entrypoints.openai.api_server", run_name="__main__")
+(APIServer pid=1)   File "<frozen runpy>", line 229, in run_module
+(APIServer pid=1)   File "<frozen runpy>", line 88, in _run_code
+(APIServer pid=1)   File "/usr/local/lib/python3.12/dist-packages/vllm/entrypoints/openai/api_server.py", line 733, in <module>
+(APIServer pid=1)     uvloop.run(run_server(args))
+(APIServer pid=1)   File "/usr/local/lib/python3.12/dist-packages/uvloop/__init__.py", line 96, in run
+(APIServer pid=1)     return __asyncio.run(
+(APIServer pid=1)            ^^^^^^^^^^^^^^
+(APIServer pid=1)   File "/usr/lib/python3.12/asyncio/runners.py", line 194, in run
+(APIServer pid=1)     return runner.run(main)
+(APIServer pid=1)            ^^^^^^^^^^^^^^^^
+(APIServer pid=1)   File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run
+(APIServer pid=1)     return self._loop.run_until_complete(task)
+(APIServer pid=1)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(APIServer pid=1)   File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+(APIServer pid=1)   File "/usr/local/lib/python3.12/dist-packages/uvloop/__init__.py", line 48, in wrapper
+(APIServer pid=1)     return await main
+(APIServer pid=1)            ^^^^^^^^^^
+(APIServer pid=1)   File "/usr/local/lib/python3.12/dist-packages/vllm/entrypoints/openai/api_server.py", line 693, in run_server
+(APIServer pid=1)     await run_server_worker(listen_address, sock, args, **uvicorn_kwargs)
+(APIServer pid=1)   File "/usr/local/lib/python3.12/dist-packages/vllm/entrypoints/openai/api_server.py", line 707, in run_server_worker
+(APIServer pid=1)     async with build_async_engine_client(
+(APIServer pid=1)   File "/usr/lib/python3.12/contextlib.py", line 210, in __aenter__
+(APIServer pid=1)     return await anext(self.gen)
+(APIServer pid=1)            ^^^^^^^^^^^^^^^^^^^^^
+(APIServer pid=1)   File "/usr/local/lib/python3.12/dist-packages/vllm/entrypoints/openai/api_server.py", line 100, in build_async_engine_client
+(APIServer pid=1)     async with build_async_engine_client_from_engine_args(
+(APIServer pid=1)   File "/usr/lib/python3.12/contextlib.py", line 210, in __aenter__
+(APIServer pid=1)     return await anext(self.gen)
+(APIServer pid=1)            ^^^^^^^^^^^^^^^^^^^^^
+(APIServer pid=1)   File "/usr/local/lib/python3.12/dist-packages/vllm/entrypoints/openai/api_server.py", line 124, in build_async_engine_client_from_engine_args
+(APIServer pid=1)     vllm_config = engine_args.create_engine_config(usage_context=usage_context)
+(APIServer pid=1)                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(APIServer pid=1)   File "/usr/local/lib/python3.12/dist-packages/vllm/engine/arg_utils.py", line 1945, in create_engine_config
+(APIServer pid=1)     speculative_config = self.create_speculative_config(
+(APIServer pid=1)                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(APIServer pid=1)   File "/usr/local/lib/python3.12/dist-packages/vllm/engine/arg_utils.py", line 1634, in create_speculative_config
+(APIServer pid=1)     return SpeculativeConfig(**self.speculative_config)
+(APIServer pid=1)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(APIServer pid=1)   File "/usr/local/lib/python3.12/dist-packages/pydantic/_internal/_dataclasses.py", line 121, in __init__
+(APIServer pid=1)     s.__pydantic_validator__.validate_python(ArgsKwargs(args, kwargs), self_instance=s)
+(APIServer pid=1)   File "/usr/local/lib/python3.12/dist-packages/vllm/config/speculative.py", line 686, in __post_init__
+(APIServer pid=1)     raise NotImplementedError(
+(APIServer pid=1) NotImplementedError: Unsupported speculative method: 'mtp'
