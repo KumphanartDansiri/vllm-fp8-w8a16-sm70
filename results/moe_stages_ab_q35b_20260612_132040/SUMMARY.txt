@@ -1,0 +1,26 @@
+MoE num_stages A/B — q35b (/mnt/models/Qwen/Qwen3.6-35B-A3B) E=256 N=128 TP=4 ns=8 gentok=1024 — 2026-06-12T13:20:40Z
+base: config-miss warnings in log = 1 (expect >=1)
+base run1: tok=1024 decode=15.58 tok/s ttft=0.76s rep=0.071 sha=71a7e87997150163
+base run2: tok=1024 decode=15.57 tok/s ttft=0.74s rep=0.071 sha=71a7e87997150163
+base run3: tok=1024 decode=15.57 tok/s ttft=0.74s rep=0.071 sha=71a7e87997150163
+
+s4: override pickup lines = 1 (expect >=1)
+s4 run1: tok=1024 decode=15.57 tok/s ttft=0.76s rep=0.071 sha=71a7e87997150163
+s4 run2: tok=1024 decode=15.57 tok/s ttft=0.75s rep=0.071 sha=71a7e87997150163
+s4 run3: tok=1024 decode=15.57 tok/s ttft=0.74s rep=0.071 sha=71a7e87997150163
+
+s3: override pickup lines = 1 (expect >=1)
+s3 run1: tok=1024 decode=15.57 tok/s ttft=0.75s rep=0.071 sha=71a7e87997150163
+s3 run2: tok=1024 decode=15.57 tok/s ttft=0.74s rep=0.071 sha=71a7e87997150163
+s3 run3: tok=1024 decode=15.57 tok/s ttft=0.74s rep=0.071 sha=71a7e87997150163
+
+s2: override pickup lines = 1 (expect >=1)
+s2 run1: tok=1024 decode=15.57 tok/s ttft=0.75s rep=0.071 sha=71a7e87997150163
+s2 run2: tok=1024 decode=15.57 tok/s ttft=0.75s rep=0.071 sha=71a7e87997150163
+s2 run3: tok=1024 decode=15.57 tok/s ttft=0.74s rep=0.071 sha=71a7e87997150163
+
+== MEANS ==
+base: decode_mean=15.57 min=15.57 max=15.58 n=3
+s4: decode_mean=15.57 min=15.57 max=15.57 n=3
+s3: decode_mean=15.57 min=15.57 max=15.57 n=3
+s2: decode_mean=15.57 min=15.57 max=15.57 n=3

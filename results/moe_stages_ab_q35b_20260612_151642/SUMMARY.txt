@@ -1,0 +1,8 @@
+MoE num_stages A/B — q35b (/mnt/models/Qwen/Qwen3.6-35B-A3B) E=256 N=128 TP=4 ns=8 gentok=1024 — 2026-06-12T15:16:42Z
+kbest: override pickup lines = 1 (expect >=1)
+kbest run1: tok=1024 decode=65.86 tok/s ttft=2.01s rep=0.071 sha=71a7e87997150163
+kbest run2: tok=1024 decode=65.87 tok/s ttft=0.25s rep=0.071 sha=71a7e87997150163
+kbest run3: tok=1024 decode=65.87 tok/s ttft=0.24s rep=0.071 sha=71a7e87997150163
+
+== MEANS ==
+kbest: decode_mean=65.87 min=65.86 max=65.87 n=3

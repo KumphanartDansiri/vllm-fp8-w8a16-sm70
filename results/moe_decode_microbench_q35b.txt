@@ -1,0 +1,28 @@
+device = Tesla V100-SXM2-32GB
+copy bandwidth ~ 816 GB/s
+shapes: E=256 topk=8 K=2048 Nshard=128 w13=(256, 256, 2048) w2=(256, 2048, 128) fp16
+M=1: fused_experts =   1398.2 us | active-weight bytes   12.6 MB -> floor   15.4 us | slowdown vs floor =  90.7x
+M=2: fused_experts =   2171.3 us | active-weight bytes   25.2 MB -> floor   30.8 us | slowdown vs floor =  70.4x
+M=4: fused_experts =   3583.5 us | active-weight bytes   50.3 MB -> floor   61.7 us | slowdown vs floor =  58.1x
+M=8: fused_experts =   7359.1 us | active-weight bytes  100.7 MB -> floor  123.4 us | slowdown vs floor =  59.7x
+
+== top kernels by CUDA time, M=1, 50 calls ==
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                                                   Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg     Self CUDA   Self CUDA %    CUDA total  CUDA time avg    # of Calls  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                                       fused_moe_kernel         0.00%       0.000us         0.00%       0.000us       0.000us      64.557ms        98.88%      64.557ms     645.567us           100  
+void at::native::reduce_kernel<128, 4, at::native::R...         0.00%       0.000us         0.00%       0.000us       0.000us     475.866us         0.73%     475.866us       9.517us            50  
+void vllm::act_and_mul_kernel<c10::Half, __half2, &(...         0.00%       0.000us         0.00%       0.000us       0.000us     145.116us         0.22%     145.116us       2.902us            50  
+void at::native::vectorized_elementwise_kernel<4, at...         0.00%       0.000us         0.00%       0.000us       0.000us     111.742us         0.17%     111.742us       2.235us            50  
+                                       cudaLaunchKernel         6.41%       2.265ms        15.67%       5.542ms      36.948us       0.000us         0.00%       0.000us       0.000us           150  
+                                           Unrecognized         9.26%       3.277ms         9.26%       3.277ms       3.277ms       0.000us         0.00%       0.000us       0.000us             1  
+                                       cuLaunchKernelEx         2.77%     980.078us         2.77%     980.078us       9.801us       0.000us         0.00%       0.000us       0.000us           100  
+                                  cudaDeviceSynchronize        81.56%      28.846ms        81.56%      28.846ms      14.423ms       0.000us         0.00%       0.000us       0.000us             2  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+Self CPU time total: 35.368ms
+Self CUDA time total: 65.289ms
+
+
+dense ref: [1,2048]x[2048,2048] fp16 cuBLAS = 50.0 us (8.4 MB weights)
+
+DONE
