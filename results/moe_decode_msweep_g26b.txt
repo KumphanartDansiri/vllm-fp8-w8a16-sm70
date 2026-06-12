@@ -1,0 +1,58 @@
+device = Tesla V100-SXM2-32GB
+shapes: E=128 topk=8 K=2816 Nshard=176 Ms=[1, 2, 4, 8, 16]
+M=1   default (16/64/128 w4 s4)           :   2649.8 us
+M=1   16/64/128 w4 s2                     :   2565.7 us
+M=1   16/32/64  w4 s2 (kbest)             :    623.2 us
+M=1   16/32/32  w4 s2                     :    620.5 us
+M=1   16/16/64  w2 s2 (max blocks)        :    625.3 us
+M=1   16/64/64  w8 s2 (more warps)        :    622.9 us
+M=1   16/128/64 w8 s2 (fat N)             :    624.0 us
+M=1   16/64/256 w4 s2 (deep K)            :   3293.7 us
+M=1   16/32/128 w4 s3                     :    623.6 us
+M=1   best = 16/32/32  w4 s2 at 620.5 us (4.27x vs default; floor ~29 us, 21x off)
+
+M=2   default (16/64/128 w4 s4)           :   4334.3 us
+M=2   16/64/128 w4 s2                     :   4333.9 us
+M=2   16/32/64  w4 s2 (kbest)             :    632.4 us
+M=2   16/32/32  w4 s2                     :    626.9 us
+M=2   16/16/64  w2 s2 (max blocks)        :    626.0 us
+M=2   16/64/64  w8 s2 (more warps)        :    775.4 us
+M=2   16/128/64 w8 s2 (fat N)             :    626.5 us
+M=2   16/64/256 w4 s2 (deep K)            :   6166.0 us
+M=2   16/32/128 w4 s3                     :    718.2 us
+M=2   best = 16/16/64  w2 s2 (max blocks) at 626.0 us (6.92x vs default; floor ~58 us, 11x off)
+
+M=4   default (16/64/128 w4 s4)           :   7747.6 us
+M=4   16/64/128 w4 s2                     :   7744.6 us
+M=4   16/32/64  w4 s2 (kbest)             :   1039.0 us
+M=4   16/32/32  w4 s2                     :   1119.4 us
+M=4   16/16/64  w2 s2 (max blocks)        :   1113.5 us
+M=4   16/64/64  w8 s2 (more warps)        :   1242.7 us
+M=4   16/128/64 w8 s2 (fat N)             :   1018.4 us
+M=4   16/64/256 w4 s2 (deep K)            :  10853.2 us
+M=4   16/32/128 w4 s3                     :   1249.0 us
+M=4   best = 16/128/64 w8 s2 (fat N) at 1018.4 us (7.61x vs default; floor ~117 us, 9x off)
+
+M=8   default (16/64/128 w4 s4)           :  14073.5 us
+M=8   16/64/128 w4 s2                     :  14076.9 us
+M=8   16/32/64  w4 s2 (kbest)             :   1770.7 us
+M=8   16/32/32  w4 s2                     :   1695.0 us
+M=8   16/16/64  w2 s2 (max blocks)        :   1836.6 us
+M=8   16/64/64  w8 s2 (more warps)        :   2078.0 us
+M=8   16/128/64 w8 s2 (fat N)             :   1627.2 us
+M=8   16/64/256 w4 s2 (deep K)            :  18377.4 us
+M=8   16/32/128 w4 s3                     :   2069.0 us
+M=8   best = 16/128/64 w8 s2 (fat N) at 1627.2 us (8.65x vs default; floor ~233 us, 7x off)
+
+M=16  default (16/64/128 w4 s4)           :  17327.7 us
+M=16  16/64/128 w4 s2                     :  17328.4 us
+M=16  16/32/64  w4 s2 (kbest)             :   2282.1 us
+M=16  16/32/32  w4 s2                     :   2278.1 us
+M=16  16/16/64  w2 s2 (max blocks)        :   2421.4 us
+M=16  16/64/64  w8 s2 (more warps)        :   2568.9 us
+M=16  16/128/64 w8 s2 (fat N)             :   1801.1 us
+M=16  16/64/256 w4 s2 (deep K)            :  23444.7 us
+M=16  16/32/128 w4 s3                     :   2773.8 us
+M=16  best = 16/128/64 w8 s2 (fat N) at 1801.1 us (9.62x vs default; floor ~466 us, 4x off)
+
+DONE

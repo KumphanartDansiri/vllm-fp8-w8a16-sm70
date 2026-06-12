@@ -65,8 +65,9 @@ clean_box_guard() {
 # Emit a tuned-config JSON mirroring get_default_config(dtype=None) per M, with num_stages
 # for M<=32 forced to $2. M>32 entries always replicate the default (stages=3) so prefill
 # is identical across arms and the sweep isolates the decode path.
-# Mode "kbest" instead applies the microbench winner (tools/moe_decode_tile_sweep.py,
-# 2026-06-12): BLOCK_K=128->64 on the small-M entries = 2.32x kernel at M=1; num_stages=2.
+# Mode "kbest" instead applies the microbench winners (tools/moe_decode_tile_sweep.py,
+# 2026-06-12 M=1..16 sweep): BLOCK_K<=64 everywhere small-M (the spill fix), per-M tile:
+# M<=4 -> 16/32/64 w4 s2; M=8..64 -> 16/128/64 w8 s2 (fat-N wins 25% at M>=8).
 write_cfg() {  # $1=dir $2=stages_small_m|"kbest"
     local dir="$1" st="$2"
     mkdir -p "$dir"
@@ -81,7 +82,10 @@ for M in [1,2,4,8,16,24,32,48,64,96,128,256,512,1024,1536,2048,3072,4096]:
     nw = 4 if M<=128 else 8
     ns = int(st) if (st != "kbest" and M<=32) else 3
     if st == "kbest" and M<=64:
-        bn, bk, ns = 32, 64, 2
+        if M<=4:
+            bm, bn, bk, nw, ns = 16, 32, 64, 4, 2
+        else:
+            bm, bn, bk, nw, ns = 16, 128, 64, 8, 2
     cfg[str(M)] = {"BLOCK_SIZE_M": bm, "BLOCK_SIZE_N": bn, "BLOCK_SIZE_K": bk,
                    "GROUP_SIZE_M": 1, "num_warps": nw, "num_stages": ns}
 name = f"E={E},N={N},device_name=Tesla_V100-SXM2-32GB.json"
