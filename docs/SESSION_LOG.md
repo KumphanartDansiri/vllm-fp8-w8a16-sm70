@@ -2859,3 +2859,13 @@ comfortable 70 tok/s); at 8 users GEMVs are balanced+efficient, aggregate 164-18
 fusion dead at decode (15% & shrinking). Bank FP16 MoE as the headline; FP8 w2 = optional polish,
 no trigger. ONLY revisit if single-user latency on 122B-A10B TP8 (~45 tok/s, less headroom) becomes
 a target -> re-profile 122B M=1 first. Artifact: results/moe_fp8_profile_20260613_072405/.
+
+## 2026-06-13 (cont) — Vision encoder FA bridge: measured NO-GO (Codex microbench, Claude review)
+V100 ViT defaults to Torch SDPA (sm70 backend order short-circuits before TRITON). ai-bond FA varlen
+API fits ViT but kernel only compiles D in {16,32,64,128,256}; vision head_dim=72 hard-errors. Cheap
+bridge (pad 72->128) microbenched (tools/vit_fa_v100_d72_microbench.py): correct cos=1.0 but ~0.4x
+SDPA at all ViT shapes (256-2048, single+batched) = 2-2.7x slower, flat, no crossover. Extrapolation
+(strip 1.78x pad): native D=72 ~0.71x, D=80 ~0.64x — deeper kernel also loses. Root cause: FA's
+O(N)-memory advantage is moot at ViT's short N (<=4k) where SDPA mem-efficient already suffices.
+DECISION: V100 ViT stays on SDPA; do not build the FA-ViT bridge or a custom head-dim kernel. Real
+vision levers = --skip-mm-profiling + --limit-mm-per-prompt, and only if images are served.

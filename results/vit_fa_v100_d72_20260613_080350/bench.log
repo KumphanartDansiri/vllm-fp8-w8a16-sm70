@@ -1,0 +1,21 @@
+
+==========
+== CUDA ==
+==========
+
+CUDA Version 12.6.3
+
+Container image Copyright (c) 2016-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+This container image and its contents are governed by the NVIDIA Deep Learning Container License.
+By pulling and using the container, you accept the terms and conditions of this license:
+https://developer.nvidia.com/ngc/nvidia-deep-learning-container-license
+
+A copy of this license is made available in this container at /NGC-DL-CONTAINER-LICENSE for your convenience.
+
+[vit-fa] device=Tesla V100-SXM2-32GB torch=2.11.0+cu126 shape B=1 H=16 D=72->128 scale=1/sqrt(72) padding_tax=1.778x
+[vit-fa] raw D=72 probe: expected failure: RuntimeError: Unsupported D: 72
+[vit-fa] B= 1 S=  256 H=16 D= 72->128 sdpa=   0.168ms ( 1.80TF) fa_pad=   0.050ms (10.78TF padded) speedup= 3.36x cos=1.000000 l2=1.765e-05 max=1.221e-04
+[vit-fa] B= 1 S=  512 H=16 D= 72->128 sdpa=   0.166ms ( 7.26TF) fa_pad=   0.181ms (11.88TF padded) speedup= 0.92x cos=1.000000 l2=2.170e-05 max=1.221e-04
+[vit-fa] B= 1 S= 1024 H=16 D= 72->128 sdpa=   0.337ms (14.32TF) fa_pad=   0.595ms (14.43TF padded) speedup= 0.57x cos=1.000000 l2=2.761e-05 max=1.221e-04
+[vit-fa] B= 1 S= 2048 H=16 D= 72->128 sdpa=   1.075ms (17.97TF) fa_pad=   2.146ms (16.01TF padded) speedup= 0.50x cos=1.000000 l2=3.391e-05 max=1.221e-04
