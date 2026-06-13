@@ -1,0 +1,31 @@
+Here's a thinking thinking sequence
+
+1.  **Deconstruct the user's request:**
+    *   Topic: Politics of France.
+    *   Format: Detailed, multi-section essay.
+    *   Structure: Clear subsections with headings.
+    *   Depth: Develop each section at length.
+
+2.  **Initial brainstorming and outlining:**
+    *   *What are the key aspects of French politics?*
+        *   History (Republics, Revolution, Monarchy, Empire).
+        *   Constitution/Government structure (Fifth Republic, President, PM, Parliament, Judiciary).
+        *   Political parties/Spectrum (Left, Right, Far-Right, Far-Left, Centrists).
+        *   Electoral system (Two-round system, Proportional for Parliament).
+        *   Key issues (Secularism/Laïcité, Immigration, EU, Economy, Social movements).
+        *   Recent developments (Macron, Rise of RN, Cohabitation, 2024 elections).
+        *   International role (UN, EU, Nuclear power, Diplomacy).
+
+    *   *Drafting the Outline:*
+        *   *Introduction:* Overview of French political identity, the Fifth Republic, current context.
+        *   *Section 1: Historical Foundations.* From Ancien Régime to the Fifth Republic. The concept of the Republic.
+        *   *Section 2: Constitutional Framework and Government Structure.* The Fifth Republic, separation of powers, the "Hyper-presidential" nature.
+        *   *Section 3: The Electoral System.* Two-round system, impact on party fragmentation.
+        *   *Section 4: The Political Landscape and Party System.* Traditional left/right, rise of centrism, rise of the far-right, fragmentation.
+        *   *Section 5: Key Ideological and Policy Debates.* Laïcité, Immigration, EU, Economy, Social movements (Gilets Jaunes, etc.).
+        *   *Section 6: France in the World.* EU leadership, NATO, Global South, Nuclear deterrent.
+        *   *Conclusion:* Summary of challenges, future outlook.
+
+3.  **Fleshing out each section (Mental drafting and content generation):**
+    *   *Intro:* Mention "Liberté, Égalité, Fraternité". Mention the resilience of the Republic. Note the current volatility.
+    *   *History

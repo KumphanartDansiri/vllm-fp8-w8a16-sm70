@@ -1,0 +1,32 @@
+Here's a thinking thinking sequence
+
+1.  **Deconstruct the user's request:**
+    *   Topic: Economy of France.
+    *   Format: Detailed, multi-section essay.
+    *   Structure: Clear subsections with headings.
+    *   Depth: Develop each section at length.
+
+2.  **Initial brainstorming and outlining (Mental Sketch of Structure):**
+    *   *Introduction:* Needs to set the stage. France as a major global economy, G7 member, EU powerhouse, mix of state intervention and market forces.
+    *   *Key Sectors:* Agriculture, Industry, Services, Tourism. These are the pillars.
+    *   *Labor Market & Social Model:* This is crucial for France. High taxes, strong unions, 35-hour work week, unemployment issues.
+    *   *Public Finance & Debt:* Deficits, debt-to-GDP ratio, EU rules.
+    *   *EU & Global Context:* Eurozone role, trade relationships, Brexit impact, global standing.
+    *   *Challenges & Future Outlook:* Green transition, digitalization, aging population, political stability.
+    *   *Conclusion:* Summary of strengths and weaknesses, final verdict.
+
+    *Refining Headings:*
+    *   Introduction: The French Economic Paradox: Strengths and Structural Tensions.
+    *   Sectoral Composition: A Diversified Industrial and Service Base.
+    *   The French Social Model: Labor Markets, Welfare, and State Intervention.
+    *   Public Finance: Debt, Deficits, and Fiscal Policy.
+    *   International Trade and European Integration.
+    *   Contemporary Challenges and Future Trajectories.
+    *   Conclusion.
+
+3.  **Fleshing out each section (Drafting Content - Mental or rough text generation):**
+    *   *Intro:* Mention GDP rank (usually 7th or 8th globally, 2nd in EU). Mention "Dirigisme" history vs. modern liberalization. Key stats: ~$3 trillion GDP.
+    *   *Sectors:*
+        *   *Services:* Dominant (~70% GDP). Finance, consulting, luxury goods (LVMH, Kering).
+        *   *Industry:* Aerospace (Airbus), Nuclear energy, Pharma (Sanofi), Automotive (Renault, Stellantis). Mention "Reindustrialization" efforts.
+        *   *Agriculture

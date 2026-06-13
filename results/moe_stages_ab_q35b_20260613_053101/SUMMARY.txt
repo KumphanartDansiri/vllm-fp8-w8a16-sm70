@@ -1,0 +1,14 @@
+MoE num_stages A/B — q35b (/mnt/models/Qwen/Qwen3.6-35B-A3B) E=256 N=128 TP=4 ns=8 gentok=512 — 2026-06-13T05:31:01Z
+base: config-miss warnings in log = 1 (expect >=1)
+base run1: users_ok=8/8 per-user decode min=3.12 mean=3.16 max=3.17 tok/s | aggregate=24.92 tok/s | worst_rep=0.113
+base run2: users_ok=8/8 per-user decode min=3.12 mean=3.16 max=3.17 tok/s | aggregate=24.93 tok/s | worst_rep=0.113
+
+kbest: override pickup lines = 1 (expect >=1)
+kbest run1: users_ok=8/8 per-user decode min=13.85 mean=19.57 max=22.98 tok/s | aggregate=110.70 tok/s | worst_rep=0.113
+kbest run2: users_ok=8/8 per-user decode min=20.50 mean=22.39 max=23.00 tok/s | aggregate=163.70 tok/s | worst_rep=0.113
+
+auto: override pickup lines = 1 (expect >=1)
+auto run1: users_ok=8/8 per-user decode min=20.92 mean=22.70 max=22.98 tok/s | aggregate=167.05 tok/s | worst_rep=0.113
+auto run2: users_ok=8/8 per-user decode min=22.64 mean=22.91 max=22.98 tok/s | aggregate=180.78 tok/s | worst_rep=0.113
+
+== MEANS ==

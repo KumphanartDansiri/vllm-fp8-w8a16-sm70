@@ -1,0 +1,20 @@
+MoE num_stages A/B — g26b (/mnt/models/google/gemma-4-26B-A4B-it) E=128 N=176 TP=4 ns=8 gentok=1024 — 2026-06-13T05:10:56Z
+base: config-miss warnings in log = 1 (expect >=1)
+base run1: tok=1024 decode=10.91 tok/s ttft=0.86s rep=0.081 sha=4114494e3897d68e
+base run2: tok=1024 decode=10.91 tok/s ttft=0.32s rep=0.085 sha=b058c5efe64ca9b1
+base run3: tok=1024 decode=10.91 tok/s ttft=0.32s rep=0.085 sha=b058c5efe64ca9b1
+
+kbest: override pickup lines = 1 (expect >=1)
+kbest run1: tok=1024 decode=43.64 tok/s ttft=0.17s rep=0.081 sha=4114494e3897d68e
+kbest run2: tok=1024 decode=43.67 tok/s ttft=0.15s rep=0.085 sha=b058c5efe64ca9b1
+kbest run3: tok=1024 decode=43.67 tok/s ttft=0.14s rep=0.085 sha=b058c5efe64ca9b1
+
+auto: override pickup lines = 1 (expect >=1)
+auto run1: tok=1024 decode=43.71 tok/s ttft=2.09s rep=0.081 sha=4114494e3897d68e
+auto run2: tok=1024 decode=43.71 tok/s ttft=2.09s rep=0.085 sha=b058c5efe64ca9b1
+auto run3: tok=1024 decode=43.71 tok/s ttft=0.15s rep=0.085 sha=b058c5efe64ca9b1
+
+== MEANS ==
+base: decode_mean=10.91 min=10.91 max=10.91 n=3
+kbest: decode_mean=43.66 min=43.64 max=43.67 n=3
+auto: decode_mean=43.71 min=43.71 max=43.71 n=3

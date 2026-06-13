@@ -1,0 +1,17 @@
+# The Architecture of Power: An Analysis of French Politics
+
+The political landscape of France is a complex tapestry woven from centuries of monarchical tradition, revolutionary fervor, and a highly centralized administrative structure. Unlike many of its neighbors, France operates under a unique constitutional framework that balances a powerful presidency with a parliamentary system, creating a dynamic—and often volatile—political environment. To understand French politics, one must examine the institutional structure, the historical ideological shifts, and the contemporary challenges that define the Fifth Republic.
+
+## I. The Institutional Framework: The Fifth Republic and Semi-Presidentialism
+
+The current political order of France is defined by the Constitution of the Fifth Republic, established in 1958 under the leadership of Charles de Gaulle. This constitution was designed specifically to remedy the instability of previous regimes, which were characterized by weak executives and fractured parliaments.
+
+At the heart of this system is the **Semi-Presidential model**. Unlike a pure presidential system (like the United States) or a pure parliamentary system (like the United Kingdom), France splits executive power between a President and a Prime Minister. The President is the head of state, elected directly by the people for a five-year term. The President holds immense authority, particularly in foreign policy and defense, and possesses the power to dissolve the National Assembly.
+
+The Prime Minister, conversely, is the head of government. Appointed by the President but responsible to the National Assembly, the Prime Minister manages the day-to-day administration of the state and domestic policy. A unique phenomenon known as **"cohabitation"** occurs when the President’s political party loses a parliamentary election. In such cases, the President is forced to appoint a Prime Minister from the opposition party, effectively shifting the domestic power center toward the legislature and forcing the President into a more ceremonial role.
+
+The legislative branch consists of two houses: the **National Assembly** (the lower house, which holds the most power) and the **Senate** (the upper house, which represents local territories). While the Senate can delay legislation, the National Assembly has the final word, making the control of the Assembly the ultimate prize in French elections.
+
+## II. The Ideological Evolution: From Bipolarity to Fragmentation
+
+For much of the late 20th century, French politics was characterized by a stable, "bipolar" structure. The political spectrum was divided into two major blocs: the center-left (represented primarily by the Socialist Party) and the center-right (represented by various iterations of

@@ -1,0 +1,31 @@
+Here's a thinking thinking sequence
+
+1.  **Deconstruct the user:**
+    *   Topic: Art of France.
+    *   Format: Detailed, multi-section essay.
+    *   Structure: Clear subsections with headings.
+    *   Requirement: Develop each section at length.
+
+2.  **Initial brainstorming and outlining:**
+    *   *Scope:* French art is vast, spanning from prehistoric cave paintings to contemporary installations. I need to cover major movements, key periods, and defining characteristics.
+    *   *Potential Sections:*
+        *   Introduction: Define French art, its global influence, the role of the state/academies, and the evolution from religious to secular.
+        *   Medieval/Romanesque/Gothic: Cathedrals, illuminated manuscripts.
+        *   Renaissance/Baroque: Influence from Italy, Fontainebleau, Poussin, Le Brun.
+        *   17th/18th Century (Classicism to Rococo): Louis XIV, Versailles, Neoclassicism, David.
+        *   19th Century (The Revolution of Art): Romanticism, Realism, Impressionism, Post-Impressionism. This is crucial.
+        *   20th Century (Modernism): Fauvism, Cubism, Surrealism, Abstract Expressionism (though American, French connection exists), Art Informel.
+        *   Contemporary: Installation, video, globalized art.
+        *   Conclusion: Summary of legacy, institutions (Louvre, Centre Pompidou), and enduring impact.
+
+    *   *Refining Headings:*
+        *   I. Introduction: The Crucible of Western Aesthetics.
+        *   II. Medieval Foundations: Romanesque Splendor and Gothic Aspiration.
+        *   III. The Renaissance and Baroque: Italian Influence and Royal Grandeur.
+        *   IV. The Age of Absolutism and Revolution: From Classicism to Neoclassicism.
+        *   V. The Nineteenth Century: The Birth of Modernity and the Impressionist Revolution.
+        *   VI. The Twentieth Century: Avant-Garde Innovations and the Shattering of Form.
+        *   VII. Contemporary France: Global Dialogues and Institutional Legacy.
+        *   VIII. Conclusion: An Enduring Legacy.
+
+3.  **Drafting Content - Section by

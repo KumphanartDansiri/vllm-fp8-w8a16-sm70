@@ -1,0 +1,14 @@
+MoE num_stages A/B — g26b (/mnt/models/google/gemma-4-26B-A4B-it) E=128 N=176 TP=4 ns=8 gentok=512 — 2026-06-13T05:32:54Z
+base: config-miss warnings in log = 1 (expect >=1)
+base run1: users_ok=8/8 per-user decode min=3.50 mean=3.56 max=3.58 tok/s | aggregate=27.97 tok/s | worst_rep=0.107
+base run2: users_ok=8/8 per-user decode min=3.58 mean=3.59 max=3.59 tok/s | aggregate=28.63 tok/s | worst_rep=0.095
+
+kbest: override pickup lines = 1 (expect >=1)
+kbest run1: users_ok=8/8 per-user decode min=17.24 mean=18.99 max=19.24 tok/s | aggregate=137.64 tok/s | worst_rep=0.097
+kbest run2: users_ok=8/8 per-user decode min=19.13 mean=19.21 max=19.23 tok/s | aggregate=152.67 tok/s | worst_rep=0.111
+
+auto: override pickup lines = 1 (expect >=1)
+auto run1: users_ok=8/8 per-user decode min=20.23 mean=20.27 max=20.28 tok/s | aggregate=161.35 tok/s | worst_rep=0.097
+auto run2: users_ok=8/8 per-user decode min=18.86 mean=20.18 max=20.38 tok/s | aggregate=150.54 tok/s | worst_rep=0.111
+
+== MEANS ==

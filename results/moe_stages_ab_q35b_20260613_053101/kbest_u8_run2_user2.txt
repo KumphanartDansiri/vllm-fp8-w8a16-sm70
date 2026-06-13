@@ -1,0 +1,33 @@
+Here's a thinking thinking sequence
+
+1.  **Deconstruct the user:**
+    *   Topic: Economy of France.
+    *   Format: Detailed, multi-section essay.
+    *   Structure: Clear subsections with headings.
+    *   Requirement: Develop each section at length.
+
+2.  **Initial brainstorming and outlining:**
+    *   *What are the key aspects of the French economy?*
+        *   GDP, ranking, status (G7, EU).
+        *   Key sectors: Agriculture, Tourism, Luxury goods, Aerospace, Energy, Finance.
+        *   Government role: Dirigisme, state ownership, social welfare.
+        *   Labor market: Unemployment, strikes, regulations.
+        *   EU integration: Eurozone, single market.
+        *   Challenges: Debt, deficit, transition to green energy, competitiveness.
+        *   Future outlook: Innovation, startups.
+    *   *Drafting the Outline:*
+        *   Introduction: Overview, global standing, historical context.
+        *   Macroeconomic Overview: GDP, growth, inflation, debt.
+        *   Key Economic Sectors: Industry, Services, Agriculture, Luxury.
+        *   The Role of the State: Dirigisme, public sector, welfare.
+        *   Labor Market and Social Model: Unemployment, unions, strikes.
+        *   European and Global Integration: EU, Euro, trade.
+        *   Contemporary Challenges and Future Outlook: Debt, green transition, tech.
+        *   Conclusion: Summary, resilience, balance.
+
+3.  **Fleshing out each section (Mental content generation and expansion):**
+    *   *Introduction:* France is the second-largest economy in the EU. G7 member. Mixed economy. Known for high quality of life, strong social safety net. Mention "Hexagon."
+    *   *Macroeconomic Overview:* Need current context (post-pandemic recovery, inflation spikes due to Ukraine war, ECB rates). GDP around $3 trillion. Public debt is high (over 110% of GDP). Deficit issues. Growth is usually moderate compared to US/UK.
+    *   *Key Economic Sectors:*
+        *   *Services:* Dominant. Tourism is huge (most visited country). Finance (Paris is a hub).
+        *   *Industry:* Aerospace (Airbus), Nuclear energy (EDF), Automotive (Renault

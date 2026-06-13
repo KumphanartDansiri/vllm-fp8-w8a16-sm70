@@ -1,0 +1,32 @@
+Here's a thinking thinking sequence
+
+1.  **Deconstruct the user's request:**
+    *   Topic: Economy of France.
+    *   Format: Detailed, multi-section essay.
+    *   Structure: Clear subsections with headings.
+    *   Depth: Develop each section at length.
+
+2.  **Initial brainstorming and outlining (Mental Sketch of Structure):**
+    *   *Introduction:* Needs to set the stage. France as a major global economy, G7 member, EU powerhouse, mix of state intervention and market forces.
+    *   *Key Sectors:* Agriculture, Tourism, Industry, Services, Tech/Innovation.
+    *   *Macroeconomic Indicators:* GDP, Inflation, Unemployment, Debt.
+    *   *Labor Market & Social Model:* 35-hour week, unions, welfare state, recent reforms.
+    *   *EU & Global Role:* Eurozone, trade relationships, BRICS? (Maybe too speculative, stick to established roles), soft power.
+    *   *Challenges & Future Outlook:* Aging population, debt reduction, green transition, competitiveness.
+    *   *Conclusion:* Summary of strengths and weaknesses, trajectory.
+
+    *Refining Headings:*
+    *   Introduction: The French Economic Paradox/Model.
+    *   Sectoral Composition: From Vineyards to Virtual Reality.
+    *   Macroeconomic Landscape: Growth, Debt, and Inflation.
+    *   The Labor Market and Social Model: Reform and Resistance.
+    *   Innovation, Technology, and the Green Transition.
+    *   France in the European and Global Context.
+    *   Future Challenges and Strategic Outlook.
+    *   Conclusion.
+
+3.  **Fleshing out content (Drafting - Section by Section):**
+    *   *Introduction:* Mention GDP rank (usually 7th or 8th globally, 2nd in EU). Mention "Dirigisme" historically vs. liberalization now. Key themes: Resilience, state role, high quality of life vs. structural rigidities.
+    *   *Sectoral Composition:*
+        *   *Services:* Dominant (~70% GDP). Finance, consulting, luxury goods (LVMH, Kering). *Luxury is huge.*
+        *   *Industry:* Aerospace (Airbus), Nuclear energy, Pharma (Sanofi), Automotive (Renault, Stellantis

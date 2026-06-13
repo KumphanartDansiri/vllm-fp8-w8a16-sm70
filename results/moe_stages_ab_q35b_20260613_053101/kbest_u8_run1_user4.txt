@@ -1,0 +1,31 @@
+Here's a thinking thinking sequence
+
+1.  **Deconstruct the user:**
+    *   Topic: Cuisine of France.
+    *   Format: Detailed, multi-section essay.
+    *   Structure: Clear subsections with headings.
+    *   Requirement: Develop each section at length.
+
+2.  **Initial brainstorming and outlining:**
+    *   *What are the key aspects of French cuisine?*
+        *   History/Origins (Roman, medieval, Renaissance, Escoffier).
+        *   Regional diversity (North vs. South, wine regions, coastal vs. inland).
+        *   Techniques/Philosophy (Mother sauces, mise en place, importance of ingredients).
+        *   Meals/Rituals (Structure of a meal, wine pairing, dining culture).
+        *   Global influence (Haute cuisine, Michelin, French chefs abroad).
+        *   Modern trends (Nouvelle cuisine, farm-to-table, fusion).
+    *   *Drafting the Outline:*
+        *   Introduction: Hook, definition, UNESCO status, thesis (diversity, technique, culture).
+        *   Section 1: Historical Evolution.
+        *   Section 2: Regional Diversity.
+        *   Section 3: Culinary Techniques and Philosophy.
+        *   Section 4: The Ritual of Dining.
+        *   Section 5: Global Influence and Modern Evolution.
+        *   Conclusion: Summary, enduring legacy.
+
+3.  **Fleshing out each section (Drafting content with "at length" requirement):**
+    *   *Introduction:* Mention "Gastronomic meal of the French." Emphasize that it's not just food; it's a way of life. Thesis: French cuisine is a tapestry woven from regional terroir, rigorous technique, and a deep-seated cultural reverence for the meal.
+    *   *Section 1: Historical Evolution.*
+        *   *Keywords:* Roman influence, Middle Ages (spices, sugar), Renaissance (Catherine de' Medici myth vs. reality), 17th/18th century (La Varenne, separation of sweet/savory), 19th century (Carême, Escoffier, codification).
+        *   *Detail:* Discuss the shift from heavy medieval flavors to lighter, ingredient-focused styles. Mention the codification of *Haute Cuisine*.
+    *   *

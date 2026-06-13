@@ -2724,3 +2724,105 @@ single-stream rather than 4x, similar in kind to Gemma though lower. Future work
 should package the dense/MoE/Qwen coalesced win and only revisit GDN if a
 production traffic harness reproduces a steady-state collapse with streaming
 inter-token metrics.
+
+---
+
+## Session note (2026-06-10) — next push benchmark plan + `--skip-mm-profiling` side note
+
+Remember this for the next README/version/publish push: add an operational side
+note for V100 vLLM users serving text from VL-capable checkpoints. For text-only
+serving/benchmarks, use `--skip-mm-profiling` to skip the max-size vision-encoder
+dummy profile during engine init. This is a vLLM engine option, not an FP8 kernel
+optimization. In the stack matrix work it reduced cold startup from roughly
+850s to roughly 19s because vision profiling dominated; the remaining FP8 LM
+profile-prefill was small. Keep the caveat: this shifts multimodal encoder peak
+memory responsibility to the operator and is not appropriate when validating
+real image/video/audio capacity.
+
+Benchmark default going forward:
+- For text decode benchmarks of VL-capable models, default `SKIP_MM=1` /
+  `--skip-mm-profiling`, and explicitly record that in result headers.
+- No eager headline rows unless debugging. Publish cudagraph and cudagraph+MTP
+  where applicable; tok/s must come from usable/coherent output, with exactness
+  vs correctness called out for MTP.
+- Compare vLLM `0.19+cu128` against `0.21+cu126`; CUDA wheel effects are
+  secondary after the matrix showed cu126 ~= cu128, while 0.21 has a small
+  engine-side decode delta to quantify cleanly.
+
+Rows/models to organize into multi-aspect tables:
+- Official FP16/BF16 model when it fits on the V100 box vs official FP8 model.
+- For 100B+ models, find and include GPTQ-Int4 where available as the practical
+  speed/quality/memory comparator.
+- Model list: Qwen3.6-27B, Qwen3.6-35B-A3B, Qwen3.5-122B-A10B,
+  gemma-4-31B-it, gemma-4-26B-A4B-it, and GLM-4.5-Air.
+- Include startup time for all FP8 models with and without vision profiling
+  skipped, so users see both conservative multimodal init and text-serving init.
+
+Existing artifact to use:
+- `tools/stack_cu_matrix_ab.sh` — standardized stack/model matrix with CPU-clean
+  gate, isolated cache tags, `SKIP_MM` toggle, and env-controlled reruns.
+
+---
+
+## 2026-06-12 (PM) — Volta FP16 MoE pathology RESOLVED: BLOCK_K, not num_stages (Fable session)
+
+Resumed the FP16-MoE-slower-than-dense investigation from the Opus 4.8/Codex 5.5 wrap-up
+(memory `project_volta_moe_fp16_patch`). Re-verified their code trace 100% (config-miss, 0/317
+V100 JSONs, Ampere-blind default, Volta-aware combine contrast) — then MEASURED their bet and
+refuted it, found the real lever, and validated the fix e2e on both models.
+
+1. **num_stages e2e sweep = NULL** (`tools/moe_stages_ab_vllm021.sh`, arms base/s4/s3/s2,
+   Ch1-cell-identical serve): Qwen 35B-A3B FP16 = 15.57 tok/s on ALL arms (bit-identical sha);
+   gemma 26B-A4B = 10.90 flat. s4 control proved the VLLM_TUNED_CONFIG_FOLDER mechanism is
+   perf-neutral. → results/moe_stages_ab_q35b_20260612_132040, ..._g26b_20260612_140610.
+2. **Microbench found the sink** (`tools/moe_decode_microbench.py`, GPU4, decode shapes M=1,
+   E=256, topk=8, K=2048, Nshard=128): `fused_moe_kernel` = 98.9% of fused_experts, 645 us/launch,
+   **90x off memory floor** (~0.4 TFLOP/s — Triton sm_70 FMA fallback + 16x-padded M tiles).
+   1.3 ms x 40 layers ≈ 56 ms/token = exactly the e2e gap vs our FP8 (70 tok/s = 14 ms).
+3. **Tile sweep found the lever** (`tools/moe_decode_tile_sweep.py`): kernel time scales with
+   BLOCK_SIZE_K (64→632 us, 128→1450, 256→2300) — register-spill signature of Volta codegen.
+   N/warps/stages ~irrelevant. Stock default picks K=128 exactly and only in the decode branch
+   (M<=64); prefill already gets K=64. gemma shapes: 4.34x kernel win.
+4. **kbest e2e VALIDATED** (config JSON, small-M entries = 16/32/64 w4 s2):
+   - Qwen 35B-A3B FP16: 15.57 → **65.87 tok/s = 4.23x**, output sha BIT-IDENTICAL to base.
+     Beats dense 27B FP16 (37-41); 94% of our FP8-coalesced (70.06).
+   - gemma 26B-A4B FP16: 10.90 → **43.62 tok/s = 4.00x**, shas identical to base arms.
+     Beats dense 31B FP16 (17.6) 2.5x; BEATS our CT-FP8 gemma (~38).
+   Inversion fixed on both — sparse>dense restored with ONE json file, zero source patches.
+
+Implications: (a) honest-numbers update needed where we quote "FP8 4.5x over stock FP16 MoE"
+(comparator was untuned; tuned FP16 closes to ~1.06x on 35B, surpasses CT-FP8 on gemma — FP8's
+durable value = half memory + 122B-class models where FP16 can't fit); (b) clean upstream PR:
+V100 config JSONs per (E,N) and/or sm<80-aware `get_default_config` (BLOCK_K=64 small-M,
+mirroring moe_fused_mul_sum.py's existing Volta case). Structural ceiling stands: even tuned,
+the Triton kernel is ~40x off floor on sm_70.
+
+Tools added: moe_stages_ab_vllm021.sh (MODEL_KEY=q35b|g26b, ARMS incl. kbest),
+moe_decode_microbench.py, moe_decode_tile_sweep.py (SWEEP_* env for other shapes).
+
+---
+
+## 2026-06-13 — Volta MoE config: own feasibility-pruned shell-walk tuner + e2e adjudication
+
+Stock benchmark_moe.py --tune abandoned (1920-config brute force = 100-240 s/it on Volta's
+SMEM-infeasible big tiles; 0/18 batches after 10h). Replaced with own tuner embodying the
+user's scanning insight:
+- tools/moe_volta_tune.py: a-priori SMEM prefilter stages*(BM*BK+BK*BN)*2<=96KB (closed-form,
+  no compile -> 288->204 feasible, 84 monsters skipped) + shell-walk from low corner with
+  monotone early-stop.
+- tools/moe_volta_tune_fleet.sh: shard 18 (shape,M) jobs across 8 V100s, ~50 min, merge per-M.
+- Shell early-stop LOSSLESS on all 18 jobs (12% configs @ small-M, up to 99% @ large-M).
+- Merged canonical JSONs: results/moe_volta_tune_{q35b,g26b}/E=,N=,device_name=Tesla_V100.json.
+
+E2e adjudication (base vs kbest hand-ladder vs auto fleet-JSON, both models, single + 8-user):
+  q35b single:  base 15.56 | kbest 65.91 | auto 65.85   (tie)
+  q35b 8-user:  base 24.9  | kbest 163.7 | auto 180.8 agg ; per-user 3.16/22.4/22.9
+  g26b single:  base 10.91 | kbest 43.66 | auto 43.71   (tie)
+  g26b 8-user:  base 28.0  | kbest 152.7 | auto 161.4 agg ; per-user 3.56/19.2/20.3
+  -> auto wins: tie single-stream, ~5% faster at concurrency (finer per-M granularity).
+     outputs bit-identical (pure speed). M=16 msweep "16/128/64" was unrepresentative.
+
+DECISION: ship autotuned JSONs (headline shapes) + keep plugin heuristic patch as universal
+fallback; they layer automatically (get_moe_configs JSON before get_default_config). Upstream
+target = aphrodite (vLLM dropped sm_70 by policy). Box rebooted 05:00 (kernel 179->181)
+mid-first-e2e; reran clean, nothing lost.
