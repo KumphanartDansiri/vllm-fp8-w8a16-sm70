@@ -2869,3 +2869,14 @@ SDPA at all ViT shapes (256-2048, single+batched) = 2-2.7x slower, flat, no cros
 O(N)-memory advantage is moot at ViT's short N (<=4k) where SDPA mem-efficient already suffices.
 DECISION: V100 ViT stays on SDPA; do not build the FA-ViT bridge or a custom head-dim kernel. Real
 vision levers = --skip-mm-profiling + --limit-mm-per-prompt, and only if images are served.
+
+## 2026-06-13 (cont) — SDPA-internal-path check closes the vision thread (no free backend win)
+Probed which SDPA backend V100 uses at ViT shape (D=72, fp16), forcing each (tools: /tmp ad-hoc,
+torch.nn.attention.sdpa_kernel). Result: auto-selects EFFICIENT_ATTENTION (CUTLASS mem-efficient,
+non-materializing, tensor-core) — NOT math. efficient vs math: S256 0.045 vs 0.328, S1024 0.297 vs
+1.377, S2048 0.921 vs 4.449 ms (5-7x). D=72 supported on efficient; additive block-diagonal mask does
+NOT drop it to math (efficient stays, 0.307ms). FLASH/cuDNN hard-gated sm80+. Cross-check: Codex's FA
+microbench SDPA baseline (0.954ms@S2048) == efficient path -> FA lost to V100's BEST attention, not a
+strawman. CONCLUSION: SDPA already extracts V100's optimal attention; no backend-steering free win.
+Vision-encoder thread fully closed: V100 ViT stays on SDPA(efficient); FA/custom-kernel/cp.async-imitation
+all can't beat CUTLASS's mem-efficient Volta pipeline at ViT's short seqs. Baseline is the ceiling.
