@@ -1,9 +1,20 @@
 # Volta (sm_70) fused-MoE config fix — upstream artifact
 
 **Status:** validated on 8×V100-SXM2-32GB, vLLM 0.21.0 + CUDA 12.6, Triton 3.6.
-**Target:** aphrodite-engine (vLLM dropped sm_70 by policy → a vLLM PR is DOA; aphrodite
-keeps broad-arch support). The change is engine-agnostic — same `fused_moe.py` logic exists
-in both trees.
+
+**Report to BOTH engines, framed differently** (same `fused_moe.py` logic lives in both trees):
+- **vLLM** (our main engine — we run vLLM 0.21 on V100, having learned the sm_70 rewire approach
+  from aphrodite): file as an **issue/finding**, not an sm_70-support PR (that's declined by policy).
+  Two parts that stand on their own merit: (1) the **diagnostic** — `get_default_config`'s decode
+  branch picks `BLOCK_SIZE_K=128` for M≤64, which is pathological without `cp.async`; *worth checking
+  whether the small-M default is even optimal on cp.async arches* (we only have V100 data — frame as a
+  question, not a claim). (2) the **V100 tuned config JSONs** as a device-config data contribution
+  (vLLM ships ~317 such files). Realistic outcome: the finding documents the issue for the many V100
+  users still out there; configs *may* be accepted, the heuristic code likely not — file it anyway,
+  it keeps our main-engine foundation honest and may surface a cross-arch default question.
+- **aphrodite-engine** (the conceptual source — broad-arch culture): file as a **PR** with the full
+  fix incl. the `get_default_config` sm<80 heuristic, credited as building on their sm_70 approach.
+  Most likely to actually merge.
 
 ## Problem
 
