@@ -109,7 +109,14 @@ run_arm() {
     else
         envargs=(-e "VLLM_V100_MOE_FP16_TUNED=0")
     fi
-    if [[ "$arm" != base && "$arm" != plugin ]]; then
+    if [[ "$arm" == auto ]]; then
+        # serve the fleet-autotuned merged JSON (results/moe_volta_tune_<model>/)
+        cfgdir_rel="results/moe_volta_tune_${MODEL_KEY}"
+        [[ -f "$cfgdir_rel/E=${E},N=${NSHARD},device_name=Tesla_V100-SXM2-32GB.json" ]] \
+            || { echo "$arm: FAIL missing merged JSON in $cfgdir_rel" | tee -a "$SUMMARY"; return 1; }
+        note "$arm: using autotuned $cfgdir_rel"
+        envargs+=(-e "VLLM_TUNED_CONFIG_FOLDER=/work/$cfgdir_rel")
+    elif [[ "$arm" != base && "$arm" != plugin ]]; then
         cfgdir_rel="$OUT/cfg_${arm}"
         local st="${arm#s}"
         local fn; fn=$(write_cfg "$cfgdir_rel" "$st") || { echo "$arm: FAIL cfg gen" | tee -a "$SUMMARY"; return 1; }

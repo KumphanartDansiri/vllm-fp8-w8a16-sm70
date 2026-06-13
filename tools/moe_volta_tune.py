@@ -196,8 +196,9 @@ def main():
     outjson = os.path.join(OUTDIR, fname)
     json.dump(payload, open(outjson, "w"), indent=4)
     log(f"\nwrote {outjson}")
-    log("compare M=1 vs manual-sweep oracle (632 us q35b / 620 us g26b): "
-        f"{best_per_m['1']}")
+    if "1" in best_per_m:
+        log("compare M=1 vs manual-sweep oracle (632 us q35b / 620 us g26b): "
+            f"{best_per_m['1']}")
     log("DONE")
 
 
