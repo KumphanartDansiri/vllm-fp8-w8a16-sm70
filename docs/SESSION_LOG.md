@@ -2826,3 +2826,20 @@ DECISION: ship autotuned JSONs (headline shapes) + keep plugin heuristic patch a
 fallback; they layer automatically (get_moe_configs JSON before get_default_config). Upstream
 target = aphrodite (vLLM dropped sm_70 by policy). Box rebooted 05:00 (kernel 179->181)
 mid-first-e2e; reran clean, nothing lost.
+
+## 2026-06-13 (cont) — FP8 MoE decode profile settles "where's the headroom" (Codex peer-review)
+
+Codex proposed FP8 tuning axes + hypothesis "biggest upside is dispatch + route/scatter/data-
+movement, not GEMM tile." Tested with built-in per-section profiler (tools/moe_fp8_profile_decode.sh,
+eager — cudagraph capture conflicts with the profiler's CUDA-event syncs, same class as k=2 MTP crash).
+Decode M=1 GPU-time per MoE call (the part that survives into cudagraph production):
+  GEMV/compute w13+act+w2 = 0.113ms (73%) | route/scatter glue = 0.042ms (27%) | total GPU 0.155ms.
+  eager avg_wall 1.59ms; the ~1.14ms py_inner_loop+py_dispatch is cudagraph-replayed-away in prod.
+VERDICT: hypothesis NOT supported at decode (GEMV-dominated; dispatch overhead = eager-only artifact).
+KEY FINDING: w2_gemm 0.069ms = 44% of MoE GPU, 2.3x slower than w13 (0.030) despite HALF the weight
+bytes → w2 (short-K=128/wide-N=2048) ~4.6x less efficient/byte than w13 (long-K/narrow-N). Prime
+suspect = K-split atomic contention on w2's wide output (ties to the K_SPLIT non-monotone caution).
+→ THE FP8 decode target is the w2 GEMV, not the route glue. Secondary: fuse route_weight_apply+scatter
+into w2 epilogue ~ -14% MoE GPU. Prefill differs (glue≈GEMV + 28ms unattributed non-grouped) but less
+critical. NOTE: FP8 decode is already 70 tok/s (>30 "comfortable") so w2 work is optional polish.
+Commit ce80954.
