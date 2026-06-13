@@ -1,0 +1,20 @@
+(Worker_TP0 pid=486) [V100-FP8-MOE-PROFILE rank=0 pid=486] bucket=(phase=prefill,M=18,route_slots=144,grouped=0,fast=0) calls=20 avg_wall=59.938ms cuda_sections=30.717ms wall_sections=0.964ms unattributed=28.257ms active_experts=58.95/call routed_items=144.00/call
+(Worker_TP0 pid=486) [V100-FP8-MOE-PROFILE rank=0 pid=486]   cuda_ms_per_call: route_w_build=5.733 index_select=3.266 route_weight_apply=3.234 w13_gemm=6.110 activation=4.451 w2_gemm=5.047 scatter=2.876
+(Worker_TP0 pid=486) [V100-FP8-MOE-PROFILE rank=0 pid=486]   wall_ms_per_call: out_zeros=0.035 routing=0.042 active_experts_stat=0.888
+(Worker_TP0 pid=486) [V100-FP8-MOE-PROFILE rank=0 pid=486] top_layer=<unknown> calls=23808 avg_wall=1.639ms active_hist=0:23788,48:1,50:1,52:1,53:2,54:1,55:1,57:2,59:1,60:2,61:3,62:1,67:1,69:1,70:2
+(Worker_TP0 pid=486) [V100-FP8-MOE-PROFILE rank=0 pid=486] warmup_skip=100 recorded_calls=23872 total_calls=23972 decode_m_max=8
+(Worker_TP0 pid=486) [V100-FP8-MOE-PROFILE rank=0 pid=486] bucket=(phase=decode,M=1,route_slots=8,grouped=1,fast=1) calls=23852 avg_wall=1.590ms cuda_sections=0.155ms wall_sections=1.222ms unattributed=0.213ms active_experts=0.00/call routed_items=8.00/call
+(Worker_TP0 pid=486) [V100-FP8-MOE-PROFILE rank=0 pid=486]   cuda_ms_per_call: local_expert_ids=0.003 route_w_build=0.006 index_select=0.009 route_weight_apply=0.007 hidden_contig=0.003 w13_gemm=0.030 activation=0.014 w2_gemm=0.069 scatter=0.014
+(Worker_TP0 pid=486) [V100-FP8-MOE-PROFILE rank=0 pid=486]   wall_ms_per_call: out_zeros=0.035 view_uint8_contig=0.002 routing=0.041 py_inner_loop=0.930 py_dispatch_w13=0.086 py_dispatch_w2=0.127
+(Worker_TP0 pid=486) [V100-FP8-MOE-PROFILE rank=0 pid=486] bucket=(phase=prefill,M=18,route_slots=144,grouped=0,fast=0) calls=20 avg_wall=59.938ms cuda_sections=30.717ms wall_sections=0.964ms unattributed=28.257ms active_experts=58.95/call routed_items=144.00/call
+(Worker_TP0 pid=486) [V100-FP8-MOE-PROFILE rank=0 pid=486]   cuda_ms_per_call: route_w_build=5.733 index_select=3.266 route_weight_apply=3.234 w13_gemm=6.110 activation=4.451 w2_gemm=5.047 scatter=2.876
+(Worker_TP0 pid=486) [V100-FP8-MOE-PROFILE rank=0 pid=486]   wall_ms_per_call: out_zeros=0.035 routing=0.042 active_experts_stat=0.888
+(Worker_TP0 pid=486) [V100-FP8-MOE-PROFILE rank=0 pid=486] top_layer=<unknown> calls=23872 avg_wall=1.639ms active_hist=0:23852,48:1,50:1,52:1,53:2,54:1,55:1,57:2,59:1,60:2,61:3,62:1,67:1,69:1,70:2
+(Worker_TP0 pid=486) [V100-FP8-MOE-PROFILE rank=0 pid=486] warmup_skip=100 recorded_calls=23936 total_calls=24036 decode_m_max=8
+(Worker_TP0 pid=486) [V100-FP8-MOE-PROFILE rank=0 pid=486] bucket=(phase=decode,M=1,route_slots=8,grouped=1,fast=1) calls=23916 avg_wall=1.590ms cuda_sections=0.155ms wall_sections=1.222ms unattributed=0.213ms active_experts=0.00/call routed_items=8.00/call
+(Worker_TP0 pid=486) [V100-FP8-MOE-PROFILE rank=0 pid=486]   cuda_ms_per_call: local_expert_ids=0.003 route_w_build=0.006 index_select=0.009 route_weight_apply=0.007 hidden_contig=0.003 w13_gemm=0.030 activation=0.014 w2_gemm=0.069 scatter=0.014
+(Worker_TP0 pid=486) [V100-FP8-MOE-PROFILE rank=0 pid=486]   wall_ms_per_call: out_zeros=0.035 view_uint8_contig=0.002 routing=0.041 py_inner_loop=0.930 py_dispatch_w13=0.086 py_dispatch_w2=0.127
+(Worker_TP0 pid=486) [V100-FP8-MOE-PROFILE rank=0 pid=486] bucket=(phase=prefill,M=18,route_slots=144,grouped=0,fast=0) calls=20 avg_wall=59.938ms cuda_sections=30.717ms wall_sections=0.964ms unattributed=28.257ms active_experts=58.95/call routed_items=144.00/call
+(Worker_TP0 pid=486) [V100-FP8-MOE-PROFILE rank=0 pid=486]   cuda_ms_per_call: route_w_build=5.733 index_select=3.266 route_weight_apply=3.234 w13_gemm=6.110 activation=4.451 w2_gemm=5.047 scatter=2.876
+(Worker_TP0 pid=486) [V100-FP8-MOE-PROFILE rank=0 pid=486]   wall_ms_per_call: out_zeros=0.035 routing=0.042 active_experts_stat=0.888
+(Worker_TP0 pid=486) [V100-FP8-MOE-PROFILE rank=0 pid=486] top_layer=<unknown> calls=23936 avg_wall=1.639ms active_hist=0:23916,48:1,50:1,52:1,53:2,54:1,55:1,57:2,59:1,60:2,61:3,62:1,67:1,69:1,70:2
