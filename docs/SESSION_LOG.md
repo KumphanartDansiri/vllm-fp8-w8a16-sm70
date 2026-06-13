@@ -2843,3 +2843,19 @@ suspect = K-split atomic contention on w2's wide output (ties to the K_SPLIT non
 into w2 epilogue ~ -14% MoE GPU. Prefill differs (glue≈GEMV + 28ms unattributed non-grouped) but less
 critical. NOTE: FP8 decode is already 70 tok/s (>30 "comfortable") so w2 work is optional polish.
 Commit ce80954.
+
+## 2026-06-13 (cont) — 8-user FP8 MoE profile = the decision gate (w2 anomaly is M=1-only)
+
+Ran the profiler at NUSERS=8 (decode bucket M=8, route_slots=64) to gate whether FP8 w2 work
+is justified (Codex's missing decision point). Decode M=8 GPU/call:
+  w13_gemm=0.110 w2_gemm=0.105 activation=0.014 | route/scatter glue=0.040 | total 0.269ms.
+  GEMV/compute = 85%, glue = 15% (was 27% at M=1).
+VERDICT: neither of Codex's branches fires. Glue did NOT grow (shrank 27%->15%); w2 does NOT
+uniquely dominate (w13 ~= w2 at M=8). Per-slot: w2 0.0086(M1)->0.0016(M8) = 5.2x more efficient;
+w13 2.2x. => w2's M=1 slowness is FIXED OVERHEAD (under-occupancy: wide-N=2048/short-K=128 can't
+fill the GPU at 8 slots) that AMORTIZES AWAY by M=8. Not a broken kernel.
+DECISION: do NOT greenlight w2 kernel work. It helps only 1-2 user case (~+11% on already-
+comfortable 70 tok/s); at 8 users GEMVs are balanced+efficient, aggregate 164-180 tok/s. Epilogue
+fusion dead at decode (15% & shrinking). Bank FP16 MoE as the headline; FP8 w2 = optional polish,
+no trigger. ONLY revisit if single-user latency on 122B-A10B TP8 (~45 tok/s, less headroom) becomes
+a target -> re-profile 122B M=1 first. Artifact: results/moe_fp8_profile_20260613_072405/.

@@ -1,0 +1,5 @@
+(Worker_TP0 pid=487) [V100-FP8-MOE-PROFILE rank=0 pid=487] bucket=(phase=decode,M=8,route_slots=64,grouped=1,fast=1) calls=15836 avg_wall=1.647ms cuda_sections=0.269ms wall_sections=1.234ms unattributed=0.144ms active_experts=0.00/call routed_items=64.00/call
+(Worker_TP0 pid=487) [V100-FP8-MOE-PROFILE rank=0 pid=487] bucket=(phase=decode,M=8,route_slots=64,grouped=1,fast=1) calls=15880 avg_wall=1.647ms cuda_sections=0.269ms wall_sections=1.234ms unattributed=0.144ms active_experts=0.00/call routed_items=64.00/call
+(Worker_TP0 pid=487) [V100-FP8-MOE-PROFILE rank=0 pid=487]   cuda_ms_per_call: route_w_build=6.331 index_select=3.692 route_weight_apply=3.393 w13_gemm=7.135 activation=4.793 w2_gemm=5.538 scatter=3.148
+(Worker_TP0 pid=487) [V100-FP8-MOE-PROFILE rank=0 pid=487]   cuda_ms_per_call: route_w_build=6.012 index_select=3.488 route_weight_apply=3.246 w13_gemm=6.699 activation=4.586 w2_gemm=5.273 scatter=2.989
+(Worker_TP0 pid=487) [V100-FP8-MOE-PROFILE rank=0 pid=487]   cuda_ms_per_call: local_expert_ids=0.003 route_w_build=0.006 index_select=0.007 route_weight_apply=0.008 hidden_contig=0.003 w13_gemm=0.098 activation=0.014 w2_gemm=0.107 scatter=0.012
