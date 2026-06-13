@@ -2880,3 +2880,14 @@ microbench SDPA baseline (0.954ms@S2048) == efficient path -> FA lost to V100's 
 strawman. CONCLUSION: SDPA already extracts V100's optimal attention; no backend-steering free win.
 Vision-encoder thread fully closed: V100 ViT stays on SDPA(efficient); FA/custom-kernel/cp.async-imitation
 all can't beat CUTLASS's mem-efficient Volta pipeline at ViT's short seqs. Baseline is the ceiling.
+
+## 2026-06-13 (wrap-up) — knowledge + implementation consolidation
+Optimization phase closed. Deliverables:
+- docs/V100_OPTIMIZATION_FINDINGS.md: consolidated source-of-truth (3 fronts + cp.async/regime principle).
+- IMPLEMENTATION HARDENED: bundled autotuned JSONs -> src/fp8_w8a16_sm70/moe_configs/ (q35b-TP4, gemma-TP4);
+  plugin auto-loads them via VLLM_TUNED_CONFIG_FOLDER when unset (guarded). Verified DEFAULT-ON e2e:
+  serve q35b FP16 with zero extra flags -> auto-set folder + heuristic ACTIVE + JSON pickup + 66.25 tok/s
+  (vs stock 15.6). Turn-key.
+- tools/TOOLS.md: production vs experimental tool catalogue + results index.
+- Memory consolidated (project_volta_moe_fp16_patch -> final shipped state).
+Publication version derivable from V100_OPTIMIZATION_FINDINGS.md later (paused github publish / Ch1 reframe).

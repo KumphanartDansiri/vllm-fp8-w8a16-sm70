@@ -1,0 +1,73 @@
+[fleet 03:40:03] image=vllm-v100:vllm021-cu126 ngpu=8  18 jobs over 8 GPUs
+[fleet 03:40:03]   GPU0: q35b:256:8:2048:128:64 q35b:256:8:2048:128:16 q35b:256:8:2048:128:1
+[fleet 03:40:03]   GPU1: g26b:128:8:2816:176:64 g26b:128:8:2816:176:16 g26b:128:8:2816:176:1
+[fleet 03:40:03]   GPU2: q35b:256:8:2048:128:48 q35b:256:8:2048:128:8
+[fleet 03:40:03]   GPU3: g26b:128:8:2816:176:48 g26b:128:8:2816:176:8
+[fleet 03:40:03]   GPU4: q35b:256:8:2048:128:32 q35b:256:8:2048:128:4
+[fleet 03:40:03]   GPU5: g26b:128:8:2816:176:32 g26b:128:8:2816:176:4
+[fleet 03:40:03]   GPU6: q35b:256:8:2048:128:24 q35b:256:8:2048:128:2
+[fleet 03:40:03]   GPU7: g26b:128:8:2816:176:24 g26b:128:8:2816:176:2
+[fleet 03:40:03] GPU0 START q35b M=64
+[fleet 03:40:03] GPU2 START q35b M=48
+[fleet 03:40:03] GPU1 START g26b M=64
+[fleet 03:40:03] GPU3 START g26b M=48
+[fleet 03:40:03] GPU4 START q35b M=32
+[fleet 03:40:03] GPU5 START g26b M=32
+[fleet 03:40:03] GPU6 START q35b M=24
+[fleet 03:40:03] GPU7 START g26b M=24
+[fleet 03:57:37] GPU6 FAIL  q35b M=24 (see results/moe_volta_fleet_20260613_034003/q35b_M24/console.log)
+[fleet 03:57:37] GPU6 START q35b M=2
+[fleet 03:58:12] GPU4 FAIL  q35b M=32 (see results/moe_volta_fleet_20260613_034003/q35b_M32/console.log)
+[fleet 03:58:12] GPU4 START q35b M=4
+[fleet 03:59:06] GPU2 FAIL  q35b M=48 (see results/moe_volta_fleet_20260613_034003/q35b_M48/console.log)
+[fleet 03:59:06] GPU2 START q35b M=8
+[fleet 03:59:35] GPU0 FAIL  q35b M=64 (see results/moe_volta_fleet_20260613_034003/q35b_M64/console.log)
+[fleet 03:59:35] GPU0 START q35b M=16
+[fleet 03:59:56] GPU7 FAIL  g26b M=24 (see results/moe_volta_fleet_20260613_034003/g26b_M24/console.log)
+[fleet 03:59:56] GPU7 START g26b M=2
+[fleet 04:00:34] GPU5 FAIL  g26b M=32 (see results/moe_volta_fleet_20260613_034003/g26b_M32/console.log)
+[fleet 04:00:34] GPU5 START g26b M=4
+[fleet 04:01:03] GPU3 FAIL  g26b M=48 (see results/moe_volta_fleet_20260613_034003/g26b_M48/console.log)
+[fleet 04:01:03] GPU3 START g26b M=8
+[fleet 04:01:05] GPU1 FAIL  g26b M=64 (see results/moe_volta_fleet_20260613_034003/g26b_M64/console.log)
+[fleet 04:01:05] GPU1 START g26b M=16
+[fleet 04:12:22] GPU6 FAIL  q35b M=2 (see results/moe_volta_fleet_20260613_034003/q35b_M2/console.log)
+[fleet 04:13:12] GPU4 FAIL  q35b M=4 (see results/moe_volta_fleet_20260613_034003/q35b_M4/console.log)
+[fleet 04:14:49] GPU2 FAIL  q35b M=8 (see results/moe_volta_fleet_20260613_034003/q35b_M8/console.log)
+[fleet 04:15:00] GPU7 FAIL  g26b M=2 (see results/moe_volta_fleet_20260613_034003/g26b_M2/console.log)
+[fleet 04:16:19] GPU0 FAIL  q35b M=16 (see results/moe_volta_fleet_20260613_034003/q35b_M16/console.log)
+[fleet 04:16:19] GPU0 START q35b M=1
+[fleet 04:16:22] GPU5 FAIL  g26b M=4 (see results/moe_volta_fleet_20260613_034003/g26b_M4/console.log)
+[fleet 04:18:27] GPU3 FAIL  g26b M=8 (see results/moe_volta_fleet_20260613_034003/g26b_M8/console.log)
+[fleet 04:20:01] GPU1 FAIL  g26b M=16 (see results/moe_volta_fleet_20260613_034003/g26b_M16/console.log)
+[fleet 04:20:01] GPU1 START g26b M=1
+[fleet 04:30:47] GPU0 DONE  q35b M=1 -> M=1   best   635.5 us  {'BLOCK_SIZE_M': 16, 'BLOCK_SIZE_N': 32, 'BLOCK_SIZE_K': 64, 'GROUP_SIZE_M': 1, 'num_warps': 4, 'num_stages': 2}  (timed 204, skip 0)
+[fleet 04:34:43] GPU1 DONE  g26b M=1 -> M=1   best   634.8 us  {'BLOCK_SIZE_M': 16, 'BLOCK_SIZE_N': 32, 'BLOCK_SIZE_K': 64, 'GROUP_SIZE_M': 1, 'num_warps': 4, 'num_stages': 2}  (timed 204, skip 0)
+[fleet 04:34:43] all jobs finished; merging per-shape JSONs
+q35b: merged 9 batch sizes -> /home/kumphanartd/vllm-fp8-w8a16-sm70/results/moe_volta_tune_q35b/E=256,N=128,device_name=Tesla_V100-SXM2-32GB.json
+   M=   1: 16/32/64 w4 s2 g1
+   M=   2: 16/32/64 w4 s2 g1
+   M=   4: 16/32/64 w4 s2 g1
+   M=   8: 16/128/64 w8 s2 g1
+   M=  16: 16/64/64 w4 s2 g1
+   M=  24: 16/64/64 w4 s3 g1
+   M=  32: 16/64/64 w4 s3 g32
+   M=  48: 16/64/64 w4 s3 g16
+   M=  64: 16/64/64 w4 s2 g1
+g26b: merged 9 batch sizes -> /home/kumphanartd/vllm-fp8-w8a16-sm70/results/moe_volta_tune_g26b/E=128,N=176,device_name=Tesla_V100-SXM2-32GB.json
+   M=   1: 16/32/64 w4 s2 g1
+   M=   2: 16/64/64 w4 s2 g32
+   M=   4: 16/64/64 w4 s3 g16
+   M=   8: 16/64/64 w4 s3 g1
+   M=  16: 16/64/64 w4 s2 g32
+   M=  24: 16/64/64 w4 s3 g16
+   M=  32: 16/64/64 w4 s3 g16
+   M=  48: 16/64/64 w4 s3 g16
+   M=  64: 16/64/64 w4 s3 g16
+[fleet 04:34:43] FLEET COMPLETE -> results/moe_volta_fleet_20260613_034003 ; merged JSONs in results/moe_volta_tune_{q35b,g26b}/
+early-stop verdicts:
+      1      shell early-stop: never triggered (best lives in outer shell)
+      4      shell early-stop: would halt after radius 2 = 25/204 configs (12%); LOSSLESS
+      1      shell early-stop: would halt after radius 5 = 159/204 configs (78%); LOSSLESS
+     10      shell early-stop: would halt after radius 6 = 190/204 configs (93%); LOSSLESS
+      2      shell early-stop: would halt after radius 7 = 202/204 configs (99%); LOSSLESS

@@ -2337,6 +2337,17 @@ def _patch_volta_moe_default_config():
         return
     from vllm.model_executor.layers.fused_moe import fused_moe as _fm
 
+    # Auto-load the bundled per-(E,N) autotuned configs (TP-specific) unless the
+    # user already pointed VLLM_TUNED_CONFIG_FOLDER somewhere. get_moe_configs
+    # reads this env live and runs BEFORE get_default_config, so a matching shape
+    # (q35b TP4, g26b TP4) gets its exact tuned JSON and everything else falls to
+    # the heuristic below. Tuned JSON beat the heuristic ~5-10% at concurrency (e2e).
+    _bundled = os.path.join(os.path.dirname(os.path.abspath(__file__)), "moe_configs")
+    if not os.environ.get("VLLM_TUNED_CONFIG_FOLDER") and os.path.isdir(_bundled):
+        os.environ["VLLM_TUNED_CONFIG_FOLDER"] = _bundled
+        print(f"[serve_fp8_v100 pid={os.getpid()}] VLLM_TUNED_CONFIG_FOLDER -> "
+              f"{_bundled} (bundled V100 MoE configs)", flush=True)
+
     _orig_get_default_config = _fm.get_default_config
 
     def volta_get_default_config(M, E, N, K, topk, dtype, block_shape=None):
