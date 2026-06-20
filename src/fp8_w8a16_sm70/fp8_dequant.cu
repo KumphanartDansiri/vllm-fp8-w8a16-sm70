@@ -35,47 +35,23 @@
 // stream 0 throughout so the race never manifested there.)
 #define V100_FP8_STREAM at::cuda::getCurrentCUDAStream()
 
+// Branchless E4M3-FN -> FP16, bit-identical to the original branchy converter
+// for all 256 bytes (normal/subnormal/zero/NaN verified). Shift the 7 magnitude
+// bits into FP16 position and rebias via a single *2^8 multiply; FP16's wider
+// exponent renormalizes E4M3 subnormals automatically -> no branches, no while-loop,
+// no warp divergence. Targets the ALU/dequant bottleneck the NCU found
+// (coal_m M=8 large-K: ALU 40% >> FMA 26% >> LSU 13%, DRAM 11%).
 __device__ inline uint16_t fp8_e4m3_to_fp16_bits(uint8_t x) {
-    uint16_t sign = (uint16_t)(x & 0x80) << 8;   // 0x8000 if negative, else 0
-    uint16_t exp  = (x >> 3) & 0x0F;             // 4-bit FP8 exponent
-    uint16_t mant = x & 0x07;                    // 3-bit FP8 mantissa
+    const uint16_t sign = (uint16_t)(x & 0x80) << 8;
+    const uint16_t mag  = (uint16_t)(x & 0x7F);
+    const half h = __hmul(__ushort_as_half((uint16_t)(mag << 7)), __float2half(256.0f));
+    const uint16_t val = (mag == 0x7F) ? (uint16_t)0x7F80 : __half_as_ushort(h);
+    return (uint16_t)(sign | val);
+}
 
-    // Zero
-    if (exp == 0 && mant == 0) {
-        return sign;                             // +0 or -0
-    }
-
-    // NaN: E4M3-FN reserves exp=1111 AND mant=111 (0x7F/0xFF) as the only NaN.
-    // Use the same canonical qNaN payload PyTorch's CPU conversion produces,
-    // so bit-exact comparison against the reference passes.
-    if (exp == 0x0F && mant == 0x07) {
-        return sign | 0x7F80;                    // qNaN, mant = 0x380
-    }
-
-    // Subnormal in FP8: value = (mant/8) * 2^(1-bias) = mant * 2^-9
-    // Re-normalize into FP16's normal range. If highest set bit of mant is
-    // at position k (0-indexed), then value = (1 + lower/2^k) * 2^(k-9).
-    // FP16 stored exp = (k - 9) + 15 = k + 6.
-    if (exp == 0) {
-        // Find leading 1 in 3-bit mantissa (mant in {1..7}).
-        int shift = 0;
-        while ((mant & 0x04) == 0) {             // until bit 2 of mant is set
-            mant <<= 1;
-            shift++;
-        }
-        // After loop: leading 1 is at bit 2, so k = 2 - shift.
-        // fp16_exp = k + 6 = 8 - shift.
-        mant &= 0x03;                            // drop the leading 1 (implicit)
-        uint16_t fp16_exp  = (uint16_t)(8 - shift);
-        uint16_t fp16_mant = (uint16_t)mant << 8; // 2-bit -> upper 2 bits of 10-bit mantissa
-        return sign | (fp16_exp << 10) | fp16_mant;
-    }
-
-    // Normal: exp in [1..15], unbiased exp = exp - 7
-    // FP16 stored exp = (exp - 7) + 15 = exp + 8
-    uint16_t fp16_exp  = exp + 8;
-    uint16_t fp16_mant = (uint16_t)mant << 7;    // 3-bit -> upper 3 bits of 10-bit mantissa
-    return sign | (fp16_exp << 10) | fp16_mant;
+// Compatibility alias for experiments that explicitly call the fast converter.
+__device__ inline uint16_t fp8_e4m3_to_fp16_bits_fast(uint8_t x) {
+    return fp8_e4m3_to_fp16_bits(x);
 }
 
 __global__ void fp8_to_fp16_kernel(const uint8_t* __restrict__ in,
