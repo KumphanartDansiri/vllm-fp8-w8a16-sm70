@@ -877,9 +877,21 @@ def patch_compressed_tensors_moe_for_v100() -> bool:
     if not _is_volta():
         return False
     try:
-        from vllm.model_executor.layers.quantization.compressed_tensors.compressed_tensors_moe import (  # noqa: E501
-            compressed_tensors_moe_w8a8_fp8 as _moemod,
-        )
+        # The CT-MoE method class and its module-global `select_fp8_moe_backend`
+        # (which we neutralize below) live in different places across engines:
+        #   vLLM 0.21+ : split out into a `compressed_tensors_moe_w8a8_fp8` submodule
+        #   vLLM 0.19  : defined inline in `compressed_tensors_moe` itself
+        # `_moemod` must be the module that OWNS select_fp8_moe_backend as a global
+        # (the same module where the class __init__ resolves it), so bind to whichever
+        # layout this engine ships. Try the 0.21 submodule first, fall back to inline.
+        try:
+            from vllm.model_executor.layers.quantization.compressed_tensors.compressed_tensors_moe import (  # noqa: E501
+                compressed_tensors_moe_w8a8_fp8 as _moemod,
+            )
+        except ImportError:
+            from vllm.model_executor.layers.quantization.compressed_tensors import (  # noqa: E501
+                compressed_tensors_moe as _moemod,
+            )
         from vllm.model_executor.layers.fused_moe.unquantized_fused_moe_method import (
             UnquantizedFusedMoEMethod,
         )
@@ -890,6 +902,17 @@ def patch_compressed_tensors_moe_for_v100() -> bool:
         return False
 
     CTMoE = _moemod.CompressedTensorsW8A8Fp8MoEMethod
+
+    class _V100ModularExperts:
+        # Modular-kernel face for engines (vLLM 0.19) whose FP16 fused-MoE method
+        # has no `experts_cls` and reports `is_monolithic=False` (it routes through
+        # `moe_kernel`). The CT-MoE `is_monolithic` property calls
+        # `self.experts_cls.is_monolithic()`, so a stand-in with that staticmethod
+        # lets the patched method present the same modular face as the FP16 path
+        # without crashing on the `None` the stubbed backend leaves behind.
+        @staticmethod
+        def is_monolithic():
+            return False
 
     # 0) Neutralize the Volta-incompatible backend selection in the CT-MoE module
     #    so the original __init__ completes (fp8_backend/experts_cls -> None). We
@@ -902,8 +925,20 @@ def patch_compressed_tensors_moe_for_v100() -> bool:
         _orig_init(self, weight_quant, input_quant, moe, layer_name)  # backend stubbed
         # Build the proven FP16 unquantized method to borrow its kernel/apply.
         self._v100_unquant = UnquantizedFusedMoEMethod(moe)
-        # so the inherited is_monolithic (reads experts_cls) matches the FP16 path
-        self.experts_cls = self._v100_unquant.experts_cls
+        # so the inherited is_monolithic (reads experts_cls) matches the FP16 path.
+        # Newer engines (0.21) expose experts_cls on the unquant method; older
+        # layouts (0.19-tf5) don't use it — copy it across only when present so the
+        # patch binds on both without an AttributeError at load.
+        _ec = getattr(self._v100_unquant, "experts_cls", None)
+        if _ec is not None:
+            self.experts_cls = _ec          # 0.21 legacy path (unchanged)
+        elif getattr(self, "experts_cls", None) is None:
+            # 0.19 modular-kernel path: the FP16 method routes through moe_kernel and
+            # exposes no experts_cls; the stubbed backend left experts_cls=None, which
+            # would make the is_monolithic property call None.is_monolithic() and crash
+            # at load. Present a modular face (is_monolithic=False) like the FP16 path;
+            # moe_kernel is wired below in process_weights_after_loading.
+            self.experts_cls = _V100ModularExperts
 
     def _dequant_expert(w_fp8, scale):
         # w_fp8: [E, R, C] float8 ; channel/tensor scale: [E, R, 1] (or [E,1,1]/[E,R]).
@@ -982,7 +1017,21 @@ def patch_compressed_tensors_moe_for_v100() -> bool:
                 pass
         # Build the FP16 fused-MoE kernel via the unquantized path (V100-proven).
         self._v100_unquant.process_weights_after_loading(layer)
-        self.moe_kernel = self._v100_unquant.moe_kernel
+        # Expose the FP16 method's real modular kernel as our moe_kernel. It lives under
+        # `.moe_kernel` on the 0.21 build but under `.kernel` on the 0.19-tf5 build (the
+        # base sets `moe_kernel=None`; only the unquant subclass populates `.kernel` in
+        # _setup_kernel). Either is the real, modular (is_monolithic=False) kernel.
+        # Exposing it makes supports_internal_mk True so FusedMoE.maybe_init_modular_kernel
+        # skips the modular wrap (whose maybe_make_prepare_finalize raises for our stubbed
+        # backend), and is_monolithic=False so the runner dispatches to our apply(
+        # layer, x, topk_weights, topk_ids, shared_experts_input). It is only PROBED for
+        # metadata (is_monolithic / output_is_reduced / topk dtype), never executed — the
+        # routed compute runs through patched_apply below. (0.21: identical to before, its
+        # `.moe_kernel` is already populated; 0.19: the `.kernel` fallback fixes the gate.)
+        _mk = self._v100_unquant.moe_kernel
+        if _mk is None:
+            _mk = getattr(self._v100_unquant, "kernel", None)
+        self.moe_kernel = _mk
         self.moe_quant_config = getattr(self._v100_unquant, "moe_quant_config", None)
         # Phase 2c: with the mixed path validated, FREE the FP16 w13. The mixed
         # apply uses the stashed FP8 w13 (not the unquant kernel), so the FP16
