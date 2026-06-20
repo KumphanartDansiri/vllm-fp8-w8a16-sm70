@@ -32,6 +32,11 @@ class Shape:
 
 SHAPES = {
     "attn": Shape("attn", 1, 5120, 5120),
+    "attn_channel": Shape("attn_channel", 1, 5120, 5120, 1),
+    "glm_qkv": Shape("glm_qkv", 1, 1792, 4096, 1),
+    "glm_o": Shape("glm_o", 1, 4096, 1536, 1),
+    "qwen122b_qkv": Shape("qwen122b_qkv", 1, 1152, 3072, 128),
+    "qwen122b_o": Shape("qwen122b_o", 1, 3072, 1024, 128),
     "gdn_in": Shape("gdn_in", 1, 10240, 5120),
     "mlp_gate": Shape("mlp_gate", 1, 8704, 5120),
     "mlp_down": Shape("mlp_down", 1, 5120, 4352),
@@ -41,8 +46,24 @@ SHAPES = {
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
     p.add_argument("--shape", choices=sorted(SHAPES), default="attn")
-    p.add_argument("--op", choices=("a3", "a1", "coalesced", "cublas"), default="a3")
+    p.add_argument(
+        "--op",
+        choices=(
+            "a3",
+            "a1",
+            "coalesced",
+            "coalesced_m",
+            "wmma_m16",
+            "wmma_m16_splitk",
+            "wmma_m16_splitk_noreduce",
+            "cublas",
+        ),
+        default="a3",
+    )
+    p.add_argument("--m", type=int, default=None,
+                   help="Override decode batch M for ops that support M>1")
     p.add_argument("--k-split", type=int, default=8)
+    p.add_argument("--wmma-split-k", type=int, default=8)
     p.add_argument("--warmup", type=int, default=10)
     p.add_argument("--iters", type=int, default=1)
     p.add_argument("--seed", type=int, default=0)
@@ -78,7 +99,8 @@ def make_case(shape: Shape, seed: int):
 
 def main() -> None:
     args = parse_args()
-    shape = SHAPES[args.shape]
+    base = SHAPES[args.shape]
+    shape = Shape(base.name, args.m or base.m, base.n, base.k, base.block_h, base.block_w)
     torch.backends.cuda.matmul.allow_tf32 = False
     ext = load_kernel(name=os.getenv("EXT_NAME", "fp8_dequant_ext_qwen27b_microbench"))
     x, w_u8, scales, w_dq = make_case(shape, args.seed)
@@ -100,6 +122,20 @@ def main() -> None:
         if args.op == "coalesced":
             return ext.fp8_w8a16_gemv_coalesced(
                 x, w_u8, scales, shape.n, shape.k, shape.block_h, shape.block_w)
+        if args.op == "coalesced_m":
+            return ext.fp8_w8a16_gemv_coalesced_m(
+                x, w_u8, scales, shape.n, shape.k, shape.block_h, shape.block_w)
+        if args.op == "wmma_m16":
+            return ext.fp8_w8a16_gemm_wmma_m16(
+                x, w_u8, scales, shape.n, shape.k, shape.block_h, shape.block_w)
+        if args.op == "wmma_m16_splitk":
+            return ext.fp8_w8a16_gemm_wmma_m16_splitk(
+                x, w_u8, scales, shape.n, shape.k, shape.block_h, shape.block_w,
+                args.wmma_split_k)
+        if args.op == "wmma_m16_splitk_noreduce":
+            return ext.fp8_w8a16_gemm_wmma_m16_splitk_noreduce(
+                x, w_u8, scales, shape.n, shape.k, shape.block_h, shape.block_w,
+                args.wmma_split_k)
         return F.linear(x, w_dq)
 
     for _ in range(args.warmup):

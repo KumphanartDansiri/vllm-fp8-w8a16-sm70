@@ -647,7 +647,7 @@ __global__ void fp8_w8a16_gemv_coalesced_kernel(
                     #pragma unroll
                     for (int j = 0; j < GEMV_COAL_ELEMS_PER_LANE; ++j) {
                         const float w_f = __half2float(__ushort_as_half(
-                            fp8_e4m3_to_fp16_bits(wb[j])));
+                            fp8_e4m3_to_fp16_bits_fast(wb[j])));
                         const float a_f = __half2float(
                             a_shared[u][lane * GEMV_COAL_ELEMS_PER_LANE + j]);
                         acc += a_f * w_f * scale_f[u];
@@ -753,6 +753,200 @@ __global__ void fp8_w8a16_gemv_coalesced_m_kernel(
     }
 }
 
+template<int UNROLL_K, int ROWS>
+__global__ void fp8_w8a16_gemv_coalesced_m_half2_kernel(
+        const __half*  __restrict__ A,       // [M, K]
+        const uint8_t* __restrict__ W,       // [N, K], row-major
+        const __half*  __restrict__ scales,  // [ceil(N/block_h), ceil(K/128)]
+        __half*        __restrict__ C,       // [M, N]
+        int M, int N, int K,
+        int block_h,
+        int Kb) {
+    const int tid     = threadIdx.x;
+    const int lane    = tid & 31;
+    const int warp_id = tid >> 5;
+    const int n       = blockIdx.x * GEMV_COAL_WARPS_PER_CTA + warp_id;
+    const bool active = (n < N);
+
+    __shared__ __half a_shared[ROWS][UNROLL_K][GEMV_COAL_BLOCK_K];
+    float acc[ROWS];
+    #pragma unroll
+    for (int m = 0; m < ROWS; ++m) {
+        acc[m] = 0.0f;
+    }
+    const int scale_row = active ? (n / block_h) : 0;
+
+    for (int k_base = 0; k_base < K; k_base += UNROLL_K * GEMV_COAL_BLOCK_K) {
+        for (int idx = tid; idx < ROWS * UNROLL_K * GEMV_COAL_BLOCK_K;
+             idx += GEMV_COAL_THREADS) {
+            const int k_in_block = idx % GEMV_COAL_BLOCK_K;
+            const int u = (idx / GEMV_COAL_BLOCK_K) % UNROLL_K;
+            const int m = idx / (UNROLL_K * GEMV_COAL_BLOCK_K);
+            const int kk = k_base + u * GEMV_COAL_BLOCK_K + k_in_block;
+            a_shared[m][u][k_in_block] = (kk < K)
+                    ? A[(int64_t)m * K + kk]
+                    : __float2half(0.f);
+        }
+        __syncthreads();
+
+        if (active) {
+            uint32_t wv[UNROLL_K];
+            float scale_f[UNROLL_K];
+            bool has_block[UNROLL_K];
+
+            #pragma unroll
+            for (int u = 0; u < UNROLL_K; ++u) {
+                const int block_base = k_base + u * GEMV_COAL_BLOCK_K;
+                has_block[u] = block_base < K;
+                wv[u] = 0;
+                scale_f[u] = 0.0f;
+                if (has_block[u]) {
+                    const int scale_col = block_base / GEMV_COAL_BLOCK_K;
+                    scale_f[u] = __half2float(scales[scale_row * Kb + scale_col]);
+                    const int k_lane = block_base + lane * GEMV_COAL_ELEMS_PER_LANE;
+                    wv[u] = *reinterpret_cast<const uint32_t*>(&W[(int64_t)n * K + k_lane]);
+                }
+            }
+
+            #pragma unroll
+            for (int u = 0; u < UNROLL_K; ++u) {
+                if (has_block[u]) {
+                    const uint8_t* wb = reinterpret_cast<const uint8_t*>(&wv[u]);
+                    const __half w0 = __ushort_as_half(fp8_e4m3_to_fp16_bits(wb[0]));
+                    const __half w1 = __ushort_as_half(fp8_e4m3_to_fp16_bits(wb[1]));
+                    const __half w2 = __ushort_as_half(fp8_e4m3_to_fp16_bits(wb[2]));
+                    const __half w3 = __ushort_as_half(fp8_e4m3_to_fp16_bits(wb[3]));
+                    const half2 w01 = __halves2half2(w0, w1);
+                    const half2 w23 = __halves2half2(w2, w3);
+
+                    #pragma unroll
+                    for (int m = 0; m < ROWS; ++m) {
+                        const __half* a_ptr =
+                            &a_shared[m][u][lane * GEMV_COAL_ELEMS_PER_LANE];
+                        const half2 a01 = *reinterpret_cast<const half2*>(a_ptr);
+                        const half2 a23 = *reinterpret_cast<const half2*>(a_ptr + 2);
+                        const half2 p01 = __hmul2(a01, w01);
+                        const half2 p23 = __hmul2(a23, w23);
+                        const float pair_sum =
+                            __half2float(__low2half(p01)) +
+                            __half2float(__high2half(p01)) +
+                            __half2float(__low2half(p23)) +
+                            __half2float(__high2half(p23));
+                        acc[m] += pair_sum * scale_f[u];
+                    }
+                }
+            }
+        }
+        __syncthreads();
+    }
+
+    #pragma unroll
+    for (int m = 0; m < ROWS; ++m) {
+        acc[m] = warp_sum(acc[m]);
+    }
+    if (active && lane == 0) {
+        #pragma unroll
+        for (int m = 0; m < ROWS; ++m) {
+            C[(int64_t)m * N + n] = __float2half(acc[m]);
+        }
+    }
+}
+
+template<int UNROLL_K, int ROWS>
+__global__ void fp8_w8a16_gemv_coalesced_m_splitk_kernel(
+        const __half*  __restrict__ A,       // [M, K]
+        const uint8_t* __restrict__ W,       // [N, K], row-major
+        const __half*  __restrict__ scales,  // [ceil(N/block_h), ceil(K/128)]
+        float*         __restrict__ C_accum, // [M, N] FP32, pre-zeroed
+        int M, int N, int K,
+        int block_h,
+        int Kb,
+        int split_k) {
+    const int tid      = threadIdx.x;
+    const int lane     = tid & 31;
+    const int warp_id  = tid >> 5;
+    const int n        = blockIdx.x * GEMV_COAL_WARPS_PER_CTA + warp_id;
+    const int slice_id = blockIdx.z;
+    const bool active  = (n < N);
+
+    const int blocks_per_slice = Kb / split_k;
+    const int k_start = slice_id * blocks_per_slice * GEMV_COAL_BLOCK_K;
+    const int k_end = k_start + blocks_per_slice * GEMV_COAL_BLOCK_K;
+
+    __shared__ __half a_shared[ROWS][UNROLL_K][GEMV_COAL_BLOCK_K];
+    float acc[ROWS];
+    #pragma unroll
+    for (int m = 0; m < ROWS; ++m) {
+        acc[m] = 0.0f;
+    }
+    const int scale_row = active ? (n / block_h) : 0;
+
+    for (int k_base = k_start; k_base < k_end; k_base += UNROLL_K * GEMV_COAL_BLOCK_K) {
+        for (int idx = tid; idx < ROWS * UNROLL_K * GEMV_COAL_BLOCK_K;
+             idx += GEMV_COAL_THREADS) {
+            const int k_in_block = idx % GEMV_COAL_BLOCK_K;
+            const int u = (idx / GEMV_COAL_BLOCK_K) % UNROLL_K;
+            const int m = idx / (UNROLL_K * GEMV_COAL_BLOCK_K);
+            const int kk = k_base + u * GEMV_COAL_BLOCK_K + k_in_block;
+            a_shared[m][u][k_in_block] = (kk < k_end)
+                    ? A[(int64_t)m * K + kk]
+                    : __float2half(0.f);
+        }
+        __syncthreads();
+
+        if (active) {
+            uint32_t wv[UNROLL_K];
+            float scale_f[UNROLL_K];
+            bool has_block[UNROLL_K];
+
+            #pragma unroll
+            for (int u = 0; u < UNROLL_K; ++u) {
+                const int block_base = k_base + u * GEMV_COAL_BLOCK_K;
+                has_block[u] = block_base < k_end;
+                wv[u] = 0;
+                scale_f[u] = 0.0f;
+                if (has_block[u]) {
+                    const int scale_col = block_base / GEMV_COAL_BLOCK_K;
+                    scale_f[u] = __half2float(scales[scale_row * Kb + scale_col]);
+                    const int k_lane = block_base + lane * GEMV_COAL_ELEMS_PER_LANE;
+                    wv[u] = *reinterpret_cast<const uint32_t*>(&W[(int64_t)n * K + k_lane]);
+                }
+            }
+
+            #pragma unroll
+            for (int u = 0; u < UNROLL_K; ++u) {
+                if (has_block[u]) {
+                    const uint8_t* wb = reinterpret_cast<const uint8_t*>(&wv[u]);
+                    #pragma unroll
+                    for (int j = 0; j < GEMV_COAL_ELEMS_PER_LANE; ++j) {
+                        const float w_f = __half2float(__ushort_as_half(
+                            fp8_e4m3_to_fp16_bits_fast(wb[j])));
+                        const float w_scaled = w_f * scale_f[u];
+                        #pragma unroll
+                        for (int m = 0; m < ROWS; ++m) {
+                            const float a_f = __half2float(
+                                a_shared[m][u][lane * GEMV_COAL_ELEMS_PER_LANE + j]);
+                            acc[m] += a_f * w_scaled;
+                        }
+                    }
+                }
+            }
+        }
+        __syncthreads();
+    }
+
+    #pragma unroll
+    for (int m = 0; m < ROWS; ++m) {
+        acc[m] = warp_sum(acc[m]);
+    }
+    if (active && lane == 0) {
+        #pragma unroll
+        for (int m = 0; m < ROWS; ++m) {
+            atomicAdd(&C_accum[(int64_t)m * N + n], acc[m]);
+        }
+    }
+}
+
 // ─── Stage G1: GROUPED coalesced routed GEMV (MoE w13 decode) ─────────────────
 //
 // The grouped routed decode kernel (fp8_w8a16_grouped_routed_gemm_a3) maps one
@@ -827,7 +1021,7 @@ __global__ void fp8_w8a16_grouped_gemv_coalesced_kernel(
                     #pragma unroll
                     for (int j = 0; j < GEMV_COAL_ELEMS_PER_LANE; ++j) {
                         const float w_f = __half2float(__ushort_as_half(
-                            fp8_e4m3_to_fp16_bits(wb[j])));
+                            fp8_e4m3_to_fp16_bits_fast(wb[j])));
                         const float a_f = __half2float(
                             a_shared[u][lane * GEMV_COAL_ELEMS_PER_LANE + j]);
                         acc += a_f * w_f * scale_f[u];
@@ -840,6 +1034,98 @@ __global__ void fp8_w8a16_grouped_gemv_coalesced_kernel(
 
     acc = warp_sum(acc);
     if (active && lane == 0) C[(int64_t)r * N + n] = __float2half(acc);
+}
+
+template<int UNROLL_K>
+__global__ void fp8_w8a16_grouped_gemv_coalesced_mtile_kernel(
+        const __half*  __restrict__ A,           // [R, K], sorted by expert
+        const int*     __restrict__ tile_expert, // [T]
+        const int*     __restrict__ tile_row_off,// [T], sorted-row offset
+        const int*     __restrict__ tile_rows,   // [T], 1..8
+        const uint8_t* __restrict__ W,           // [E, N, K] fp8 bytes
+        const __half*  __restrict__ scales,      // [E, Nb, Kb]
+        __half*        __restrict__ C,           // [R, N], sorted
+        int T, int E, int N, int K, int block_h, int Nb, int Kb) {
+    const int tile    = blockIdx.y;
+    const int tid     = threadIdx.x;
+    const int lane    = tid & 31;
+    const int warp_id = tid >> 5;
+    const int n       = blockIdx.x * GEMV_COAL_WARPS_PER_CTA + warp_id;
+    if (tile >= T) return;
+
+    const int e = tile_expert[tile];
+    if (e < 0 || e >= E) return;
+    const int row_start = tile_row_off[tile];
+    const int n_rows = tile_rows[tile];
+    const int rows = min(n_rows, GEMV_COAL_M_MAX);
+    const bool active = (n < N);
+    const int scale_row = active ? ((block_h == 1) ? n : (n / block_h)) : 0;
+    const int64_t w_base = (int64_t)e * N * K;
+    const int64_t s_base = (int64_t)e * Nb * Kb;
+
+    __shared__ __half a_shared[GEMV_COAL_M_MAX][UNROLL_K][GEMV_COAL_BLOCK_K];
+    float acc[GEMV_COAL_M_MAX];
+    for (int m = 0; m < rows; ++m) acc[m] = 0.0f;
+
+    for (int k_base = 0; k_base < K; k_base += UNROLL_K * GEMV_COAL_BLOCK_K) {
+        for (int idx = tid; idx < rows * UNROLL_K * GEMV_COAL_BLOCK_K;
+             idx += GEMV_COAL_THREADS) {
+            const int k_in_block = idx % GEMV_COAL_BLOCK_K;
+            const int u = (idx / GEMV_COAL_BLOCK_K) % UNROLL_K;
+            const int m = idx / (UNROLL_K * GEMV_COAL_BLOCK_K);
+            const int kk = k_base + u * GEMV_COAL_BLOCK_K + k_in_block;
+            a_shared[m][u][k_in_block] = (kk < K)
+                    ? A[(int64_t)(row_start + m) * K + kk]
+                    : __float2half(0.f);
+        }
+        __syncthreads();
+
+        if (active) {
+            uint32_t wv[UNROLL_K];
+            float scale_f[UNROLL_K];
+            bool has_block[UNROLL_K];
+            #pragma unroll
+            for (int u = 0; u < UNROLL_K; ++u) {
+                const int block_base = k_base + u * GEMV_COAL_BLOCK_K;
+                has_block[u] = block_base < K;
+                wv[u] = 0; scale_f[u] = 0.0f;
+                if (has_block[u]) {
+                    const int scale_col = block_base / GEMV_COAL_BLOCK_K;
+                    scale_f[u] = __half2float(scales[s_base + scale_row * Kb + scale_col]);
+                    const int k_lane = block_base + lane * GEMV_COAL_ELEMS_PER_LANE;
+                    wv[u] = *reinterpret_cast<const uint32_t*>(
+                        &W[w_base + (int64_t)n * K + k_lane]);
+                }
+            }
+            #pragma unroll
+            for (int u = 0; u < UNROLL_K; ++u) {
+                if (has_block[u]) {
+                    const uint8_t* wb = reinterpret_cast<const uint8_t*>(&wv[u]);
+                    #pragma unroll
+                    for (int j = 0; j < GEMV_COAL_ELEMS_PER_LANE; ++j) {
+                        const float w_f = __half2float(__ushort_as_half(
+                            fp8_e4m3_to_fp16_bits(wb[j])));
+                        const float w_scaled = w_f * scale_f[u];
+                        for (int m = 0; m < rows; ++m) {
+                            const float a_f = __half2float(
+                                a_shared[m][u][lane * GEMV_COAL_ELEMS_PER_LANE + j]);
+                            acc[m] += a_f * w_scaled;
+                        }
+                    }
+                }
+            }
+        }
+        __syncthreads();
+    }
+
+    for (int m = 0; m < rows; ++m) {
+        acc[m] = warp_sum(acc[m]);
+    }
+    if (active && lane == 0) {
+        for (int m = 0; m < rows; ++m) {
+            C[(int64_t)(row_start + m) * N + n] = __float2half(acc[m]);
+        }
+    }
 }
 
 static int gemv_coalesced_unroll_from_env() {
@@ -932,6 +1218,86 @@ static void launch_fp8_w8a16_gemv_coalesced_m(
 #undef LAUNCH_GEMV_M_ROWS
 }
 
+static void launch_fp8_w8a16_gemv_coalesced_m_half2(
+        const __half* A,
+        const uint8_t* W,
+        const __half* scales,
+        __half* C,
+        int M, int N, int K, int block_h, int Kb,
+        dim3 grid, dim3 block) {
+#define LAUNCH_GEMV_M_HALF2_ROWS(UNROLL_K, ROWS)                               \
+    fp8_w8a16_gemv_coalesced_m_half2_kernel<UNROLL_K, ROWS>                    \
+        <<<grid, block, 0, V100_FP8_STREAM>>>(                                  \
+            A, W, scales, C, M, N, K, block_h, Kb)
+
+#define DISPATCH_GEMV_M_HALF2_ROWS(UNROLL_K)                                   \
+    do {                                                                        \
+        switch (M) {                                                            \
+            case 1: LAUNCH_GEMV_M_HALF2_ROWS(UNROLL_K, 1); break;              \
+            case 2: LAUNCH_GEMV_M_HALF2_ROWS(UNROLL_K, 2); break;              \
+            case 3: LAUNCH_GEMV_M_HALF2_ROWS(UNROLL_K, 3); break;              \
+            case 4: LAUNCH_GEMV_M_HALF2_ROWS(UNROLL_K, 4); break;              \
+            case 5: LAUNCH_GEMV_M_HALF2_ROWS(UNROLL_K, 5); break;              \
+            case 6: LAUNCH_GEMV_M_HALF2_ROWS(UNROLL_K, 6); break;              \
+            case 7: LAUNCH_GEMV_M_HALF2_ROWS(UNROLL_K, 7); break;              \
+            case 8: LAUNCH_GEMV_M_HALF2_ROWS(UNROLL_K, 8); break;              \
+            default: TORCH_CHECK(false, "half2 coalesced GEMV-M supports M=1..8"); \
+        }                                                                       \
+    } while (0)
+
+    const int unroll = gemv_coalesced_m_unroll_from_env();
+    if (unroll >= 8) {
+        DISPATCH_GEMV_M_HALF2_ROWS(8);
+    } else if (unroll >= 4) {
+        DISPATCH_GEMV_M_HALF2_ROWS(4);
+    } else {
+        DISPATCH_GEMV_M_HALF2_ROWS(2);
+    }
+
+#undef DISPATCH_GEMV_M_HALF2_ROWS
+#undef LAUNCH_GEMV_M_HALF2_ROWS
+}
+
+static void launch_fp8_w8a16_gemv_coalesced_m_splitk(
+        const __half* A,
+        const uint8_t* W,
+        const __half* scales,
+        float* C_accum,
+        int M, int N, int K, int block_h, int Kb, int split_k,
+        dim3 grid, dim3 block) {
+#define LAUNCH_GEMV_M_SPLITK_ROWS(UNROLL_K, ROWS)                              \
+    fp8_w8a16_gemv_coalesced_m_splitk_kernel<UNROLL_K, ROWS>                   \
+        <<<grid, block, 0, V100_FP8_STREAM>>>(                                  \
+            A, W, scales, C_accum, M, N, K, block_h, Kb, split_k)
+
+#define DISPATCH_GEMV_M_SPLITK_ROWS(UNROLL_K)                                  \
+    do {                                                                        \
+        switch (M) {                                                            \
+            case 1: LAUNCH_GEMV_M_SPLITK_ROWS(UNROLL_K, 1); break;             \
+            case 2: LAUNCH_GEMV_M_SPLITK_ROWS(UNROLL_K, 2); break;             \
+            case 3: LAUNCH_GEMV_M_SPLITK_ROWS(UNROLL_K, 3); break;             \
+            case 4: LAUNCH_GEMV_M_SPLITK_ROWS(UNROLL_K, 4); break;             \
+            case 5: LAUNCH_GEMV_M_SPLITK_ROWS(UNROLL_K, 5); break;             \
+            case 6: LAUNCH_GEMV_M_SPLITK_ROWS(UNROLL_K, 6); break;             \
+            case 7: LAUNCH_GEMV_M_SPLITK_ROWS(UNROLL_K, 7); break;             \
+            case 8: LAUNCH_GEMV_M_SPLITK_ROWS(UNROLL_K, 8); break;             \
+            default: TORCH_CHECK(false, "split-K coalesced GEMV-M supports M=1..8"); \
+        }                                                                       \
+    } while (0)
+
+    const int unroll = gemv_coalesced_m_unroll_from_env();
+    if (unroll >= 8) {
+        DISPATCH_GEMV_M_SPLITK_ROWS(8);
+    } else if (unroll >= 4) {
+        DISPATCH_GEMV_M_SPLITK_ROWS(4);
+    } else {
+        DISPATCH_GEMV_M_SPLITK_ROWS(2);
+    }
+
+#undef DISPATCH_GEMV_M_SPLITK_ROWS
+#undef LAUNCH_GEMV_M_SPLITK_ROWS
+}
+
 static void launch_fp8_w8a16_grouped_gemv_coalesced(
         const __half* A, const int64_t* expert_ids, const uint8_t* W,
         const __half* scales, __half* C,
@@ -947,6 +1313,30 @@ static void launch_fp8_w8a16_grouped_gemv_coalesced(
     } else {
         fp8_w8a16_grouped_gemv_coalesced_kernel<2><<<grid, block, 0, V100_FP8_STREAM>>>(
             A, expert_ids, W, scales, C, R, E, N, K, block_h, Nb, Kb);
+    }
+}
+
+static void launch_fp8_w8a16_grouped_gemv_coalesced_mtile(
+        const __half* A, const int* tile_expert, const int* tile_row_off,
+        const int* tile_rows, const uint8_t* W, const __half* scales,
+        __half* C, int T, int E, int N, int K, int block_h, int Nb, int Kb,
+        dim3 grid, dim3 block) {
+    const int unroll = gemv_coalesced_m_unroll_from_env();
+    if (unroll >= 8) {
+        fp8_w8a16_grouped_gemv_coalesced_mtile_kernel<8>
+            <<<grid, block, 0, V100_FP8_STREAM>>>(
+                A, tile_expert, tile_row_off, tile_rows, W, scales, C,
+                T, E, N, K, block_h, Nb, Kb);
+    } else if (unroll >= 4) {
+        fp8_w8a16_grouped_gemv_coalesced_mtile_kernel<4>
+            <<<grid, block, 0, V100_FP8_STREAM>>>(
+                A, tile_expert, tile_row_off, tile_rows, W, scales, C,
+                T, E, N, K, block_h, Nb, Kb);
+    } else {
+        fp8_w8a16_grouped_gemv_coalesced_mtile_kernel<2>
+            <<<grid, block, 0, V100_FP8_STREAM>>>(
+                A, tile_expert, tile_row_off, tile_rows, W, scales, C,
+                T, E, N, K, block_h, Nb, Kb);
     }
 }
 
@@ -994,6 +1384,66 @@ torch::Tensor fp8_w8a16_grouped_gemv_coalesced(
     return C;
 }
 
+torch::Tensor fp8_w8a16_grouped_gemv_coalesced_mtile(
+        torch::Tensor input,        // [R, K] fp16, sorted by expert
+        torch::Tensor tile_expert,  // [T] int32
+        torch::Tensor tile_row_off, // [T] int32
+        torch::Tensor tile_rows,    // [T] int32, 1..8
+        torch::Tensor weight,       // [E, N, K] uint8
+        torch::Tensor scales,       // [E, Nb, Kb] fp16
+        int64_t N, int64_t K, int64_t block_h, int64_t block_w) {
+    TORCH_CHECK(input.is_cuda() && tile_expert.is_cuda() && tile_row_off.is_cuda()
+                && tile_rows.is_cuda() && weight.is_cuda() && scales.is_cuda(),
+                "inputs must be CUDA");
+    TORCH_CHECK(input.dtype() == torch::kFloat16, "input must be float16");
+    TORCH_CHECK(tile_expert.dtype() == torch::kInt32
+                && tile_row_off.dtype() == torch::kInt32
+                && tile_rows.dtype() == torch::kInt32,
+                "tile metadata must be int32");
+    TORCH_CHECK(weight.dtype() == torch::kUInt8, "weight must be uint8");
+    TORCH_CHECK(scales.dtype() == torch::kFloat16, "scales must be float16");
+    TORCH_CHECK(input.is_contiguous() && tile_expert.is_contiguous()
+                && tile_row_off.is_contiguous() && tile_rows.is_contiguous()
+                && weight.is_contiguous() && scales.is_contiguous(),
+                "inputs must be contiguous");
+    TORCH_CHECK(input.dim() == 2 && input.size(1) == K, "input must be [R, K]");
+    TORCH_CHECK(tile_expert.dim() == 1 && tile_row_off.dim() == 1
+                && tile_rows.dim() == 1, "tile metadata must be vectors");
+    TORCH_CHECK(tile_row_off.numel() == tile_expert.numel()
+                && tile_rows.numel() == tile_expert.numel(),
+                "tile metadata lengths must match");
+    TORCH_CHECK(weight.dim() == 3 && weight.size(1) == N && weight.size(2) == K,
+                "weight [E,N,K]");
+    TORCH_CHECK(block_w == GEMV_COAL_BLOCK_K, "block_w must be 128");
+    TORCH_CHECK(K % GEMV_COAL_BLOCK_K == 0, "K must be divisible by 128");
+    TORCH_CHECK(block_h == 1 || block_h == 128, "block_h must be 1 or 128");
+
+    const int R = (int)input.size(0);
+    const int T = (int)tile_expert.numel();
+    const int E = (int)weight.size(0);
+    const int Nb = (int)((N + block_h - 1) / block_h);
+    const int Kb = (int)((K + block_w - 1) / block_w);
+    TORCH_CHECK(scales.numel() == (int64_t)E * Nb * Kb, "scales must be [E, Nb, Kb]");
+
+    auto C = torch::empty({(int64_t)R, (int64_t)N},
+                          torch::TensorOptions().dtype(torch::kFloat16).device(input.device()));
+    if (R == 0 || T == 0) return C;
+
+    dim3 block(GEMV_COAL_THREADS);
+    dim3 grid(((int)N + GEMV_COAL_WARPS_PER_CTA - 1) / GEMV_COAL_WARPS_PER_CTA, T);
+    launch_fp8_w8a16_grouped_gemv_coalesced_mtile(
+        reinterpret_cast<__half*>(input.data_ptr<at::Half>()),
+        tile_expert.data_ptr<int>(),
+        tile_row_off.data_ptr<int>(),
+        tile_rows.data_ptr<int>(),
+        weight.data_ptr<uint8_t>(),
+        reinterpret_cast<__half*>(scales.data_ptr<at::Half>()),
+        reinterpret_cast<__half*>(C.data_ptr<at::Half>()),
+        T, E, (int)N, (int)K, (int)block_h, Nb, Kb, grid, block);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    return C;
+}
+
 torch::Tensor fp8_w8a16_gemv_coalesced_m(torch::Tensor input,
                                          torch::Tensor weight,
                                          torch::Tensor scales,
@@ -1032,6 +1482,53 @@ torch::Tensor fp8_w8a16_gemv_coalesced_m(torch::Tensor input,
     dim3 grid(((int)N + GEMV_COAL_WARPS_PER_CTA - 1) / GEMV_COAL_WARPS_PER_CTA);
 
     launch_fp8_w8a16_gemv_coalesced_m(
+        reinterpret_cast<__half*>(input.data_ptr<at::Half>()),
+        weight.data_ptr<uint8_t>(),
+        reinterpret_cast<__half*>(scales.data_ptr<at::Half>()),
+        reinterpret_cast<__half*>(C.data_ptr<at::Half>()),
+        M, (int)N, (int)K, (int)block_h, Kb, grid, block);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    return C;
+}
+
+torch::Tensor fp8_w8a16_gemv_coalesced_m_half2(torch::Tensor input,
+                                               torch::Tensor weight,
+                                               torch::Tensor scales,
+                                               int64_t       N,
+                                               int64_t       K,
+                                               int64_t       block_h,
+                                               int64_t       block_w) {
+    TORCH_CHECK(input.is_cuda() && weight.is_cuda() && scales.is_cuda(),
+                "inputs must be CUDA");
+    TORCH_CHECK(input.dtype()  == torch::kFloat16, "input must be float16");
+    TORCH_CHECK(weight.dtype() == torch::kUInt8,   "weight must be uint8 (raw FP8 bytes)");
+    TORCH_CHECK(scales.dtype() == torch::kFloat16, "scales must be float16");
+    TORCH_CHECK(input.is_contiguous() && weight.is_contiguous() && scales.is_contiguous(),
+                "inputs must be contiguous");
+    TORCH_CHECK(input.dim() == 2 && input.size(1) == K,
+                "half2 coalesced GEMV-M kernel requires input [M, K]");
+    TORCH_CHECK(input.size(0) <= GEMV_COAL_M_MAX,
+                "half2 coalesced GEMV-M kernel is scoped to M<=8 decode");
+    TORCH_CHECK(weight.numel() == N * K, "weight.numel() must equal N*K");
+    TORCH_CHECK(block_w == GEMV_COAL_BLOCK_K,
+                "half2 coalesced GEMV-M kernel requires block_w=128");
+    TORCH_CHECK(K % GEMV_COAL_BLOCK_K == 0,
+                "half2 coalesced GEMV-M kernel requires K divisible by 128");
+    TORCH_CHECK(block_h > 0, "block_h must be positive");
+
+    const int M = (int)input.size(0);
+    const int Nb = (int)((N + block_h - 1) / block_h);
+    const int Kb = (int)((K + block_w - 1) / block_w);
+    TORCH_CHECK(scales.numel() == (int64_t)Nb * Kb,
+                "scales.numel() must equal ceil(N/block_h) * ceil(K/block_w)");
+
+    auto C = torch::empty({M, N},
+                          torch::TensorOptions().dtype(torch::kFloat16).device(input.device()));
+
+    dim3 block(GEMV_COAL_THREADS);
+    dim3 grid(((int)N + GEMV_COAL_WARPS_PER_CTA - 1) / GEMV_COAL_WARPS_PER_CTA);
+
+    launch_fp8_w8a16_gemv_coalesced_m_half2(
         reinterpret_cast<__half*>(input.data_ptr<at::Half>()),
         weight.data_ptr<uint8_t>(),
         reinterpret_cast<__half*>(scales.data_ptr<at::Half>()),
@@ -1213,6 +1710,9 @@ constexpr int WMMA_FRAG = 16;                 // Volta only supports 16×16×16 
 // total per block goes from 4 KB tiles + 16 KB C_smem → 6 KB tiles + 16 KB C_smem.
 // Still well under V100's 96 KB/SM limit.
 constexpr int WMMA_TILE_STRIDE = WMMA_BLOCK_K + 8;   // 24 halves
+
+constexpr int WMMA_M16_BLOCK_M = 16;
+constexpr int WMMA_M16_BLOCK_N = 64;
 
 __global__ void fp8_w8a16_gemm_wmma_kernel(
         const __half*  __restrict__ A,
@@ -1444,6 +1944,558 @@ torch::Tensor fp8_w8a16_gemm_wmma_poc(torch::Tensor input,
     C10_CUDA_KERNEL_LAUNCH_CHECK();
 
     return C;
+}
+
+__global__ void fp8_w8a16_gemm_wmma_m16_kernel(
+        const __half*  __restrict__ A,
+        const uint8_t* __restrict__ W,
+        const __half*  __restrict__ scales,
+        __half*        __restrict__ C,
+        int M, int N, int K,
+        int block_h, int block_w,
+        int Kb) {
+    using namespace nvcuda;
+
+    const int n_start = blockIdx.x * WMMA_M16_BLOCK_N;
+    const int tid     = threadIdx.x;
+    const int warp_id = tid >> 5;      // 0..3; each warp owns one 16x16 N slice.
+    const int lane    = tid & 31;
+
+    __shared__ __half A_tile[2][WMMA_M16_BLOCK_M][WMMA_TILE_STRIDE];
+    __shared__ __half B_tile[2][WMMA_M16_BLOCK_N][WMMA_TILE_STRIDE];
+    __shared__ float  warp_stage[4][WMMA_FRAG][WMMA_FRAG];
+
+    wmma::fragment<wmma::accumulator, WMMA_FRAG, WMMA_FRAG, WMMA_FRAG, float> c_frag;
+    wmma::fill_fragment(c_frag, 0.0f);
+
+    const int scale_row = n_start / block_h;
+    const int K_ITERS = K / WMMA_BLOCK_K;
+
+    {
+        if (tid < 32) {
+            const int row = tid >> 1;          // 0..15
+            const int col_off = (tid & 1) * 8; // 0 or 8
+            if (row < M) {
+                const __half* a_src = &A[row * K + col_off];
+                *reinterpret_cast<uint4*>(&A_tile[0][row][col_off]) =
+                    *reinterpret_cast<const uint4*>(a_src);
+            } else {
+                *reinterpret_cast<uint4*>(&A_tile[0][row][col_off]) =
+                    make_uint4(0, 0, 0, 0);
+            }
+        }
+
+        const int row = tid >> 1;          // 0..63
+        const int col_off = (tid & 1) * 8; // 0 or 8
+        const int scale_col_l = 0 / block_w;
+        const int sr = (block_h == 1) ? (n_start + row) : scale_row;
+        const float scale_f_l = __half2float(scales[sr * Kb + scale_col_l]);
+        const uint8_t* w_src = &W[(n_start + row) * K + col_off];
+        const uint2 wv = *reinterpret_cast<const uint2*>(w_src);
+        const uint8_t* wb = reinterpret_cast<const uint8_t*>(&wv);
+        #pragma unroll
+        for (int kv = 0; kv < 8; ++kv) {
+            const float w_dq = __half2float(__ushort_as_half(
+                fp8_e4m3_to_fp16_bits(wb[kv])));
+            B_tile[0][row][col_off + kv] = __float2half(w_dq * scale_f_l);
+        }
+    }
+    __syncthreads();
+
+    for (int it = 0; it < K_ITERS - 1; ++it) {
+        const int cur = it & 1;
+        const int nxt = cur ^ 1;
+        const int k_next = (it + 1) * WMMA_BLOCK_K;
+
+        if (tid < 32) {
+            const int row = tid >> 1;
+            const int col_off = (tid & 1) * 8;
+            if (row < M) {
+                const __half* a_src = &A[row * K + k_next + col_off];
+                *reinterpret_cast<uint4*>(&A_tile[nxt][row][col_off]) =
+                    *reinterpret_cast<const uint4*>(a_src);
+            } else {
+                *reinterpret_cast<uint4*>(&A_tile[nxt][row][col_off]) =
+                    make_uint4(0, 0, 0, 0);
+            }
+        }
+
+        {
+            const int row = tid >> 1;
+            const int col_off = (tid & 1) * 8;
+            const int scale_col_l = k_next / block_w;
+            const int sr = (block_h == 1) ? (n_start + row) : scale_row;
+            const float scale_f_l = __half2float(scales[sr * Kb + scale_col_l]);
+            const uint8_t* w_src = &W[(n_start + row) * K + k_next + col_off];
+            const uint2 wv = *reinterpret_cast<const uint2*>(w_src);
+            const uint8_t* wb = reinterpret_cast<const uint8_t*>(&wv);
+            #pragma unroll
+            for (int kv = 0; kv < 8; ++kv) {
+                const float w_dq = __half2float(__ushort_as_half(
+                    fp8_e4m3_to_fp16_bits(wb[kv])));
+                B_tile[nxt][row][col_off + kv] = __float2half(w_dq * scale_f_l);
+            }
+        }
+
+        {
+            wmma::fragment<wmma::matrix_a, WMMA_FRAG, WMMA_FRAG, WMMA_FRAG, __half, wmma::row_major> a_frag;
+            wmma::fragment<wmma::matrix_b, WMMA_FRAG, WMMA_FRAG, WMMA_FRAG, __half, wmma::col_major> b_frag;
+            wmma::load_matrix_sync(a_frag, &A_tile[cur][0][0], WMMA_TILE_STRIDE);
+            wmma::load_matrix_sync(b_frag, &B_tile[cur][warp_id * WMMA_FRAG][0], WMMA_TILE_STRIDE);
+            wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);
+        }
+
+        __syncthreads();
+    }
+
+    {
+        const int last_buf = (K_ITERS - 1) & 1;
+        wmma::fragment<wmma::matrix_a, WMMA_FRAG, WMMA_FRAG, WMMA_FRAG, __half, wmma::row_major> a_frag;
+        wmma::fragment<wmma::matrix_b, WMMA_FRAG, WMMA_FRAG, WMMA_FRAG, __half, wmma::col_major> b_frag;
+        wmma::load_matrix_sync(a_frag, &A_tile[last_buf][0][0], WMMA_TILE_STRIDE);
+        wmma::load_matrix_sync(b_frag, &B_tile[last_buf][warp_id * WMMA_FRAG][0], WMMA_TILE_STRIDE);
+        wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);
+    }
+
+    wmma::store_matrix_sync(&warp_stage[warp_id][0][0],
+                            c_frag,
+                            WMMA_FRAG,
+                            wmma::mem_row_major);
+
+    const int n_off = n_start + warp_id * WMMA_FRAG;
+    #pragma unroll
+    for (int i = 0; i < 8; ++i) {
+        const int idx = lane + i * 32;
+        const int r = idx >> 4;
+        const int c = idx & 15;
+        if (r < M) {
+            C[r * N + (n_off + c)] =
+                __float2half(warp_stage[warp_id][r][c]);
+        }
+    }
+}
+
+__global__ void fp8_w8a16_gemm_wmma_m16_splitk_kernel(
+        const __half*  __restrict__ A,
+        const uint8_t* __restrict__ W,
+        const __half*  __restrict__ scales,
+        float*         __restrict__ C_accum,
+        int M, int N, int K,
+        int block_h, int block_w,
+        int Kb, int split_k) {
+    using namespace nvcuda;
+
+    const int n_start = blockIdx.x * WMMA_M16_BLOCK_N;
+    const int split_id = blockIdx.y;
+    const int tid = threadIdx.x;
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+
+    const int k_iters_total = K / WMMA_BLOCK_K;
+    const int iters_per_split = (k_iters_total + split_k - 1) / split_k;
+    const int it_begin = split_id * iters_per_split;
+    const int it_end = min(k_iters_total, it_begin + iters_per_split);
+    if (it_begin >= it_end) return;
+
+    __shared__ __half A_tile[WMMA_M16_BLOCK_M][WMMA_TILE_STRIDE];
+    __shared__ __half B_tile[WMMA_M16_BLOCK_N][WMMA_TILE_STRIDE];
+    __shared__ float  warp_stage[4][WMMA_FRAG][WMMA_FRAG];
+
+    wmma::fragment<wmma::accumulator, WMMA_FRAG, WMMA_FRAG, WMMA_FRAG, float> c_frag;
+    wmma::fill_fragment(c_frag, 0.0f);
+
+    const int scale_row = n_start / block_h;
+
+    for (int it = it_begin; it < it_end; ++it) {
+        const int k_base = it * WMMA_BLOCK_K;
+
+        if (tid < 32) {
+            const int row = tid >> 1;
+            const int col_off = (tid & 1) * 8;
+            if (row < M) {
+                const __half* a_src = &A[row * K + k_base + col_off];
+                *reinterpret_cast<uint4*>(&A_tile[row][col_off]) =
+                    *reinterpret_cast<const uint4*>(a_src);
+            } else {
+                *reinterpret_cast<uint4*>(&A_tile[row][col_off]) =
+                    make_uint4(0, 0, 0, 0);
+            }
+        }
+
+        {
+            const int row = tid >> 1;
+            const int col_off = (tid & 1) * 8;
+            const int scale_col_l = k_base / block_w;
+            const int sr = (block_h == 1) ? (n_start + row) : scale_row;
+            const float scale_f_l = __half2float(scales[sr * Kb + scale_col_l]);
+            const uint8_t* w_src = &W[(n_start + row) * K + k_base + col_off];
+            const uint2 wv = *reinterpret_cast<const uint2*>(w_src);
+            const uint8_t* wb = reinterpret_cast<const uint8_t*>(&wv);
+            #pragma unroll
+            for (int kv = 0; kv < 8; ++kv) {
+                const float w_dq = __half2float(__ushort_as_half(
+                    fp8_e4m3_to_fp16_bits(wb[kv])));
+                B_tile[row][col_off + kv] = __float2half(w_dq * scale_f_l);
+            }
+        }
+
+        __syncthreads();
+
+        wmma::fragment<wmma::matrix_a, WMMA_FRAG, WMMA_FRAG, WMMA_FRAG, __half, wmma::row_major> a_frag;
+        wmma::fragment<wmma::matrix_b, WMMA_FRAG, WMMA_FRAG, WMMA_FRAG, __half, wmma::col_major> b_frag;
+        wmma::load_matrix_sync(a_frag, &A_tile[0][0], WMMA_TILE_STRIDE);
+        wmma::load_matrix_sync(b_frag, &B_tile[warp_id * WMMA_FRAG][0], WMMA_TILE_STRIDE);
+        wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);
+
+        __syncthreads();
+    }
+
+    wmma::store_matrix_sync(&warp_stage[warp_id][0][0],
+                            c_frag,
+                            WMMA_FRAG,
+                            wmma::mem_row_major);
+
+    const int n_off = n_start + warp_id * WMMA_FRAG;
+    #pragma unroll
+    for (int i = 0; i < 8; ++i) {
+        const int idx = lane + i * 32;
+        const int r = idx >> 4;
+        const int c = idx & 15;
+        if (r < M) {
+            atomicAdd(&C_accum[(int64_t)r * N + (n_off + c)],
+                      warp_stage[warp_id][r][c]);
+        }
+    }
+}
+
+__global__ void fp8_w8a16_gemm_wmma_m16_splitk_noreduce_kernel(
+        const __half*  __restrict__ A,
+        const uint8_t* __restrict__ W,
+        const __half*  __restrict__ scales,
+        float*         __restrict__ partials,
+        int M, int N, int K,
+        int block_h, int block_w,
+        int Kb, int split_k) {
+    using namespace nvcuda;
+
+    const int n_start = blockIdx.x * WMMA_M16_BLOCK_N;
+    const int split_id = blockIdx.y;
+    const int tid = threadIdx.x;
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+
+    const int k_iters_total = K / WMMA_BLOCK_K;
+    const int iters_per_split = (k_iters_total + split_k - 1) / split_k;
+    const int it_begin = split_id * iters_per_split;
+    const int it_end = min(k_iters_total, it_begin + iters_per_split);
+    if (it_begin >= it_end) return;
+
+    __shared__ __half A_tile[WMMA_M16_BLOCK_M][WMMA_TILE_STRIDE];
+    __shared__ __half B_tile[WMMA_M16_BLOCK_N][WMMA_TILE_STRIDE];
+    __shared__ float  warp_stage[4][WMMA_FRAG][WMMA_FRAG];
+
+    wmma::fragment<wmma::accumulator, WMMA_FRAG, WMMA_FRAG, WMMA_FRAG, float> c_frag;
+    wmma::fill_fragment(c_frag, 0.0f);
+
+    const int scale_row = n_start / block_h;
+
+    for (int it = it_begin; it < it_end; ++it) {
+        const int k_base = it * WMMA_BLOCK_K;
+
+        if (tid < 32) {
+            const int row = tid >> 1;
+            const int col_off = (tid & 1) * 8;
+            if (row < M) {
+                const __half* a_src = &A[row * K + k_base + col_off];
+                *reinterpret_cast<uint4*>(&A_tile[row][col_off]) =
+                    *reinterpret_cast<const uint4*>(a_src);
+            } else {
+                *reinterpret_cast<uint4*>(&A_tile[row][col_off]) =
+                    make_uint4(0, 0, 0, 0);
+            }
+        }
+
+        {
+            const int row = tid >> 1;
+            const int col_off = (tid & 1) * 8;
+            const int scale_col_l = k_base / block_w;
+            const int sr = (block_h == 1) ? (n_start + row) : scale_row;
+            const float scale_f_l = __half2float(scales[sr * Kb + scale_col_l]);
+            const uint8_t* w_src = &W[(n_start + row) * K + k_base + col_off];
+            const uint2 wv = *reinterpret_cast<const uint2*>(w_src);
+            const uint8_t* wb = reinterpret_cast<const uint8_t*>(&wv);
+            #pragma unroll
+            for (int kv = 0; kv < 8; ++kv) {
+                const float w_dq = __half2float(__ushort_as_half(
+                    fp8_e4m3_to_fp16_bits(wb[kv])));
+                B_tile[row][col_off + kv] = __float2half(w_dq * scale_f_l);
+            }
+        }
+
+        __syncthreads();
+
+        wmma::fragment<wmma::matrix_a, WMMA_FRAG, WMMA_FRAG, WMMA_FRAG, __half, wmma::row_major> a_frag;
+        wmma::fragment<wmma::matrix_b, WMMA_FRAG, WMMA_FRAG, WMMA_FRAG, __half, wmma::col_major> b_frag;
+        wmma::load_matrix_sync(a_frag, &A_tile[0][0], WMMA_TILE_STRIDE);
+        wmma::load_matrix_sync(b_frag, &B_tile[warp_id * WMMA_FRAG][0], WMMA_TILE_STRIDE);
+        wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);
+
+        __syncthreads();
+    }
+
+    wmma::store_matrix_sync(&warp_stage[warp_id][0][0],
+                            c_frag,
+                            WMMA_FRAG,
+                            wmma::mem_row_major);
+
+    const int n_off = n_start + warp_id * WMMA_FRAG;
+    const int64_t split_base = (int64_t)split_id * M * N;
+    #pragma unroll
+    for (int i = 0; i < 8; ++i) {
+        const int idx = lane + i * 32;
+        const int r = idx >> 4;
+        const int c = idx & 15;
+        if (r < M) {
+            partials[split_base + (int64_t)r * N + (n_off + c)] =
+                warp_stage[warp_id][r][c];
+        }
+    }
+}
+
+__global__ void fp32_accum_to_fp16_kernel(const float* __restrict__ C_accum,
+                                          __half* __restrict__ C,
+                                          int total) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < total) C[idx] = __float2half(C_accum[idx]);
+}
+
+torch::Tensor fp8_w8a16_gemv_coalesced_m_splitk(torch::Tensor input,
+                                                torch::Tensor weight,
+                                                torch::Tensor scales,
+                                                int64_t       N,
+                                                int64_t       K,
+                                                int64_t       block_h,
+                                                int64_t       block_w,
+                                                int64_t       split_k) {
+    TORCH_CHECK(input.is_cuda() && weight.is_cuda() && scales.is_cuda(),
+                "inputs must be CUDA");
+    TORCH_CHECK(input.dtype()  == torch::kFloat16, "input must be float16");
+    TORCH_CHECK(weight.dtype() == torch::kUInt8,   "weight must be uint8 (raw FP8 bytes)");
+    TORCH_CHECK(scales.dtype() == torch::kFloat16, "scales must be float16");
+    TORCH_CHECK(input.is_contiguous() && weight.is_contiguous() && scales.is_contiguous(),
+                "inputs must be contiguous");
+    TORCH_CHECK(input.dim() == 2 && input.size(1) == K,
+                "split-K coalesced GEMV-M requires input [M, K]");
+    TORCH_CHECK(input.size(0) <= GEMV_COAL_M_MAX,
+                "split-K coalesced GEMV-M is scoped to M<=8 decode");
+    TORCH_CHECK(weight.numel() == N * K, "weight.numel() must equal N*K");
+    TORCH_CHECK(block_w == GEMV_COAL_BLOCK_K,
+                "split-K coalesced GEMV-M requires block_w=128");
+    TORCH_CHECK(K % GEMV_COAL_BLOCK_K == 0,
+                "split-K coalesced GEMV-M requires K divisible by 128");
+    TORCH_CHECK(block_h > 0, "block_h must be positive");
+    TORCH_CHECK(split_k > 0 && split_k <= 32,
+                "split-K coalesced GEMV-M requires 1 <= split_k <= 32");
+
+    const int M = (int)input.size(0);
+    const int Nb = (int)((N + block_h - 1) / block_h);
+    const int Kb = (int)((K + block_w - 1) / block_w);
+    TORCH_CHECK(scales.numel() == (int64_t)Nb * Kb,
+                "scales.numel() must equal ceil(N/block_h) * ceil(K/block_w)");
+    TORCH_CHECK((Kb % split_k) == 0,
+                "split_k must evenly divide K/block_w for scale-aligned slices");
+
+    auto C_accum = torch::zeros({M, N},
+                                torch::TensorOptions().dtype(torch::kFloat32).device(input.device()));
+    auto C = torch::empty({M, N},
+                          torch::TensorOptions().dtype(torch::kFloat16).device(input.device()));
+
+    dim3 block(GEMV_COAL_THREADS);
+    dim3 grid(((int)N + GEMV_COAL_WARPS_PER_CTA - 1) / GEMV_COAL_WARPS_PER_CTA,
+              1,
+              (int)split_k);
+    launch_fp8_w8a16_gemv_coalesced_m_splitk(
+        reinterpret_cast<__half*>(input.data_ptr<at::Half>()),
+        weight.data_ptr<uint8_t>(),
+        reinterpret_cast<__half*>(scales.data_ptr<at::Half>()),
+        C_accum.data_ptr<float>(),
+        M, (int)N, (int)K, (int)block_h, Kb, (int)split_k, grid, block);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+    const int total = M * (int)N;
+    const int threads = 256;
+    const int blocks = (total + threads - 1) / threads;
+    fp32_accum_to_fp16_kernel<<<blocks, threads, 0, V100_FP8_STREAM>>>(
+        C_accum.data_ptr<float>(),
+        reinterpret_cast<__half*>(C.data_ptr<at::Half>()),
+        total);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    return C;
+}
+
+torch::Tensor fp8_w8a16_gemm_wmma_m16(torch::Tensor input,
+                                       torch::Tensor weight,
+                                       torch::Tensor scales,
+                                       int64_t       N,
+                                       int64_t       K,
+                                       int64_t       block_h,
+                                       int64_t       block_w) {
+    TORCH_CHECK(input.is_cuda() && weight.is_cuda() && scales.is_cuda(),
+                "inputs must be CUDA");
+    TORCH_CHECK(input.dtype()  == torch::kFloat16, "input must be float16");
+    TORCH_CHECK(weight.dtype() == torch::kUInt8,   "weight must be uint8 (raw FP8 bytes)");
+    TORCH_CHECK(scales.dtype() == torch::kFloat16, "scales must be float16");
+    TORCH_CHECK(input.is_contiguous() && weight.is_contiguous() && scales.is_contiguous(),
+                "inputs must be contiguous");
+    TORCH_CHECK(input.dim() == 2 && input.size(1) == K,
+                "input must be [M, K] with K matching");
+    TORCH_CHECK(weight.numel() == N * K, "weight.numel() must equal N*K");
+    TORCH_CHECK((block_h == 128 || block_h == 1) && block_w == 128,
+                "WMMA-M16 requires block_w=128 and block_h in {128, 1}");
+
+    const int M  = (int)input.size(0);
+    TORCH_CHECK(M > 0 && M <= WMMA_M16_BLOCK_M,
+                "WMMA-M16 requires 1 <= M <= 16");
+    TORCH_CHECK(N % WMMA_M16_BLOCK_N == 0,
+                "WMMA-M16 requires N divisible by 64");
+    TORCH_CHECK(K % WMMA_BLOCK_K == 0,
+                "WMMA-M16 requires K divisible by 16");
+
+    const int Nb = (int)((N + block_h - 1) / block_h);
+    const int Kb = (int)((K + block_w - 1) / block_w);
+    TORCH_CHECK(scales.numel() == (int64_t)Nb * Kb,
+                "scales.numel() must equal ceil(N/block_h) * ceil(K/block_w)");
+
+    auto C = torch::empty({(int64_t)M, (int64_t)N},
+                          torch::TensorOptions().dtype(torch::kFloat16).device(input.device()));
+
+    dim3 block(WMMA_THREADS_PER_BLOCK);
+    dim3 grid(((int)N) / WMMA_M16_BLOCK_N);
+
+    fp8_w8a16_gemm_wmma_m16_kernel<<<grid, block, 0, V100_FP8_STREAM>>>(
+        reinterpret_cast<__half*>(input.data_ptr<at::Half>()),
+        weight.data_ptr<uint8_t>(),
+        reinterpret_cast<__half*>(scales.data_ptr<at::Half>()),
+        reinterpret_cast<__half*>(C.data_ptr<at::Half>()),
+        M, (int)N, (int)K, (int)block_h, (int)block_w, Kb);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+    return C;
+}
+
+torch::Tensor fp8_w8a16_gemm_wmma_m16_splitk(torch::Tensor input,
+                                              torch::Tensor weight,
+                                              torch::Tensor scales,
+                                              int64_t       N,
+                                              int64_t       K,
+                                              int64_t       block_h,
+                                              int64_t       block_w,
+                                              int64_t       split_k) {
+    TORCH_CHECK(input.is_cuda() && weight.is_cuda() && scales.is_cuda(),
+                "inputs must be CUDA");
+    TORCH_CHECK(input.dtype()  == torch::kFloat16, "input must be float16");
+    TORCH_CHECK(weight.dtype() == torch::kUInt8,   "weight must be uint8 (raw FP8 bytes)");
+    TORCH_CHECK(scales.dtype() == torch::kFloat16, "scales must be float16");
+    TORCH_CHECK(input.is_contiguous() && weight.is_contiguous() && scales.is_contiguous(),
+                "inputs must be contiguous");
+    TORCH_CHECK(input.dim() == 2 && input.size(1) == K,
+                "input must be [M, K] with K matching");
+    TORCH_CHECK(weight.numel() == N * K, "weight.numel() must equal N*K");
+    TORCH_CHECK((block_h == 128 || block_h == 1) && block_w == 128,
+                "WMMA-M16 split-K requires block_w=128 and block_h in {128, 1}");
+
+    const int M = (int)input.size(0);
+    TORCH_CHECK(M > 0 && M <= WMMA_M16_BLOCK_M,
+                "WMMA-M16 split-K requires 1 <= M <= 16");
+    TORCH_CHECK(N % WMMA_M16_BLOCK_N == 0,
+                "WMMA-M16 split-K requires N divisible by 64");
+    TORCH_CHECK(K % WMMA_BLOCK_K == 0,
+                "WMMA-M16 split-K requires K divisible by 16");
+    TORCH_CHECK(split_k > 0 && split_k <= 32,
+                "WMMA-M16 split-K requires 1 <= split_k <= 32");
+
+    const int Nb = (int)((N + block_h - 1) / block_h);
+    const int Kb = (int)((K + block_w - 1) / block_w);
+    TORCH_CHECK(scales.numel() == (int64_t)Nb * Kb,
+                "scales.numel() must equal ceil(N/block_h) * ceil(K/block_w)");
+
+    auto C_accum = torch::zeros({(int64_t)M, (int64_t)N},
+                                torch::TensorOptions().dtype(torch::kFloat32).device(input.device()));
+    auto C = torch::empty({(int64_t)M, (int64_t)N},
+                          torch::TensorOptions().dtype(torch::kFloat16).device(input.device()));
+
+    dim3 block(WMMA_THREADS_PER_BLOCK);
+    dim3 grid(((int)N) / WMMA_M16_BLOCK_N, (int)split_k);
+    fp8_w8a16_gemm_wmma_m16_splitk_kernel<<<grid, block, 0, V100_FP8_STREAM>>>(
+        reinterpret_cast<__half*>(input.data_ptr<at::Half>()),
+        weight.data_ptr<uint8_t>(),
+        reinterpret_cast<__half*>(scales.data_ptr<at::Half>()),
+        C_accum.data_ptr<float>(),
+        M, (int)N, (int)K, (int)block_h, (int)block_w, Kb, (int)split_k);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+    const int total = M * (int)N;
+    const int threads = 256;
+    const int blocks = (total + threads - 1) / threads;
+    fp32_accum_to_fp16_kernel<<<blocks, threads, 0, V100_FP8_STREAM>>>(
+        C_accum.data_ptr<float>(),
+        reinterpret_cast<__half*>(C.data_ptr<at::Half>()),
+        total);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+    return C;
+}
+
+torch::Tensor fp8_w8a16_gemm_wmma_m16_splitk_noreduce(torch::Tensor input,
+                                                       torch::Tensor weight,
+                                                       torch::Tensor scales,
+                                                       int64_t       N,
+                                                       int64_t       K,
+                                                       int64_t       block_h,
+                                                       int64_t       block_w,
+                                                       int64_t       split_k) {
+    TORCH_CHECK(input.is_cuda() && weight.is_cuda() && scales.is_cuda(),
+                "inputs must be CUDA");
+    TORCH_CHECK(input.dtype()  == torch::kFloat16, "input must be float16");
+    TORCH_CHECK(weight.dtype() == torch::kUInt8,   "weight must be uint8 (raw FP8 bytes)");
+    TORCH_CHECK(scales.dtype() == torch::kFloat16, "scales must be float16");
+    TORCH_CHECK(input.is_contiguous() && weight.is_contiguous() && scales.is_contiguous(),
+                "inputs must be contiguous");
+    TORCH_CHECK(input.dim() == 2 && input.size(1) == K,
+                "input must be [M, K] with K matching");
+    TORCH_CHECK(weight.numel() == N * K, "weight.numel() must equal N*K");
+    TORCH_CHECK((block_h == 128 || block_h == 1) && block_w == 128,
+                "WMMA-M16 split-K noreduce requires block_w=128 and block_h in {128, 1}");
+
+    const int M = (int)input.size(0);
+    TORCH_CHECK(M > 0 && M <= WMMA_M16_BLOCK_M,
+                "WMMA-M16 split-K noreduce requires 1 <= M <= 16");
+    TORCH_CHECK(N % WMMA_M16_BLOCK_N == 0,
+                "WMMA-M16 split-K noreduce requires N divisible by 64");
+    TORCH_CHECK(K % WMMA_BLOCK_K == 0,
+                "WMMA-M16 split-K noreduce requires K divisible by 16");
+    TORCH_CHECK(split_k > 0 && split_k <= 32,
+                "WMMA-M16 split-K noreduce requires 1 <= split_k <= 32");
+
+    const int Nb = (int)((N + block_h - 1) / block_h);
+    const int Kb = (int)((K + block_w - 1) / block_w);
+    TORCH_CHECK(scales.numel() == (int64_t)Nb * Kb,
+                "scales.numel() must equal ceil(N/block_h) * ceil(K/block_w)");
+
+    auto partials = torch::empty({(int64_t)split_k, (int64_t)M, (int64_t)N},
+                                 torch::TensorOptions().dtype(torch::kFloat32).device(input.device()));
+
+    dim3 block(WMMA_THREADS_PER_BLOCK);
+    dim3 grid(((int)N) / WMMA_M16_BLOCK_N, (int)split_k);
+    fp8_w8a16_gemm_wmma_m16_splitk_noreduce_kernel<<<grid, block, 0, V100_FP8_STREAM>>>(
+        reinterpret_cast<__half*>(input.data_ptr<at::Half>()),
+        weight.data_ptr<uint8_t>(),
+        reinterpret_cast<__half*>(scales.data_ptr<at::Half>()),
+        partials.data_ptr<float>(),
+        M, (int)N, (int)K, (int)block_h, (int)block_w, Kb, (int)split_k);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+    return partials;
 }
 
 torch::Tensor fp8_w8a16_gemm_a3(torch::Tensor input,
@@ -1783,10 +2835,10 @@ torch::Tensor fp8_w8a16_gemm(torch::Tensor input,
 }
 
 torch::Tensor fp8_e4m3_to_fp16_block_scaled(torch::Tensor weight,
-                                             torch::Tensor scales,
-                                             int64_t       N,
-                                             int64_t       K,
-                                             int64_t       block_h,
+                                            torch::Tensor scales,
+                                            int64_t       N,
+                                            int64_t       K,
+                                            int64_t       block_h,
                                              int64_t       block_w) {
     TORCH_CHECK(weight.is_cuda() && scales.is_cuda(),     "inputs must be CUDA");
     TORCH_CHECK(weight.dtype() == torch::kUInt8,          "weight must be uint8 (raw FP8 bytes)");
@@ -1815,6 +2867,79 @@ torch::Tensor fp8_e4m3_to_fp16_block_scaled(torch::Tensor weight,
         (int)N, (int)K, (int)block_h, (int)block_w, Kb);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
 
+    return out;
+}
+
+__global__ void gptq4_to_fp16_dequant_kernel(
+        const uint32_t* __restrict__ qweight,  // [K/8, N]
+        const uint32_t* __restrict__ qzeros,   // [groups, N/8]
+        const __half*   __restrict__ scales,   // [groups, N]
+        __half*         __restrict__ out,      // [K, N]
+        int K,
+        int N,
+        int group_size,
+        int zero_offset) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    const int total = K * N;
+    if (idx >= total) return;
+
+    const int n = idx % N;
+    const int k = idx / N;
+    const int qrow = k >> 3;
+    const int qshift = (k & 7) << 2;
+    const int group = k / group_size;
+
+    const uint32_t packed_w = qweight[(int64_t)qrow * N + n];
+    const int q = (packed_w >> qshift) & 0x0f;
+
+    const uint32_t packed_z = qzeros[(int64_t)group * ((N + 7) / 8) + (n >> 3)];
+    const int z = ((packed_z >> ((n & 7) << 2)) & 0x0f) + zero_offset;
+
+    const __half s = scales[(int64_t)group * N + n];
+    out[idx] = __hmul(__int2half_rn(q - z), s);
+}
+
+torch::Tensor gptq4_to_fp16_dequant(torch::Tensor qweight,
+                                    torch::Tensor qzeros,
+                                    torch::Tensor scales,
+                                    int64_t K,
+                                    int64_t N,
+                                    int64_t group_size,
+                                    bool use_v2_format) {
+    TORCH_CHECK(qweight.is_cuda() && qzeros.is_cuda() && scales.is_cuda(),
+                "inputs must be CUDA");
+    TORCH_CHECK(qweight.dtype() == torch::kInt32, "qweight must be int32");
+    TORCH_CHECK(qzeros.dtype() == torch::kInt32, "qzeros must be int32");
+    TORCH_CHECK(scales.dtype() == torch::kFloat16, "scales must be float16");
+    TORCH_CHECK(qweight.is_contiguous() && qzeros.is_contiguous() && scales.is_contiguous(),
+                "inputs must be contiguous");
+    TORCH_CHECK(K % 8 == 0, "K must be divisible by 8 for GPTQ int4");
+    TORCH_CHECK(group_size > 0 && K % group_size == 0,
+                "group_size must evenly divide K");
+    const int groups = (int)(K / group_size);
+    TORCH_CHECK(qweight.numel() == (K / 8) * N,
+                "qweight must have (K/8)*N int32 elements");
+    TORCH_CHECK(qzeros.numel() == (int64_t)groups * ((N + 7) / 8),
+                "qzeros must have groups*ceil(N/8) int32 elements");
+    TORCH_CHECK(scales.numel() == (int64_t)groups * N,
+                "scales must have groups*N fp16 elements");
+
+    auto out = torch::empty({K, N},
+                            torch::TensorOptions().dtype(torch::kFloat16).device(qweight.device()));
+    const int total = (int)(K * N);
+    const int threads = 256;
+    const int blocks = (total + threads - 1) / threads;
+    const int zero_offset = use_v2_format ? 0 : 1;
+    gptq4_to_fp16_dequant_kernel<<<blocks, threads, 0, V100_FP8_STREAM>>>(
+        reinterpret_cast<const uint32_t*>(qweight.data_ptr<int>()),
+        reinterpret_cast<const uint32_t*>(qzeros.data_ptr<int>()),
+        reinterpret_cast<const __half*>(scales.data_ptr<at::Half>()),
+        reinterpret_cast<__half*>(out.data_ptr<at::Half>()),
+        (int)K,
+        (int)N,
+        (int)group_size,
+        zero_offset);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
     return out;
 }
 
@@ -1882,6 +3007,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("fp8_e4m3_to_fp16_block_scaled", &fp8_e4m3_to_fp16_block_scaled,
           "Dequant FP8 E4M3-FN with 2D block scales [N/block_h, K/block_w] "
           "(DeepSeek-style FP8 W8A16)");
+    m.def("gptq4_to_fp16_dequant",          &gptq4_to_fp16_dequant,
+          "Probe-only GPTQ int4 -> FP16 reconstruct kernel for bits=4, "
+          "group_size-aligned, desc_act=False layouts.");
     m.def("fp8_w8a16_gemm",                &fp8_w8a16_gemm,
           "Naive fused FP8 W8A16 GEMM on CUDA cores (V100). "
           "C[M,N] = A[M,K] @ dequant(W[N,K]).T with 2D block scales.");
@@ -1901,10 +3029,23 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("fp8_w8a16_gemv_coalesced_m",    &fp8_w8a16_gemv_coalesced_m,
           "Prototype M<=8 FP8 W8A16 GEMV with coalesced K-lane weight loads. "
           "Separate proof kernel; block_w=128 only.");
+    m.def("fp8_w8a16_gemv_coalesced_m_half2",
+          &fp8_w8a16_gemv_coalesced_m_half2,
+          "Experiment: M<=8 coalesced GEMV-M with half2 inner products. "
+          "Side-by-side probe for GPTQ-inspired CUDA-core decode structure.");
+    m.def("fp8_w8a16_gemv_coalesced_m_splitk",
+          &fp8_w8a16_gemv_coalesced_m_splitk,
+          "Experiment: M<=8 coalesced GEMV-M with K-axis CTA splitting and "
+          "FP32 atomic reduction. GPTQ-inspired CUDA-core decode probe.");
     m.def("fp8_w8a16_grouped_gemv_coalesced", &fp8_w8a16_grouped_gemv_coalesced,
           "Stage G1: GROUPED coalesced routed GEMV for MoE w13 decode. Warp owns "
           "one (routed-row, column); lanes coalesce over K; expert via "
           "expert_ids[R]. Fixes the grouped-a3 N-strided read (28 sectors/req).");
+    m.def("fp8_w8a16_grouped_gemv_coalesced_mtile",
+          &fp8_w8a16_grouped_gemv_coalesced_mtile,
+          "Experimental grouped coalesced M-tile GEMV. Input rows are sorted by "
+          "expert; each warp owns one output column and accumulates up to 8 "
+          "routed rows sharing the same expert while reading W once.");
     m.def("fp8_w8a16_grouped_routed_gemm_a3",
           &fp8_w8a16_grouped_routed_gemm_a3,
           "Stage 2B grouped routed A.3 GEMM for MoE decode. Each routed row "
@@ -1923,4 +3064,14 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Phase A.4 POC: WMMA-based GEMM on V100 HMMA.884 tensor cores. "
           "Naive 64×64 tile, 4 warps, no double-buffering. POC to gauge "
           "whether full WMMA optimization is worth pursuing.");
+    m.def("fp8_w8a16_gemm_wmma_m16",       &fp8_w8a16_gemm_wmma_m16,
+          "Decode-oriented WMMA FP8 W8A16 GEMM for 1<=M<=16, N multiple of 64, "
+          "block_w=128, and block_h in {1,128}.");
+    m.def("fp8_w8a16_gemm_wmma_m16_splitk", &fp8_w8a16_gemm_wmma_m16_splitk,
+          "Decode-oriented split-K WMMA FP8 W8A16 GEMM for 1<=M<=16. "
+          "Prototype uses FP32 atomic reduction plus FP16 cast epilogue.");
+    m.def("fp8_w8a16_gemm_wmma_m16_splitk_noreduce",
+          &fp8_w8a16_gemm_wmma_m16_splitk_noreduce,
+          "Split-K WMMA FP8 W8A16 discriminator: writes per-split FP32 partials "
+          "without cross-split reduction.");
 }

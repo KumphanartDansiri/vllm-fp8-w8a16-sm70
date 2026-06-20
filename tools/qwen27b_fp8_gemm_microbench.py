@@ -100,6 +100,16 @@ def maybe(fn: Callable[[], torch.Tensor], warmup: int, iters: int) -> str:
         return f"{type(exc).__name__[:8]:>8}"
 
 
+def maxerr(fn_a: Callable[[], torch.Tensor], fn_b: Callable[[], torch.Tensor]) -> str:
+    try:
+        a = fn_a()
+        b = fn_b()
+        torch.cuda.synchronize()
+        return f"{(a.float() - b.float()).abs().max().item():8.3g}"
+    except Exception as exc:
+        return f"{type(exc).__name__[:8]:>8}"
+
+
 def main() -> None:
     args = parse_args()
     torch.backends.cuda.matmul.allow_tf32 = False
@@ -115,9 +125,11 @@ def main() -> None:
     print(
         f"{'shape':18s} {'M':>3s} {'N':>6s} {'K':>6s} "
         f"{'cuBLAS':>8s} {'A1':>8s} {'A2':>8s} {'A3k8':>8s} {'A3k4':>8s} {'A3k2':>8s} "
-        f"{'coal':>8s} {'coal_m':>8s} {'wrapper':>8s} {'wrap_var':>14s}"
+        f"{'coal':>8s} {'coal_m':>8s} {'coal_h2':>8s} {'h2_err':>8s} "
+        f"{'sk2':>8s} {'sk4':>8s} {'sk8':>8s} {'sk8_err':>8s} "
+        f"{'wrapper':>8s} {'wrap_var':>14s}"
     )
-    print("-" * 123)
+    print("-" * 160)
 
     for idx, shape in enumerate(SHAPES):
         iters = args.iters_prefill if shape.m >= 64 else args.iters_decode
@@ -132,6 +144,34 @@ def main() -> None:
         a3k2 = maybe(lambda: ext.fp8_w8a16_gemm_a3(x, w_u8, scales, n, k, bh, bw, 2), args.warmup, iters)
         coal = maybe(lambda: ext.fp8_w8a16_gemv_coalesced(x, w_u8, scales, n, k, bh, bw), args.warmup, iters)
         coal_m = maybe(lambda: ext.fp8_w8a16_gemv_coalesced_m(x, w_u8, scales, n, k, bh, bw), args.warmup, iters)
+        coal_h2 = maybe(
+            lambda: ext.fp8_w8a16_gemv_coalesced_m_half2(x, w_u8, scales, n, k, bh, bw),
+            args.warmup,
+            iters,
+        )
+        h2_err = maxerr(
+            lambda: ext.fp8_w8a16_gemv_coalesced_m(x, w_u8, scales, n, k, bh, bw),
+            lambda: ext.fp8_w8a16_gemv_coalesced_m_half2(x, w_u8, scales, n, k, bh, bw),
+        )
+        coal_sk2 = maybe(
+            lambda: ext.fp8_w8a16_gemv_coalesced_m_splitk(x, w_u8, scales, n, k, bh, bw, 2),
+            args.warmup,
+            iters,
+        )
+        coal_sk4 = maybe(
+            lambda: ext.fp8_w8a16_gemv_coalesced_m_splitk(x, w_u8, scales, n, k, bh, bw, 4),
+            args.warmup,
+            iters,
+        )
+        coal_sk8 = maybe(
+            lambda: ext.fp8_w8a16_gemv_coalesced_m_splitk(x, w_u8, scales, n, k, bh, bw, 8),
+            args.warmup,
+            iters,
+        )
+        sk8_err = maxerr(
+            lambda: ext.fp8_w8a16_gemv_coalesced_m(x, w_u8, scales, n, k, bh, bw),
+            lambda: ext.fp8_w8a16_gemv_coalesced_m_splitk(x, w_u8, scales, n, k, bh, bw, 8),
+        )
 
         variant_holder = {"v": ""}
 
@@ -144,7 +184,9 @@ def main() -> None:
         print(
             f"{shape.name:18s} {shape.m:3d} {n:6d} {k:6d} "
             f"{cublas:>8s} {a1:>8s} {a2:>8s} {a3k8:>8s} {a3k4:>8s} {a3k2:>8s} "
-            f"{coal:>8s} {coal_m:>8s} {wrapper:>8s} {variant_holder['v']:>14s}"
+            f"{coal:>8s} {coal_m:>8s} {coal_h2:>8s} {h2_err:>8s} "
+            f"{coal_sk2:>8s} {coal_sk4:>8s} {coal_sk8:>8s} {sk8_err:>8s} "
+            f"{wrapper:>8s} {variant_holder['v']:>14s}"
         )
 
 

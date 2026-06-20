@@ -36,6 +36,119 @@ Cold-start summary for picking up in a new session. Read top to bottom.
 
 ---
 
+## Session note (2026-06-19) — Dense FP8 dequant breakthrough on V100
+
+Supersedes the earlier "dense FP8 dequant terminus" conclusion. The NCU diagnosis
+was right that dense large-K `coal_m` was dequant-bound, but the cost was not
+intrinsic enough to stop: the slow branchy e4m3 converter was the bottleneck.
+
+Validated fast path: `fp8_e4m3_to_fp16_bits_fast` uses the branchless
+shift-and-rebias trick (`mag << 7`, multiply by `2^8`) plus NaN fixup. It is
+value-identical to the old converter in numtests across attn/gdn/mlp/channel and
+block-FP8 shapes, M=1/2/8: cos(ref)=1.00000000, cos(old)=1.00000000, max_abs only
+fp16-LSB scale.
+
+NCU on the real `fp8_w8a16_gemv_coalesced_m_kernel<4,8>` path (5120x5120, M=8):
+
+| metric | old slow dequant | branchless dequant | delta |
+|---|---:|---:|---:|
+| time | 0.260 ms | 0.194 ms | -25% |
+| total instructions | 70.6M | 53.2M | -25% |
+| ALU | 28.6M | 23.1M | -19% |
+| FMA | 18.5M | 16.1M | -13% |
+| LSU | 9.0M | 4.1M | -55% |
+| DRAM peak | 11% | 15% | rising |
+
+Dense FP8 `coal_m` now beats FP16 cuBLAS at realistic low decode M:
+M=1 `0.063 vs 0.078 ms`, M=2 `0.076 vs 0.098 ms`, ties M=4
+`0.107 vs 0.109 ms`, and improves M=8 from `2.29x` to `1.64x` behind.
+
+Interpretation: the useful conclusion is no longer "dense FP8 is memory-only on
+V100." It is: **slow software e4m3 decode was the limiter; branchless dequant makes
+dense FP8 a speed path for M<=4 while preserving the residency win.** Remaining
+large-M work is now narrower: promote the fast converter across all FP8 kernels,
+then test fast-dequant + half2/vectorized dequant for M=8.
+
+E2E confirmation on Qwen3.6-27B, TP4, same-model FP8-fast vs FP16 serving
+(`results/q27b_fp8fast_e2e`, `results/q27b_fp16_e2e`, 512 generated tokens):
+
+| concurrency | FP8-fast | FP16 | verdict |
+|---|---:|---:|---|
+| C1 per-user | 52.5 tok/s | 39.1 tok/s | FP8 1.34x faster |
+| C2 per-user | ~37 tok/s | 31.1 tok/s | FP8 ~1.2x faster |
+| C4 per-user | 29.9 tok/s | 30.2 tok/s | parity |
+| C8 per-user | 19.7 tok/s | 29.3 tok/s | FP16 faster |
+| C8 aggregate | 158 tok/s | 234 tok/s | FP16 faster |
+
+This flips the dense 27B result from the old slow-FP8 triad (`36.4` vs `39.1`
+tok/s at C1) to FP8-fast beating FP16 (`52.5` vs `39.1`). The microbench-to-e2e
+translation held: FP8 wins C1/C2, ties C4, and still loses C8 because the M=8
+kernel remains behind FP16 cuBLAS. The dense-FP8 headline is now: **FP8-resident is
+faster and lighter than FP16 for low-user dense decode on V100; FP16 remains the
+high-concurrency C8 choice where it fits.**
+
+Promotion status: the canonical `fp8_e4m3_to_fp16_bits()` body now uses the
+branchless converter, so all old call sites inherit the fast path; the explicit
+`fp8_e4m3_to_fp16_bits_fast()` remains as a compatibility alias. Validation after
+the global promotion:
+- `ct_fp8_resident_numtest_vllm021.sh`: PASS, covering A.1/A.2/A.3 and WMMA
+  resident Linear paths, including partial-N.
+- `qwen27b_fp8_gemm_microbench.sh` smoke: PASS numerically, coalesced/A-path errors
+  only fp16-LSB scale; fast dense decode still beats cuBLAS at M=1/2 and ties M=4.
+- `ct_fp8_grouped_moe_numtest_vllm021.sh`: PASS, grouped channel MoE including
+  partial-N.
+- `ct_fp8_grouped_coalesced_numtest_vllm021.sh`: PASS, grouped coalesced routed
+  GEMV vs A.3/FP32, channel and block scales.
+- `ct_fp8_fused_tiled_numtest_vllm021.sh`: PASS, fused grouped-tiled path.
+- `ct_fp8_tiled_prefill_numtest_vllm021.sh`: PASS, tiled prefill vs grouped/ref.
+- `ct_fp8_channel_wmma_numtest_vllm021.sh`: PASS, channel WMMA plus block_h=128
+  no-regression.
+- `ct_fp8_mixed_moe_numtest_vllm021.sh`: PASS, composed route/w13/act/w2/scatter.
+
+Standalone reconstruct microbench remains useful context. Full-matrix FP8 dequant
+vs GPTQ-int4 dequant, repeated 1000 iterations on V100, showed GPTQ only about
+10-18% faster for reconstruct (`GPTQ/FP8 ~= 0.82-0.89`) because both formats write
+the same FP16 output matrix. GPTQ's serving speed, when correct, is therefore not
+explained by standalone dequant alone; its useful lesson is fused unpack/dequant
+near the dot product.
+
+### Dead ends (2026-06-20) — M=8 dense-decode probes that do NOT help
+
+After the converter promotion the only open dense-decode gap is M=8 (C8): the
+scalar `coal_m` GEMV scales ~linearly in M while cuBLAS (tensor cores) is nearly
+M-flat, so FP8 loses C8. We built and microbenched candidate M=8 levers. Result
+(5120x5120 attn, UNROLL=4, ms/call; `qwen27b_fp8_gemm_microbench.py`):
+
+| M | cuBLAS FP16 | coal_m (prod) | coal_h2 (half2) | h2_err | sk8 (split-K) |
+|---|---:|---:|---:|---:|---:|
+| 1 | 0.078 | 0.057 | 0.055 | 0.001 | 0.077 |
+| 2 | 0.098 | 0.072 | 0.071 | 0.002 | 0.097 |
+| 4 | 0.109 | 0.101 | 0.099 | 0.002 | 0.137 |
+| 8 | 0.095 | 0.165 | 0.162 | 0.002 | 0.220 |
+
+- **half2 (`fp8_w8a16_gemv_coalesced_m_half2_kernel`): NO-GO.** ~2% at M=8 and a
+  real precision regression (`h2_err` 0.001-0.002): it does the multiply in
+  half2 (`__hmul2`) but then converts products back to FP32 to accumulate, and
+  the per-byte dequant stays scalar. It attacks the FMA pipe; the NCU bottleneck
+  is ALU/dequant (~40%). Wrong pipe, small downside.
+- **split-K (`fp8_w8a16_gemv_coalesced_m_splitk_kernel`): NO-GO** for these
+  shapes. Slower at every M (M=8: 0.220 vs 0.165) — N=5120 already exposes enough
+  blocks, so the extra FP32 reduction pass is pure cost. (May still help tiny-N.)
+- **grouped-mtile / wmma-m16 / gptq dequant-tax kernels:** investigation probes,
+  microbench-only, left OFF.
+
+Conclusion: **dense C8 needs dequant *instruction* reduction (vectorized 4xFP8
+decode via `prmt`/byte-perm), not multiply packing or split-K.** That remains a
+HYPOTHESIS to NCU-arbitrate (Volta byte-perm can be eaten by register pressure /
+packing / half-conversion throughput), not an assumed win. The microbench->e2e
+map held exactly: coal_m wins C1/C2, ties C4, loses C8, matching the e2e triad.
+
+All of the above probe kernels are committed microbench-only (pybind entry points
+exercised by `qwen27b_fp8_gemm_microbench.py` / `wmma_m16_shape_microbench.py` /
+`dequant_tax_microbench.py`); none are wired into the serving dispatch.
+
+---
+
 ## Discussion note (2026-06-09) — FlashAttention V100 integration shape
 
 This is an architecture preference/handoff note, not a validated implementation.

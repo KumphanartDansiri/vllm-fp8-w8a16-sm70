@@ -12,7 +12,9 @@ GPU="${GPU:-4}"
 CACHE_TAG="${CACHE_TAG:-021}"
 SHAPE="${SHAPE:-attn}"
 OP="${OP:-a3}"
+M="${M:-}"
 K_SPLIT="${K_SPLIT:-8}"
+WMMA_SPLIT_K="${WMMA_SPLIT_K:-8}"
 ITERS="${ITERS:-1}"
 WARMUP="${WARMUP:-10}"
 OUT_DIR="${OUT_DIR:-/tmp/v100_qwen27b_fp8_ncu}"
@@ -34,7 +36,7 @@ if [[ "${used:-9999}" -gt 2000 ]]; then
 fi
 
 echo "[qwen27b-a3-ncu] gpu/image : $GPU / $IMAGE"
-echo "[qwen27b-a3-ncu] op/shape  : $OP / $SHAPE k_split=$K_SPLIT"
+echo "[qwen27b-a3-ncu] op/shape  : $OP / $SHAPE M=${M:-default} k_split=$K_SPLIT wmma_split_k=$WMMA_SPLIT_K"
 echo "[qwen27b-a3-ncu] out       : $OUT_DIR/$RUN_TAG.txt"
 
 docker run --rm -i --name qwen27b_fp8_a3_ncu_probe --gpus "\"device=$GPU\"" \
@@ -45,16 +47,23 @@ docker run --rm -i --name qwen27b_fp8_a3_ncu_probe --gpus "\"device=$GPU\"" \
     -v "$HOME/.cache/vllm-v100-${CACHE_TAG}-torch:/root/.cache/torch" \
     -v "$HOME/.cache/vllm-v100-${CACHE_TAG}-inductor:/tmp/torchinductor_root" \
     -e CUDA_DEVICE_ORDER=PCI_BUS_ID \
+    -e VLLM_V100_FP8_COALESCED_GEMV="${VLLM_V100_FP8_COALESCED_GEMV:-1}" \
+    -e VLLM_V100_FP8_COALESCED_UNROLL="${VLLM_V100_FP8_COALESCED_UNROLL:-4}" \
+    -e VLLM_V100_FP8_COALESCED_M_UNROLL="${VLLM_V100_FP8_COALESCED_M_UNROLL:-${VLLM_V100_FP8_COALESCED_UNROLL:-4}}" \
+    -e VLLM_V100_FP8_COALESCED_GEMV_M_MAX="${VLLM_V100_FP8_COALESCED_GEMV_M_MAX:-8}" \
+    -e EXT_NAME="${EXT_NAME:-fp8_dequant_ext_qwen27b_microbench}" \
     "$IMAGE" ncu \
         --profile-from-start off \
         --target-processes all \
         --kernel-name-base function \
-        --kernel-name 'regex:fp8_w8a16_gemv_coalesced_kernel|fp8_w8a16_gemm_a3_kernel|fp8_w8a16_gemm_a1_kernel|void cutlass::Kernel|ampere|volta|gemv|gemm|cublas' \
+        --kernel-name 'regex:fp8_w8a16_gemm_wmma_m16_splitk_noreduce_kernel|fp8_w8a16_gemm_wmma_m16_splitk_kernel|fp32_accum_to_fp16_kernel|fp8_w8a16_gemm_wmma_m16_kernel|fp8_w8a16_gemv_coalesced_m_kernel|fp8_w8a16_gemv_coalesced_kernel|fp8_w8a16_gemm_a3_kernel|fp8_w8a16_gemm_a1_kernel|void cutlass::Kernel|ampere|volta|gemv|gemm|cublas' \
         --launch-count "$ITERS" \
         --metrics "$METRICS" \
         --csv \
         python3 tools/qwen27b_fp8_a3_ncu_probe.py \
             --op "$OP" --shape "$SHAPE" --k-split "$K_SPLIT" \
+            --wmma-split-k "$WMMA_SPLIT_K" \
+            ${M:+--m "$M"} \
             --iters "$ITERS" --warmup "$WARMUP" \
     2>&1 | tee "$OUT_DIR/$RUN_TAG.txt"
 
