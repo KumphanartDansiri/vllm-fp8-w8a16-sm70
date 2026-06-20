@@ -2,37 +2,42 @@
 
 Cold-start summary for picking up in a new session. Read top to bottom.
 
-> **NEXT SESSION → Qwen3.5-122B-A10B-FP8: apply the coalesced kernels (the flagship
-> can't-fit-FP16 case — the real benefit of 8×V100-32GB).** Branch `coalesced-fp8-gemv`,
-> HEAD `83a6e96`. GLM-4.5-Air is DONE: decode **30.7→45.4 (coalesced attn)→56.6
-> (+coalesced MoE w13)** = 1.84×, cudagraph; envelope in
-> `docs/GLM45_AIR_V100_CONFIG.md`. The 122B is the next + final large-MoE target;
-> together GLM-Air + 122B are the headline of the upcoming big version update.
+> **NEXT SESSION → MEASURE the flagships (122B + GLM-Air), don't build.** The FP8
+> implementation revisit (2026-06-20) is committed clean on branch
+> `coalesced-fp8-gemv` in 3 separated commits: `ac6dc14` branchless E4M3 converter
+> (canonical, all kernels inherit), `94c9388` ROWS-specialized coalesced GEMV-M,
+> `4efeafa` M=8 experiment probes (microbench-only/OFF) + dead-ends log. CT-MoE
+> dual-engine shims and the MLA-prefill hook were split into their own commits
+> (`24a023a`, `fb130e4`) so the FP8 story is bisectable.
 >
-> **KEY DIFFERENCE — the 122B is Qwen BLOCK-FP8 (`quant_method=fp8`), NOT
-> compressed-tensors.** So it routes through `Fp8LinearMethod` + `_our_moe_apply_grouped`
-> (in `vllm_serve.py`), NOT the CT path where Stage G1 is wired
-> (`_v100_ct_mixed_moe_routed` in `compressed_tensors_v100.py`). Two pieces:
-> 1. **Attention Linears** — already go through `_v100_fp8_gemm`, where the dense
->    coalesced GEMV is wired (gate: M==1, block_h∈{1,128}, K%128==0). Qwen block-FP8
->    is block_h=128 → should benefit from `VLLM_V100_FP8_COALESCED_GEMV=1` ALREADY.
->    **First step: verify** (A/B the 122B with the coalesced flag on/off).
-> 2. **MoE w13** — `_our_moe_apply_grouped` calls `fp8_w8a16_grouped_routed_gemm_a3`
->    directly; it does NOT yet use the new `fp8_w8a16_grouped_gemv_coalesced`.
->    **Wire it** (mirror the Stage G1 decode-w13 dispatch: small-R decode →
->    grouped coalesced GEMV; gate e.g. reuse `VLLM_V100_CT_MOE_W13_COALESCED` or a
->    Qwen-specific one). The kernel handles block_h=128 (numtest-covered), so it
->    transfers directly.
+> **The 122B coalesced is ALREADY WIRED — no build needed.** Qwen BLOCK-FP8
+> (`quant_method=fp8`) routes through `_v100_fp8_gemm` (attn Linears) and
+> `_our_moe_apply_grouped` (MoE w13). Both now dispatch the coalesced kernels by
+> default: attn via `VLLM_V100_FP8_COALESCED_GEMV`, and **w13 via
+> `VLLM_V100_FP8_MOE_W13_COALESCED` (default ON), wired at `vllm_serve.py:1714`**
+> calling `fp8_w8a16_grouped_gemv_coalesced`. The CT env vars are IRRELEVANT for
+> the 122B (that's the GLM/compressed-tensors path). So the next step is purely
+> **A/B measurement**, heavy TP8 serve → hand the user a script:
+> 1. 122B-A10B-FP8 TP=8 C1–C8, coalesced ON vs OFF (baseline cudagraph 34.6 tok/s).
+> 2. GLM-4.5-Air re-profile C1–C8 with the promoted converter (the cheaper dequant
+>    reached grouped-MoE + attn for free — high-conc may have lifted without work).
+> 3. Memory-headroom view: FP8 half weight-bytes → ~1.4× KV room → compare FP8 vs
+>    FP16 each at its OWN OOM ceiling, where FP8 aggregate may already win high-conc.
 >
-> Baseline: 122B-A10B-FP8 TP=8 cudagraph = **34.6 tok/s** (45-47 with MTP). Expect a
-> coalesced lift (attn + MoE w13), TP=8-all-reduce-tempered like GLM-Air. Tools:
-> `coalesced_gemv_e2e_ab_vllm021.sh` (MODEL=122B TP=8) + the grouped numtest.
-> AFTER both large MoE models land → the BIG VERSION UPDATE: README rewrite
-> (breakthrough reframes "dense loses"→"FP8-resident ≈FP16 for can't-fit-FP16
-> Volta"; fleet table Gemma-31B 4.3× / Qwen-27B 3.2× / Gemma-26B-MoE 1.9× /
-> GLM-Air 1.84× / 122B) + version bump (0.5.0 taken → 0.6.0) + push/publish
-> (resumes [[project_github_publish_paused]], needs ssh passphrase). See the
-> [[project_gemma4_fp8_resident]] RESUME header for the full coalesced playbook.
+> **Dense M=8 (C8) is the one open kernel gap, and half2/split-K are CLOSED dead
+> ends** (measured 2026-06-20, table in the Dead-ends note below). The only
+> remaining lever is **vectorized 4×FP8 decode (`prmt`/byte-perm) — an NCU-gated
+> HYPOTHESIS, not an assumed win** (Volta byte-perm can be eaten by reg pressure /
+> packing / half-conversion). Decode (M≤8) stays bandwidth-favorable so FP8 can in
+> principle win all C; the real FP16-wins wall is prefill/huge-M.
+>
+> AFTER measurement → the BIG VERSION UPDATE: README reframe ("dense loses" →
+> "FP8-resident is faster + lighter than FP16 for low-user decode; FP16 wins
+> high-conc where it fits; large MoE is the flagship — FP8 fits AND moves fewer
+> expert bytes"); fleet table Gemma-31B 4.3× / Qwen-27B 3.2× (now FP8>FP16 C1) /
+> Gemma-26B-MoE 1.9× / GLM-Air 1.84× / 122B; version bump (0.5.0 taken → 0.6.0) +
+> push/publish (resumes [[project_github_publish_paused]], needs ssh passphrase).
+> See [[project_fp8_dequant_breakthrough]] + [[project_gemma4_fp8_resident]].
 
 ---
 
