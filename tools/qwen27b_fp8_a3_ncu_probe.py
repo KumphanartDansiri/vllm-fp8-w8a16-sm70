@@ -53,6 +53,7 @@ def parse_args() -> argparse.Namespace:
             "a1",
             "coalesced",
             "coalesced_m",
+            "vecdq",
             "wmma_m16",
             "wmma_m16_splitk",
             "wmma_m16_splitk_noreduce",
@@ -124,6 +125,9 @@ def main() -> None:
                 x, w_u8, scales, shape.n, shape.k, shape.block_h, shape.block_w)
         if args.op == "coalesced_m":
             return ext.fp8_w8a16_gemv_coalesced_m(
+                x, w_u8, scales, shape.n, shape.k, shape.block_h, shape.block_w)
+        if args.op == "vecdq":
+            return ext.fp8_w8a16_gemv_coalesced_m_vecdq(
                 x, w_u8, scales, shape.n, shape.k, shape.block_h, shape.block_w)
         if args.op == "wmma_m16":
             return ext.fp8_w8a16_gemm_wmma_m16(

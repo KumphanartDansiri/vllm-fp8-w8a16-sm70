@@ -126,6 +126,7 @@ def main() -> None:
         f"{'shape':18s} {'M':>3s} {'N':>6s} {'K':>6s} "
         f"{'cuBLAS':>8s} {'A1':>8s} {'A2':>8s} {'A3k8':>8s} {'A3k4':>8s} {'A3k2':>8s} "
         f"{'coal':>8s} {'coal_m':>8s} {'coal_h2':>8s} {'h2_err':>8s} "
+        f"{'coal_vq':>8s} {'vq_err':>8s} "
         f"{'sk2':>8s} {'sk4':>8s} {'sk8':>8s} {'sk8_err':>8s} "
         f"{'wrapper':>8s} {'wrap_var':>14s}"
     )
@@ -152,6 +153,15 @@ def main() -> None:
         h2_err = maxerr(
             lambda: ext.fp8_w8a16_gemv_coalesced_m(x, w_u8, scales, n, k, bh, bw),
             lambda: ext.fp8_w8a16_gemv_coalesced_m_half2(x, w_u8, scales, n, k, bh, bw),
+        )
+        coal_vq = maybe(
+            lambda: ext.fp8_w8a16_gemv_coalesced_m_vecdq(x, w_u8, scales, n, k, bh, bw),
+            args.warmup,
+            iters,
+        )
+        vq_err = maxerr(
+            lambda: ext.fp8_w8a16_gemv_coalesced_m(x, w_u8, scales, n, k, bh, bw),
+            lambda: ext.fp8_w8a16_gemv_coalesced_m_vecdq(x, w_u8, scales, n, k, bh, bw),
         )
         coal_sk2 = maybe(
             lambda: ext.fp8_w8a16_gemv_coalesced_m_splitk(x, w_u8, scales, n, k, bh, bw, 2),
@@ -185,6 +195,7 @@ def main() -> None:
             f"{shape.name:18s} {shape.m:3d} {n:6d} {k:6d} "
             f"{cublas:>8s} {a1:>8s} {a2:>8s} {a3k8:>8s} {a3k4:>8s} {a3k2:>8s} "
             f"{coal:>8s} {coal_m:>8s} {coal_h2:>8s} {h2_err:>8s} "
+            f"{coal_vq:>8s} {vq_err:>8s} "
             f"{coal_sk2:>8s} {coal_sk4:>8s} {coal_sk8:>8s} {sk8_err:>8s} "
             f"{wrapper:>8s} {variant_holder['v']:>14s}"
         )

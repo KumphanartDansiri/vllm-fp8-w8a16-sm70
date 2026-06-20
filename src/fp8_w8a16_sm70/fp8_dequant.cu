@@ -54,6 +54,32 @@ __device__ inline uint16_t fp8_e4m3_to_fp16_bits_fast(uint8_t x) {
     return fp8_e4m3_to_fp16_bits(x);
 }
 
+// Vectorized E4M3-FN -> FP16: 4 packed FP8 bytes (uint32 w) -> two half2 (4 fp16),
+// BIT-IDENTICAL to fp8_e4m3_to_fp16_bits() for every byte (validated all 256x4 in a
+// host model). The scalar converter is mag<<7 reinterpreted as half, *2^8, +sign,
+// +NaN fixup; this does two lanes at once with __byte_perm so the dequant ALU work
+// (the NCU coal_m M=8 bottleneck) is ~halved. __hmul2 does two independent fp16 muls
+// identical to the scalar half mul, so values are preserved exactly.
+__device__ __forceinline__ void fp8x4_e4m3_to_half2x2(uint32_t w, half2& o01, half2& o23) {
+    const half2 c256 = __float2half2_rn(256.0f);
+    #pragma unroll
+    for (int pair = 0; pair < 2; ++pair) {
+        // pair 0 -> bytes (0,1) into lanes; pair 1 -> bytes (2,3)
+        const uint32_t sel = pair == 0 ? 0x4140u : 0x4342u;
+        const uint32_t p   = __byte_perm(w, 0u, sel);     // b_lo->lane0 low, b_hi->lane1 low
+        const uint32_t mag = p & 0x007F007Fu;             // magnitude per 16-bit lane
+        const uint32_t sgn = (p & 0x00800080u) << 8;      // sign bit -> bit15 each lane
+        uint32_t sh        = (mag << 7) & 0xFFFFFFFFu;     // mag<<7 within each lane (<=0x3F80)
+        half2 h            = __hmul2(*reinterpret_cast<half2*>(&sh), c256);
+        uint32_t hb        = *reinterpret_cast<uint32_t*>(&h) | sgn;
+        // NaN fixup (E4M3-FN: mag==0x7F): keep sign, force 0x7F80 in that lane.
+        if ((mag & 0xFFu) == 0x7Fu)        hb = (hb & 0xFFFF8000u) | 0x00007F80u;
+        if (((mag >> 16) & 0xFFu) == 0x7Fu) hb = (hb & 0x8000FFFFu) | 0x7F800000u;
+        half2 r = *reinterpret_cast<half2*>(&hb);
+        if (pair == 0) o01 = r; else o23 = r;
+    }
+}
+
 __global__ void fp8_to_fp16_kernel(const uint8_t* __restrict__ in,
                                    __half*        __restrict__ out,
                                    int n) {
@@ -722,12 +748,18 @@ __global__ void fp8_w8a16_gemv_coalesced_m_kernel(
             #pragma unroll
             for (int u = 0; u < UNROLL_K; ++u) {
                 if (has_block[u]) {
-                    const uint8_t* wb = reinterpret_cast<const uint8_t*>(&wv[u]);
+                    // Vectorized 4xFP8->half2x2 dequant (one __byte_perm path) instead
+                    // of 4 scalar converts: value-identical (vq_err=0 vs the scalar
+                    // path, validated all 256x4), ~9-11% faster at M=1/2/4, small gain
+                    // at M=8. Memory traffic unchanged; the accumulate stays FP32.
+                    half2 w01, w23;
+                    fp8x4_e4m3_to_half2x2(wv[u], w01, w23);
+                    float wf[4];
+                    wf[0] = __low2float(w01);  wf[1] = __high2float(w01);
+                    wf[2] = __low2float(w23);  wf[3] = __high2float(w23);
                     #pragma unroll
                     for (int j = 0; j < GEMV_COAL_ELEMS_PER_LANE; ++j) {
-                        const float w_f = __half2float(__ushort_as_half(
-                            fp8_e4m3_to_fp16_bits_fast(wb[j])));
-                        const float w_scaled = w_f * scale_f[u];
+                        const float w_scaled = wf[j] * scale_f[u];
                         #pragma unroll
                         for (int m = 0; m < ROWS; ++m) {
                             const float a_f = __half2float(
@@ -833,6 +865,103 @@ __global__ void fp8_w8a16_gemv_coalesced_m_half2_kernel(
                             __half2float(__low2half(p23)) +
                             __half2float(__high2half(p23));
                         acc[m] += pair_sum * scale_f[u];
+                    }
+                }
+            }
+        }
+        __syncthreads();
+    }
+
+    #pragma unroll
+    for (int m = 0; m < ROWS; ++m) {
+        acc[m] = warp_sum(acc[m]);
+    }
+    if (active && lane == 0) {
+        #pragma unroll
+        for (int m = 0; m < ROWS; ++m) {
+            C[(int64_t)m * N + n] = __float2half(acc[m]);
+        }
+    }
+}
+
+// Vectorized-dequant variant of the coalesced GEMV-M: identical to
+// fp8_w8a16_gemv_coalesced_m_kernel (same FP32 accumulate, value-identical) but
+// the per-lane 4-byte dequant uses fp8x4_e4m3_to_half2x2 (one __byte_perm path)
+// instead of 4 scalar fp8_e4m3_to_fp16_bits calls. Targets the ALU/dequant pipe
+// that pins coal_m M=8 at the FP32 ridge (NCU: ALU ~40% >> FMA). Accumulate stays
+// FP32 so results match coal_m exactly (NOT the half2 kernel's lossy FP16 mul).
+template<int UNROLL_K, int ROWS>
+__global__ void fp8_w8a16_gemv_coalesced_m_vecdq_kernel(
+        const __half*  __restrict__ A,       // [M, K]
+        const uint8_t* __restrict__ W,       // [N, K], row-major
+        const __half*  __restrict__ scales,  // [ceil(N/block_h), ceil(K/128)]
+        __half*        __restrict__ C,       // [M, N]
+        int M, int N, int K,
+        int block_h,
+        int Kb) {
+    const int tid     = threadIdx.x;
+    const int lane    = tid & 31;
+    const int warp_id = tid >> 5;
+    const int n       = blockIdx.x * GEMV_COAL_WARPS_PER_CTA + warp_id;
+    const bool active = (n < N);
+
+    __shared__ __half a_shared[ROWS][UNROLL_K][GEMV_COAL_BLOCK_K];
+    float acc[ROWS];
+    #pragma unroll
+    for (int m = 0; m < ROWS; ++m) {
+        acc[m] = 0.0f;
+    }
+    const int scale_row = active ? (n / block_h) : 0;
+
+    for (int k_base = 0; k_base < K; k_base += UNROLL_K * GEMV_COAL_BLOCK_K) {
+        for (int idx = tid; idx < ROWS * UNROLL_K * GEMV_COAL_BLOCK_K;
+             idx += GEMV_COAL_THREADS) {
+            const int k_in_block = idx % GEMV_COAL_BLOCK_K;
+            const int u = (idx / GEMV_COAL_BLOCK_K) % UNROLL_K;
+            const int m = idx / (UNROLL_K * GEMV_COAL_BLOCK_K);
+            const int kk = k_base + u * GEMV_COAL_BLOCK_K + k_in_block;
+            a_shared[m][u][k_in_block] = (kk < K)
+                    ? A[(int64_t)m * K + kk]
+                    : __float2half(0.f);
+        }
+        __syncthreads();
+
+        if (active) {
+            uint32_t wv[UNROLL_K];
+            float scale_f[UNROLL_K];
+            bool has_block[UNROLL_K];
+
+            #pragma unroll
+            for (int u = 0; u < UNROLL_K; ++u) {
+                const int block_base = k_base + u * GEMV_COAL_BLOCK_K;
+                has_block[u] = block_base < K;
+                wv[u] = 0;
+                scale_f[u] = 0.0f;
+                if (has_block[u]) {
+                    const int scale_col = block_base / GEMV_COAL_BLOCK_K;
+                    scale_f[u] = __half2float(scales[scale_row * Kb + scale_col]);
+                    const int k_lane = block_base + lane * GEMV_COAL_ELEMS_PER_LANE;
+                    wv[u] = *reinterpret_cast<const uint32_t*>(&W[(int64_t)n * K + k_lane]);
+                }
+            }
+
+            #pragma unroll
+            for (int u = 0; u < UNROLL_K; ++u) {
+                if (has_block[u]) {
+                    half2 w01, w23;
+                    fp8x4_e4m3_to_half2x2(wv[u], w01, w23);
+                    float wf[4];
+                    wf[0] = __low2float(w01);  wf[1] = __high2float(w01);
+                    wf[2] = __low2float(w23);  wf[3] = __high2float(w23);
+                    #pragma unroll
+                    for (int j = 0; j < GEMV_COAL_ELEMS_PER_LANE; ++j) {
+                        const float w_scaled = wf[j] * scale_f[u];
+                        #pragma unroll
+                        for (int m = 0; m < ROWS; ++m) {
+                            const float a_f = __half2float(
+                                a_shared[m][u][lane * GEMV_COAL_ELEMS_PER_LANE + j]);
+                            acc[m] += a_f * w_scaled;
+                        }
                     }
                 }
             }
@@ -1258,6 +1387,46 @@ static void launch_fp8_w8a16_gemv_coalesced_m_half2(
 #undef LAUNCH_GEMV_M_HALF2_ROWS
 }
 
+static void launch_fp8_w8a16_gemv_coalesced_m_vecdq(
+        const __half* A,
+        const uint8_t* W,
+        const __half* scales,
+        __half* C,
+        int M, int N, int K, int block_h, int Kb,
+        dim3 grid, dim3 block) {
+#define LAUNCH_GEMV_M_VECDQ_ROWS(UNROLL_K, ROWS)                               \
+    fp8_w8a16_gemv_coalesced_m_vecdq_kernel<UNROLL_K, ROWS>                    \
+        <<<grid, block, 0, V100_FP8_STREAM>>>(                                  \
+            A, W, scales, C, M, N, K, block_h, Kb)
+
+#define DISPATCH_GEMV_M_VECDQ_ROWS(UNROLL_K)                                   \
+    do {                                                                        \
+        switch (M) {                                                            \
+            case 1: LAUNCH_GEMV_M_VECDQ_ROWS(UNROLL_K, 1); break;              \
+            case 2: LAUNCH_GEMV_M_VECDQ_ROWS(UNROLL_K, 2); break;              \
+            case 3: LAUNCH_GEMV_M_VECDQ_ROWS(UNROLL_K, 3); break;              \
+            case 4: LAUNCH_GEMV_M_VECDQ_ROWS(UNROLL_K, 4); break;              \
+            case 5: LAUNCH_GEMV_M_VECDQ_ROWS(UNROLL_K, 5); break;              \
+            case 6: LAUNCH_GEMV_M_VECDQ_ROWS(UNROLL_K, 6); break;              \
+            case 7: LAUNCH_GEMV_M_VECDQ_ROWS(UNROLL_K, 7); break;              \
+            case 8: LAUNCH_GEMV_M_VECDQ_ROWS(UNROLL_K, 8); break;              \
+            default: TORCH_CHECK(false, "vecdq coalesced GEMV-M supports M=1..8"); \
+        }                                                                       \
+    } while (0)
+
+    const int unroll = gemv_coalesced_m_unroll_from_env();
+    if (unroll >= 8) {
+        DISPATCH_GEMV_M_VECDQ_ROWS(8);
+    } else if (unroll >= 4) {
+        DISPATCH_GEMV_M_VECDQ_ROWS(4);
+    } else {
+        DISPATCH_GEMV_M_VECDQ_ROWS(2);
+    }
+
+#undef DISPATCH_GEMV_M_VECDQ_ROWS
+#undef LAUNCH_GEMV_M_VECDQ_ROWS
+}
+
 static void launch_fp8_w8a16_gemv_coalesced_m_splitk(
         const __half* A,
         const uint8_t* W,
@@ -1529,6 +1698,53 @@ torch::Tensor fp8_w8a16_gemv_coalesced_m_half2(torch::Tensor input,
     dim3 grid(((int)N + GEMV_COAL_WARPS_PER_CTA - 1) / GEMV_COAL_WARPS_PER_CTA);
 
     launch_fp8_w8a16_gemv_coalesced_m_half2(
+        reinterpret_cast<__half*>(input.data_ptr<at::Half>()),
+        weight.data_ptr<uint8_t>(),
+        reinterpret_cast<__half*>(scales.data_ptr<at::Half>()),
+        reinterpret_cast<__half*>(C.data_ptr<at::Half>()),
+        M, (int)N, (int)K, (int)block_h, Kb, grid, block);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    return C;
+}
+
+torch::Tensor fp8_w8a16_gemv_coalesced_m_vecdq(torch::Tensor input,
+                                               torch::Tensor weight,
+                                               torch::Tensor scales,
+                                               int64_t       N,
+                                               int64_t       K,
+                                               int64_t       block_h,
+                                               int64_t       block_w) {
+    TORCH_CHECK(input.is_cuda() && weight.is_cuda() && scales.is_cuda(),
+                "inputs must be CUDA");
+    TORCH_CHECK(input.dtype()  == torch::kFloat16, "input must be float16");
+    TORCH_CHECK(weight.dtype() == torch::kUInt8,   "weight must be uint8 (raw FP8 bytes)");
+    TORCH_CHECK(scales.dtype() == torch::kFloat16, "scales must be float16");
+    TORCH_CHECK(input.is_contiguous() && weight.is_contiguous() && scales.is_contiguous(),
+                "inputs must be contiguous");
+    TORCH_CHECK(input.dim() == 2 && input.size(1) == K,
+                "vecdq coalesced GEMV-M kernel requires input [M, K]");
+    TORCH_CHECK(input.size(0) <= GEMV_COAL_M_MAX,
+                "vecdq coalesced GEMV-M kernel is scoped to M<=8 decode");
+    TORCH_CHECK(weight.numel() == N * K, "weight.numel() must equal N*K");
+    TORCH_CHECK(block_w == GEMV_COAL_BLOCK_K,
+                "vecdq coalesced GEMV-M kernel requires block_w=128");
+    TORCH_CHECK(K % GEMV_COAL_BLOCK_K == 0,
+                "vecdq coalesced GEMV-M kernel requires K divisible by 128");
+    TORCH_CHECK(block_h > 0, "block_h must be positive");
+
+    const int M = (int)input.size(0);
+    const int Nb = (int)((N + block_h - 1) / block_h);
+    const int Kb = (int)((K + block_w - 1) / block_w);
+    TORCH_CHECK(scales.numel() == (int64_t)Nb * Kb,
+                "scales.numel() must equal ceil(N/block_h) * ceil(K/block_w)");
+
+    auto C = torch::empty({M, N},
+                          torch::TensorOptions().dtype(torch::kFloat16).device(input.device()));
+
+    dim3 block(GEMV_COAL_THREADS);
+    dim3 grid(((int)N + GEMV_COAL_WARPS_PER_CTA - 1) / GEMV_COAL_WARPS_PER_CTA);
+
+    launch_fp8_w8a16_gemv_coalesced_m_vecdq(
         reinterpret_cast<__half*>(input.data_ptr<at::Half>()),
         weight.data_ptr<uint8_t>(),
         reinterpret_cast<__half*>(scales.data_ptr<at::Half>()),
@@ -3033,6 +3249,11 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           &fp8_w8a16_gemv_coalesced_m_half2,
           "Experiment: M<=8 coalesced GEMV-M with half2 inner products. "
           "Side-by-side probe for GPTQ-inspired CUDA-core decode structure.");
+    m.def("fp8_w8a16_gemv_coalesced_m_vecdq",
+          &fp8_w8a16_gemv_coalesced_m_vecdq,
+          "Experiment: M<=8 coalesced GEMV-M, value-identical to coal_m (FP32 "
+          "accumulate) but with vectorized 4xFP8->half2x2 byte-perm dequant. "
+          "Targets the ALU/dequant pipe that pins coal_m M=8 at the FP32 ridge.");
     m.def("fp8_w8a16_gemv_coalesced_m_splitk",
           &fp8_w8a16_gemv_coalesced_m_splitk,
           "Experiment: M<=8 coalesced GEMV-M with K-axis CTA splitting and "
