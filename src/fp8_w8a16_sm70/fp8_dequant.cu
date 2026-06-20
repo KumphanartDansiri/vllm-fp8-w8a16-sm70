@@ -664,7 +664,7 @@ __global__ void fp8_w8a16_gemv_coalesced_kernel(
     }
 }
 
-template<int UNROLL_K>
+template<int UNROLL_K, int ROWS>
 __global__ void fp8_w8a16_gemv_coalesced_m_kernel(
         const __half*  __restrict__ A,       // [M, K]
         const uint8_t* __restrict__ W,       // [N, K], row-major
@@ -679,22 +679,22 @@ __global__ void fp8_w8a16_gemv_coalesced_m_kernel(
     const int n       = blockIdx.x * GEMV_COAL_WARPS_PER_CTA + warp_id;
     const bool active = (n < N);
 
-    __shared__ __half a_shared[GEMV_COAL_M_MAX][UNROLL_K][GEMV_COAL_BLOCK_K];
-    float acc[GEMV_COAL_M_MAX];
+    __shared__ __half a_shared[ROWS][UNROLL_K][GEMV_COAL_BLOCK_K];
+    float acc[ROWS];
     #pragma unroll
-    for (int m = 0; m < GEMV_COAL_M_MAX; ++m) {
+    for (int m = 0; m < ROWS; ++m) {
         acc[m] = 0.0f;
     }
     const int scale_row = active ? (n / block_h) : 0;
 
     for (int k_base = 0; k_base < K; k_base += UNROLL_K * GEMV_COAL_BLOCK_K) {
-        for (int idx = tid; idx < GEMV_COAL_M_MAX * UNROLL_K * GEMV_COAL_BLOCK_K;
+        for (int idx = tid; idx < ROWS * UNROLL_K * GEMV_COAL_BLOCK_K;
              idx += GEMV_COAL_THREADS) {
             const int k_in_block = idx % GEMV_COAL_BLOCK_K;
             const int u = (idx / GEMV_COAL_BLOCK_K) % UNROLL_K;
             const int m = idx / (UNROLL_K * GEMV_COAL_BLOCK_K);
             const int kk = k_base + u * GEMV_COAL_BLOCK_K + k_in_block;
-            a_shared[m][u][k_in_block] = (m < M && kk < K)
+            a_shared[m][u][k_in_block] = (kk < K)
                     ? A[(int64_t)m * K + kk]
                     : __float2half(0.f);
         }
@@ -726,10 +726,10 @@ __global__ void fp8_w8a16_gemv_coalesced_m_kernel(
                     #pragma unroll
                     for (int j = 0; j < GEMV_COAL_ELEMS_PER_LANE; ++j) {
                         const float w_f = __half2float(__ushort_as_half(
-                            fp8_e4m3_to_fp16_bits(wb[j])));
+                            fp8_e4m3_to_fp16_bits_fast(wb[j])));
                         const float w_scaled = w_f * scale_f[u];
                         #pragma unroll
-                        for (int m = 0; m < GEMV_COAL_M_MAX; ++m) {
+                        for (int m = 0; m < ROWS; ++m) {
                             const float a_f = __half2float(
                                 a_shared[m][u][lane * GEMV_COAL_ELEMS_PER_LANE + j]);
                             acc[m] += a_f * w_scaled;
@@ -742,15 +742,13 @@ __global__ void fp8_w8a16_gemv_coalesced_m_kernel(
     }
 
     #pragma unroll
-    for (int m = 0; m < GEMV_COAL_M_MAX; ++m) {
+    for (int m = 0; m < ROWS; ++m) {
         acc[m] = warp_sum(acc[m]);
     }
     if (active && lane == 0) {
         #pragma unroll
-        for (int m = 0; m < GEMV_COAL_M_MAX; ++m) {
-            if (m < M) {
-                C[(int64_t)m * N + n] = __float2half(acc[m]);
-            }
+        for (int m = 0; m < ROWS; ++m) {
+            C[(int64_t)m * N + n] = __float2half(acc[m]);
         }
     }
 }
@@ -901,17 +899,37 @@ static void launch_fp8_w8a16_gemv_coalesced_m(
         __half* C,
         int M, int N, int K, int block_h, int Kb,
         dim3 grid, dim3 block) {
+#define LAUNCH_GEMV_M_ROWS(UNROLL_K, ROWS)                                      \
+    fp8_w8a16_gemv_coalesced_m_kernel<UNROLL_K, ROWS>                           \
+        <<<grid, block, 0, V100_FP8_STREAM>>>(                                  \
+            A, W, scales, C, M, N, K, block_h, Kb)
+
+#define DISPATCH_GEMV_M_ROWS(UNROLL_K)                                          \
+    do {                                                                        \
+        switch (M) {                                                            \
+            case 1: LAUNCH_GEMV_M_ROWS(UNROLL_K, 1); break;                    \
+            case 2: LAUNCH_GEMV_M_ROWS(UNROLL_K, 2); break;                    \
+            case 3: LAUNCH_GEMV_M_ROWS(UNROLL_K, 3); break;                    \
+            case 4: LAUNCH_GEMV_M_ROWS(UNROLL_K, 4); break;                    \
+            case 5: LAUNCH_GEMV_M_ROWS(UNROLL_K, 5); break;                    \
+            case 6: LAUNCH_GEMV_M_ROWS(UNROLL_K, 6); break;                    \
+            case 7: LAUNCH_GEMV_M_ROWS(UNROLL_K, 7); break;                    \
+            case 8: LAUNCH_GEMV_M_ROWS(UNROLL_K, 8); break;                    \
+            default: TORCH_CHECK(false, "coalesced GEMV-M supports M=1..8");   \
+        }                                                                       \
+    } while (0)
+
     const int unroll = gemv_coalesced_m_unroll_from_env();
     if (unroll >= 8) {
-        fp8_w8a16_gemv_coalesced_m_kernel<8><<<grid, block, 0, V100_FP8_STREAM>>>(
-            A, W, scales, C, M, N, K, block_h, Kb);
+        DISPATCH_GEMV_M_ROWS(8);
     } else if (unroll >= 4) {
-        fp8_w8a16_gemv_coalesced_m_kernel<4><<<grid, block, 0, V100_FP8_STREAM>>>(
-            A, W, scales, C, M, N, K, block_h, Kb);
+        DISPATCH_GEMV_M_ROWS(4);
     } else {
-        fp8_w8a16_gemv_coalesced_m_kernel<2><<<grid, block, 0, V100_FP8_STREAM>>>(
-            A, W, scales, C, M, N, K, block_h, Kb);
+        DISPATCH_GEMV_M_ROWS(2);
     }
+
+#undef DISPATCH_GEMV_M_ROWS
+#undef LAUNCH_GEMV_M_ROWS
 }
 
 static void launch_fp8_w8a16_grouped_gemv_coalesced(
