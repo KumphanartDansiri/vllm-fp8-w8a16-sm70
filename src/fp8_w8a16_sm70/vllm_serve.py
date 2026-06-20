@@ -2768,6 +2768,23 @@ def _patch_vllm_for_v100():
         print(f"[serve_fp8_v100 pid={os.getpid()}] fa_v100 prefill patch "
               f"skipped: {type(exc).__name__}: {exc}", flush=True)
 
+    # Additive, env-gated (VLLM_V100_MLA_PREFILL=1): unblock MLA models
+    # (GLM-4.7-Flash / Glm4MoeLite, DeepSeek-V2/V3) on sm_70 by routing the MLA
+    # *prefill* choke point `_flash_attn_varlen_diff_headdims` through the ai-bond
+    # flash-attention-v100 dense varlen kernel. On BOTH engines Volta is offered
+    # only the sm80+ FLASH_ATTN MLA prefill path, so the model loads + decodes but
+    # crashes on the first token; this patch is the single fix (decode stays
+    # TritonMLA). The patch resolves the right class per engine (0.21
+    # FlashAttnPrefillBackend / 0.19 inline MLACommonImpl base). No-op if the .so
+    # or the flag is absent. See
+    # src/fp8_w8a16_sm70/fa_v100_mla_prefill.py + docs ref_mla_prefill_blocks_volta.
+    try:
+        from fp8_w8a16_sm70.fa_v100_mla_prefill import patch_mla_prefill_for_v100
+        patch_mla_prefill_for_v100()
+    except Exception as exc:
+        print(f"[serve_fp8_v100 pid={os.getpid()}] fa_v100 MLA prefill patch "
+              f"skipped: {type(exc).__name__}: {exc}", flush=True)
+
     # Additive, env-gated (VLLM_V100_MOE_FP16_TUNED=1, DEFAULT ON): Volta-fit
     # fused-MoE default config for unquantized (fp16/bf16) MoE. Stock
     # get_default_config picks BLOCK_K=128/num_stages=4 for decode-sized M,
