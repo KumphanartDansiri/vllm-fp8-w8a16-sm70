@@ -19,6 +19,13 @@ USERS="${USERS:-1 2 4 8}"; GENTOK="${GENTOK:-256}"; NRUN="${NRUN:-5}"; TTFT_REPS
 GPUMEM="${GPUMEM:-0.88}"; HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-2400}"; PORT="${PORT:-8050}"
 FA_DIR="${FA_DIR:-/home/kumphanartd/flash-attention-v100}"
 TTFT_ONLY="${TTFT_ONLY:-0}"   # 1 = reconcile run: re-measure TTFT only (decode already valid)
+TTFT_WARM="${TTFT_WARM:-0}"   # 1 = WARM-only TTFT (legacy)
+TTFT_BOTH="${TTFT_BOTH:-0}"   # 1 = re-measure cold+warm TTFT together (chunked-prefill-ON standard)
+# Chunked prefill is ALWAYS ON now (project standard; mamba/GDN hybrids + prefix caching
+# REQUIRE it -> --no-enable-chunked-prefill is removed from the serve). Prefix caching is
+# enabled when measuring warm; cold uses a UNIQUE prompt so it still misses the cache.
+PCFLAG="--no-enable-prefix-caching"
+[[ "$TTFT_WARM" == 1 || "$TTFT_BOTH" == 1 ]] && PCFLAG="--enable-prefix-caching"
 SERVED="perfv2"
 
 # ---- registry: path | VL(skip-mm) | min_tp | tf5 | fa_eligible -------------------
@@ -131,7 +138,7 @@ serve_up(){ # $1=extra docker env array name (FA), writes global LPID/CNAME/SLOG
       --compilation-config '{"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY"}' \
       --max-model-len 32768 --max-num-seqs "$MAXSEQS" "${SKIPMM[@]}" "${EXTRA_SERVE[@]}" "${BLOCK[@]}" \
       --disable-custom-all-reduce --gpu-memory-utilization "$GPUMEM" \
-      --no-enable-chunked-prefill --no-enable-prefix-caching \
+      $PCFLAG \
       --host 0.0.0.0 --port "$PORT" </dev/null >"$slog" 2>&1 &
   LPID=$!; local waited=0
   while (( waited < HEALTH_TIMEOUT )); do
@@ -156,7 +163,10 @@ main(){
   warm
   # TTFT_ONLY=1 -> reconcile run: re-measure TTFT only (decode is prefix-caching-
   # invariant and already valid). Otherwise the full battery + decode + TTFT pass.
-  local MAINPHASE=main; [[ "$TTFT_ONLY" == 1 ]] && MAINPHASE=ttftonly
+  local MAINPHASE=main
+  [[ "$TTFT_ONLY" == 1 ]] && MAINPHASE=ttftonly
+  [[ "$TTFT_WARM" == 1 ]] && MAINPHASE=ttftwarm
+  [[ "$TTFT_BOTH" == 1 ]] && MAINPHASE=ttftboth
   python3 tools/perf_v2_client.py --port "$PORT" --served "$SERVED" --out "$OUT" \
     --users "$USERS" --gentok "$GENTOK" --nrun "$NRUN" --ttft-reps "$TTFT_REPS" \
     --model "$MODEL_KEY" --prec "$PREC" --engine "$ENGINE" --tp "$TP" --csv "$CSV" \
@@ -166,7 +176,7 @@ main(){
   # B-ttft FA-on (long only): FA-eligible MHA/GQA models, ENGINE=021 only (the FA .so is
   # built against the 0.21 libtorch ABI -> ImportError 'undefined symbol c10::cuda::
   # CUDAStream::query' on 0.19), and our-plugin only (int4 runs stock vLLM, no FA hook).
-  if [[ "$FA_ARM" == 1 && "$FAEL" == 1 && "$ENGINE" == 021 && "$PREC" != int4 ]]; then
+  if [[ "$FA_ARM" == 1 && "$FAEL" == 1 && "$ENGINE" == 021 && "$PREC" != int4 && "$TTFT_WARM" != 1 ]]; then
     note "=== FA-on arm (TTFT-long) ==="
     if serve_up 1; then
       warm

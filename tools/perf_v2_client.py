@@ -173,11 +173,18 @@ def measure_decode(port, served, gentok, nu):
 DOC = ("The Rhone is a major European river. It rises in the Swiss Alps and flows through Lake "
        "Geneva and southeastern France before reaching the Mediterranean. Its valley has shaped "
        "trade, agriculture, and settlement for two thousand years. ")
-def ttft_prompt(approx_tokens):
+def ttft_prompt(approx_tokens, uniq=""):
     target_chars = approx_tokens * 5   # ~5 chars/token measured on this tokenizer/doc
     body = (DOC * (target_chars // len(DOC) + 1))[:target_chars]
-    return (f"Here is a long reference document:\n{body}\n\nTask: Write a detailed multi-paragraph "
+    pre = f"[doc-id {uniq}] " if uniq else ""   # unique prefix -> guaranteed cache MISS (cold)
+    return (f"{pre}Here is a long reference document:\n{body}\n\nTask: Write a detailed multi-paragraph "
             "explanation of the main themes, facts, and implications.")
+
+
+def ttft_cold(port, served, approx_tokens, uniq):
+    """COLD: single send of a UNIQUE prompt -> no prefix-cache hit -> full prefill."""
+    _, ttft, _, _, pt = stream(port, served, ttft_prompt(approx_tokens, uniq=uniq), 64, ignore_eos=False)
+    return ttft, pt
 
 
 def ttft_min(port, served, approx_tokens, reps):
@@ -212,6 +219,26 @@ def main():
             v, pt = ttft_min(a.port, a.served, tok, a.ttft_reps)
             print(f"[ttft] {nm} (~{tok} tok, actual_prompt={pt}): {v:.2f}s")
             csvf.write(f"{a.model},{a.prec},{a.engine},{a.tp},{nm},1,{v:.2f},s,{worst},{exact}\n")
+    elif a.phase == "ttftboth":
+        # ONE serve, chunked-prefill ON + prefix-caching ON (the production standard).
+        # cold = unique prompt (cache miss, full prefill); warm = repeated prompt (cache hit).
+        import os
+        uq = str(os.getpid())
+        for label, tok in [("short", 2048), ("long", 24576)]:
+            c, pc = ttft_cold(a.port, a.served, tok, f"{uq}{label}")
+            print(f"[ttft] ttft_{label}_cold (~{tok} tok, actual={pc}): {c:.3f}s")
+            csvf.write(f"{a.model},{a.prec},{a.engine},{a.tp},ttft_{label}_cold,1,{c:.3f},s,pass,n/a\n")
+            w, pw = ttft_min(a.port, a.served, tok, a.ttft_reps)   # repeated -> cache hit = warm
+            print(f"[ttft] ttft_{label}_warm (~{tok} tok, actual={pw}): {w:.3f}s")
+            csvf.write(f"{a.model},{a.prec},{a.engine},{a.tp},ttft_{label}_warm,1,{w:.3f},s,pass,n/a\n")
+    elif a.phase == "ttftwarm":
+        # WARM TTFT: serve has prefix-caching ON. ttft_min sends the prompt ttft_reps
+        # times and drops the first -> rep 0 is the cold populate, reps 1+ are cache
+        # HITS, so the min is the warm (cached-prefix) TTFT. Pairs with the cold table.
+        for nm, tok in [("ttft_short_warm", 2048), ("ttft_long_warm", 24576)]:
+            v, pt = ttft_min(a.port, a.served, tok, a.ttft_reps)
+            print(f"[ttft] {nm} (~{tok} tok, actual_prompt={pt}): {v:.3f}s")
+            csvf.write(f"{a.model},{a.prec},{a.engine},{a.tp},{nm},1,{v:.3f},s,pass,n/a\n")
     elif a.phase == "ttftonly":
         # TTFT-only reconcile run (decode is prefix-caching-invariant and already valid;
         # this re-measures TTFT under the fixed config: prefix-caching OFF, so the
@@ -221,9 +248,10 @@ def main():
             print(f"[ttft] {nm} (~{tok} tok, actual_prompt={pt}): {v:.2f}s")
             csvf.write(f"{a.model},{a.prec},{a.engine},{a.tp},{nm},1,{v:.2f},s,pass,n/a\n")
     elif a.phase == "ttft_fa":
-        v, pt = ttft_min(a.port, a.served, 24576, a.ttft_reps)
-        print(f"[ttft] ttft_long_FA (~24576 tok, actual_prompt={pt}): {v:.2f}s")
-        csvf.write(f"{a.model},{a.prec},{a.engine},{a.tp},ttft_long_fa,1,{v:.2f},s,pass,n/a\n")
+        import os
+        v, pt = ttft_cold(a.port, a.served, 24576, str(os.getpid()) + "fa")   # cold FA (unique prompt)
+        print(f"[ttft] ttft_long_cold_fa (~24576 tok, actual={pt}): {v:.2f}s")
+        csvf.write(f"{a.model},{a.prec},{a.engine},{a.tp},ttft_long_cold_fa,1,{v:.2f},s,pass,n/a\n")
     csvf.close()
 
 
