@@ -18,6 +18,7 @@ MODEL_KEY="${MODEL_KEY:-q27b}"; PREC="${PREC:-fp8}"; ENGINE="${ENGINE:-021}"
 USERS="${USERS:-1 2 4 8}"; GENTOK="${GENTOK:-256}"; NRUN="${NRUN:-5}"; TTFT_REPS="${TTFT_REPS:-3}"
 GPUMEM="${GPUMEM:-0.88}"; HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-2400}"; PORT="${PORT:-8050}"
 FA_DIR="${FA_DIR:-/home/kumphanartd/flash-attention-v100}"
+TTFT_ONLY="${TTFT_ONLY:-0}"   # 1 = reconcile run: re-measure TTFT only (decode already valid)
 SERVED="perfv2"
 
 # ---- registry: path | VL(skip-mm) | min_tp | tf5 | fa_eligible -------------------
@@ -41,9 +42,10 @@ case "$PREC" in
   *) echo "unknown PREC=$PREC"; exit 1 ;;
 esac
 [[ -n "$MODEL" ]] || { echo "$MODEL_KEY:$PREC has no model path (infeasible combo)"; exit 2; }
-# Per-(model,prec) min-TP: FP16 needs ~2x the TP of FP8. q27b-FP16 (~54GB) OOMs at the
-# fp8 min of TP2 -> needs TP4. (Other models' MINTP=4 already fits their FP16.)
-[[ "$PREC" == fp16 && "$MODEL_KEY" == q27b && "${TP}" -lt 4 ]] && TP=4
+# Per-PRECISION min-TP (a precision rule, not a model special-case): FP16 is 2 bytes/
+# param, so dense ~30-50B models need >= TP4 to fit on 32GB cards (q27b-FP16 ~54GB OOMs
+# at the fp8 min of TP2). FP8/Int4 keep their per-model MINTP.
+[[ "$PREC" == fp16 && "${TP}" -lt 4 ]] && TP=4
 # Qwen block-FP8 needs explicit --quantization fp8; GLM/Gemma are compressed-tensors (auto)
 if [[ "$PREC" == fp8 && ( "$MODEL_KEY" == q27b || "$MODEL_KEY" == q35b || "$MODEL_KEY" == q122b ) ]]; then
   QUANT=(--quantization fp8)
@@ -128,7 +130,8 @@ serve_up(){ # $1=extra docker env array name (FA), writes global LPID/CNAME/SLOG
       --tensor-parallel-size "$TP" --dtype float16 ${QUANT[@]+"${QUANT[@]}"} \
       --compilation-config '{"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY"}' \
       --max-model-len 32768 --max-num-seqs "$MAXSEQS" "${SKIPMM[@]}" "${EXTRA_SERVE[@]}" "${BLOCK[@]}" \
-      --disable-custom-all-reduce --gpu-memory-utilization "$GPUMEM" --no-enable-chunked-prefill \
+      --disable-custom-all-reduce --gpu-memory-utilization "$GPUMEM" \
+      --no-enable-chunked-prefill --no-enable-prefix-caching \
       --host 0.0.0.0 --port "$PORT" </dev/null >"$slog" 2>&1 &
   LPID=$!; local waited=0
   while (( waited < HEALTH_TIMEOUT )); do
@@ -151,15 +154,19 @@ main(){
 
   serve_up 0 || { note "cell aborted (serve)"; exit 3; }
   warm
-  # A: correctness battery (5 tests @ C1) + B-decode + B-ttft(FA off) in one Python pass
+  # TTFT_ONLY=1 -> reconcile run: re-measure TTFT only (decode is prefix-caching-
+  # invariant and already valid). Otherwise the full battery + decode + TTFT pass.
+  local MAINPHASE=main; [[ "$TTFT_ONLY" == 1 ]] && MAINPHASE=ttftonly
   python3 tools/perf_v2_client.py --port "$PORT" --served "$SERVED" --out "$OUT" \
     --users "$USERS" --gentok "$GENTOK" --nrun "$NRUN" --ttft-reps "$TTFT_REPS" \
     --model "$MODEL_KEY" --prec "$PREC" --engine "$ENGINE" --tp "$TP" --csv "$CSV" \
-    --phase main 2>&1 | tee -a "$SUMMARY"
+    --phase "$MAINPHASE" 2>&1 | tee -a "$SUMMARY"
   serve_down
 
-  # B-ttft FA-on (long only), FA-eligible models, separate serve (needs block-size 256)
-  if [[ "$FA_ARM" == 1 && "$FAEL" == 1 ]]; then
+  # B-ttft FA-on (long only): FA-eligible MHA/GQA models, ENGINE=021 only (the FA .so is
+  # built against the 0.21 libtorch ABI -> ImportError 'undefined symbol c10::cuda::
+  # CUDAStream::query' on 0.19), and our-plugin only (int4 runs stock vLLM, no FA hook).
+  if [[ "$FA_ARM" == 1 && "$FAEL" == 1 && "$ENGINE" == 021 && "$PREC" != int4 ]]; then
     note "=== FA-on arm (TTFT-long) ==="
     if serve_up 1; then
       warm

@@ -212,6 +212,14 @@ def main():
             v, pt = ttft_min(a.port, a.served, tok, a.ttft_reps)
             print(f"[ttft] {nm} (~{tok} tok, actual_prompt={pt}): {v:.2f}s")
             csvf.write(f"{a.model},{a.prec},{a.engine},{a.tp},{nm},1,{v:.2f},s,{worst},{exact}\n")
+    elif a.phase == "ttftonly":
+        # TTFT-only reconcile run (decode is prefix-caching-invariant and already valid;
+        # this re-measures TTFT under the fixed config: prefix-caching OFF, so the
+        # repeated-prompt min is real cold prefill, not a cache hit).
+        for nm, tok in [("ttft_short", 2048), ("ttft_long", 24576)]:
+            v, pt = ttft_min(a.port, a.served, tok, a.ttft_reps)
+            print(f"[ttft] {nm} (~{tok} tok, actual_prompt={pt}): {v:.2f}s")
+            csvf.write(f"{a.model},{a.prec},{a.engine},{a.tp},{nm},1,{v:.2f},s,pass,n/a\n")
     elif a.phase == "ttft_fa":
         v, pt = ttft_min(a.port, a.served, 24576, a.ttft_reps)
         print(f"[ttft] ttft_long_FA (~24576 tok, actual_prompt={pt}): {v:.2f}s")
