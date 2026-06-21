@@ -32,10 +32,12 @@ def rows(d):
     return list(csv.DictReader(open(f))) if os.path.exists(f) else []
 
 
-def latest_with(m, p, e, metric):
+def latest_with(m, p, e, metric, exact=False):
     for d in dirs(m, p, e):
         rs = rows(d)
-        if any(r["metric"] == metric or r["metric"].startswith(metric) for r in rs):
+        hit = any(r["metric"] == metric for r in rs) if exact else \
+            any(r["metric"] == metric or r["metric"].startswith(metric) for r in rs)
+        if hit:
             return d, rs
     return None, []
 
@@ -55,7 +57,7 @@ def main():
     for m, p, e in CELLS:
         dd, drs = latest_with(m, p, e, "decode_per_user")
         bd, brs = latest_with(m, p, e, "ttft_long_cold")   # TTFT_BOTH (chunked-on) dir
-        md, mrs = latest_with(m, p, e, "ttft_long")        # monolithic (chunked-off) dir
+        md, mrs = latest_with(m, p, e, "ttft_long", exact=True)   # monolithic (chunked-off) dir
         if not dd and not bd and not md:
             out.write(f"{m},{p},{e},,MISSING,,,,,,,,,,,,\n")
             continue
