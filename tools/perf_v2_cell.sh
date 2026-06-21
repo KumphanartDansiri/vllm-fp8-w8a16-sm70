@@ -41,6 +41,9 @@ case "$PREC" in
   *) echo "unknown PREC=$PREC"; exit 1 ;;
 esac
 [[ -n "$MODEL" ]] || { echo "$MODEL_KEY:$PREC has no model path (infeasible combo)"; exit 2; }
+# Per-(model,prec) min-TP: FP16 needs ~2x the TP of FP8. q27b-FP16 (~54GB) OOMs at the
+# fp8 min of TP2 -> needs TP4. (Other models' MINTP=4 already fits their FP16.)
+[[ "$PREC" == fp16 && "$MODEL_KEY" == q27b && "${TP}" -lt 4 ]] && TP=4
 # Qwen block-FP8 needs explicit --quantization fp8; GLM/Gemma are compressed-tensors (auto)
 if [[ "$PREC" == fp8 && ( "$MODEL_KEY" == q27b || "$MODEL_KEY" == q35b || "$MODEL_KEY" == q122b ) ]]; then
   QUANT=(--quantization fp8)
@@ -53,7 +56,11 @@ if [[ "$ENGINE" == 019 ]]; then
   EXTRA_SERVE=()
 elif [[ "$ENGINE" == 021 ]]; then
   IMAGE="${IMAGE:-vllm-v100:vllm021-cu126}"; CACHE_TAG="${CACHE_TAG:-021cu126}"
-  EXTRA_SERVE=(); [[ "$TF5" == 1 ]] && EXTRA_SERVE=(--max-num-batched-tokens 2496)
+  # Gemma-4 on 0.21 (transformers 5.x IS in this image): max_num_batched_tokens must be
+  # >= max_model_len when chunked-prefill is off (vLLM pydantic check), AND >=2496 for the
+  # vision path. We serve --max-model-len 32768, so use 32768 (the 2496 value false-SKIP'd
+  # all Gemma-021 cells with "MNBT < max_model_len").
+  EXTRA_SERVE=(); [[ "$TF5" == 1 ]] && EXTRA_SERVE=(--max-num-batched-tokens 32768)
 else echo "unknown ENGINE=$ENGINE (use 019|021)"; exit 1; fi
 
 # ---- FP8 plugin env (coalesced + vectorized dequant ship by default) -------------
