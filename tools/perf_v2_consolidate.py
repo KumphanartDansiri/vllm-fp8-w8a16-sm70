@@ -49,27 +49,28 @@ def val(rs, metric, c=None):
 
 def main():
     out = open("results/perf_v2_COMBINED.csv", "w")
-    out.write("model,prec,engine,tp,quality,exactness,dC1,dC2,dC4,dC8,"
-              "aggC1,aggC2,aggC4,aggC8,ttft_short,ttft_long,ttft_long_fa,ttft_src\n")
+    out.write("model,prec,engine,tp,quality,exactness,dC1,dC2,dC4,dC8,aggC8,"
+              "ttft_long_cold_mono,ttft_long_cold_chunk,ttft_long_warm,ttft_long_cold_fa,"
+              "ttft_short_cold,ttft_short_warm\n")
     for m, p, e in CELLS:
         dd, drs = latest_with(m, p, e, "decode_per_user")
-        td, trs = latest_with(m, p, e, "ttft_short")
-        if not dd and not td:
-            out.write(f"{m},{p},{e},,MISSING,,,,,,,,,,,,,\n")
+        bd, brs = latest_with(m, p, e, "ttft_long_cold")   # TTFT_BOTH (chunked-on) dir
+        md, mrs = latest_with(m, p, e, "ttft_long")        # monolithic (chunked-off) dir
+        if not dd and not bd and not md:
+            out.write(f"{m},{p},{e},,MISSING,,,,,,,,,,,,\n")
             continue
-        tp = next((r["tp"] for r in drs), "") or next((r["tp"] for r in trs), "")
+        tp = next((r["tp"] for r in drs), "") or next((r["tp"] for r in brs), "")
         q = next((r["quality_status"] for r in drs if r["metric"].startswith("decode")), "")
         ex = next((r["exactness"] for r in drs if r["metric"].startswith("decode")), "")
         dpu = [val(drs, "decode_per_user", c) for c in (1, 2, 4, 8)]
-        agg = [val(drs, "decode_aggregate", c) for c in (1, 2, 4, 8)]
-        ts, tl = val(trs, "ttft_short"), val(trs, "ttft_long")
-        tlf = ""
-        if e == "021" and p in ("fp8", "fp16") and m in FA_ELIG:
-            _, frs = latest_with(m, p, e, "ttft_long_fa")
-            tlf = val(frs, "ttft_long_fa") or ""
-        src = os.path.basename(td).split("_")[-2] if td else "-"
-        out.write(f"{m},{p},{e},{tp},{q},{ex},{dpu[0]},{dpu[1]},{dpu[2]},{dpu[3]},"
-                  f"{agg[0]},{agg[1]},{agg[2]},{agg[3]},{ts},{tl},{tlf},{src}\n")
+        aggC8 = val(drs, "decode_aggregate", 8)
+        cold_mono = val(mrs, "ttft_long")                  # chunked-OFF monolithic cold
+        cold_chunk = val(brs, "ttft_long_cold")            # chunked-ON cold
+        warm = val(brs, "ttft_long_warm")
+        cfa = val(brs, "ttft_long_cold_fa") if (e == "021" and p in ("fp8", "fp16") and m in FA_ELIG) else ""
+        sc, sw = val(brs, "ttft_short_cold"), val(brs, "ttft_short_warm")
+        out.write(f"{m},{p},{e},{tp},{q},{ex},{dpu[0]},{dpu[1]},{dpu[2]},{dpu[3]},{aggC8},"
+                  f"{cold_mono},{cold_chunk},{warm},{cfa},{sc},{sw}\n")
     out.close()
     print("wrote results/perf_v2_COMBINED.csv")
 
