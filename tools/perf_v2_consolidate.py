@@ -68,16 +68,22 @@ def val(rs, metric, c=None):
 
 
 def main():
+    # Last 3 cols are PROVENANCE: the raw per-cell dir each value group was pulled from, so
+    # the SSOT build (build_matrix_from_results.py) can record result_path without re-doing
+    # the reconciliation (which dir wins for decode vs mono-TTFT vs cold/warm-TTFT).
+    HDR = ["model", "prec", "engine", "tp", "quality", "exactness",
+           "dC1", "dC2", "dC4", "dC8", "aggC8",
+           "ttft_long_cold_mono", "ttft_long_cold_chunk", "ttft_long_warm", "ttft_long_cold_fa",
+           "ttft_short_cold", "ttft_short_warm",
+           "decode_src", "ttft_mono_src", "ttft_both_src"]
     out = open("results/perf_v2_COMBINED.csv", "w")
-    out.write("model,prec,engine,tp,quality,exactness,dC1,dC2,dC4,dC8,aggC8,"
-              "ttft_long_cold_mono,ttft_long_cold_chunk,ttft_long_warm,ttft_long_cold_fa,"
-              "ttft_short_cold,ttft_short_warm\n")
+    out.write(",".join(HDR) + "\n")
     for m, p, e in CELLS:
         dd, drs = latest_with(m, p, e, "decode_per_user")
-        bd, brs = latest_with(m, p, e, "ttft_long_cold")   # TTFT_BOTH (chunked-on) dir
+        bd, brs = latest_with(m, p, e, "ttft_long_cold")          # TTFT_BOTH (chunked-on) dir
         md, mrs = latest_with(m, p, e, "ttft_long", exact=True)   # monolithic (chunked-off) dir
         if not dd and not bd and not md:
-            out.write(f"{m},{p},{e},,MISSING,,,,,,,,,,,,\n")
+            out.write(",".join([m, p, e, "", "MISSING"] + [""] * (len(HDR) - 5)) + "\n")
             continue
         tp = next((r["tp"] for r in drs), "") or next((r["tp"] for r in brs), "")
         q = next((r["quality_status"] for r in drs if r["metric"].startswith("decode")), "")
@@ -89,8 +95,9 @@ def main():
         warm = val(brs, "ttft_long_warm")
         cfa = val(brs, "ttft_long_cold_fa") if (e == "021" and p in ("fp8", "fp16") and m in FA_ELIG) else ""
         sc, sw = val(brs, "ttft_short_cold"), val(brs, "ttft_short_warm")
-        out.write(f"{m},{p},{e},{tp},{q},{ex},{dpu[0]},{dpu[1]},{dpu[2]},{dpu[3]},{aggC8},"
-                  f"{cold_mono},{cold_chunk},{warm},{cfa},{sc},{sw}\n")
+        row = [m, p, e, tp, q, ex, dpu[0], dpu[1], dpu[2], dpu[3], aggC8,
+               cold_mono, cold_chunk, warm, cfa, sc, sw, dd or "", md or "", bd or ""]
+        out.write(",".join("" if x is None else str(x) for x in row) + "\n")
     out.close()
     print("wrote results/perf_v2_COMBINED.csv")
 
