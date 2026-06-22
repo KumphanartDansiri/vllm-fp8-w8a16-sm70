@@ -28,7 +28,8 @@ PCFLAG="--no-enable-prefix-caching"
 [[ "$TTFT_WARM" == 1 || "$TTFT_BOTH" == 1 ]] && PCFLAG="--enable-prefix-caching"
 SERVED="perfv2"
 
-# ---- registry: path | VL(skip-mm) | min_tp | tf5 | fa_eligible -------------------
+# ---- registry: path | VL(skip-mm) | min_tp | tf5 | fa_eligible | MLA --------------
+MLA=0
 case "$MODEL_KEY" in
   q27b)  MPATH_fp8=/mnt/models/Qwen/Qwen3.6-27B-FP8;            MPATH_fp16=/mnt/models/Qwen/Qwen3.6-27B;            VL=0; MINTP=2; TF5=0; FAEL=1 ;;
   q35b)  MPATH_fp8=/mnt/models/Qwen/Qwen3.6-35B-A3B-FP8;        MPATH_fp16=/mnt/models/Qwen/Qwen3.6-35B-A3B;        VL=0; MINTP=4; TF5=0; FAEL=1 ;;
@@ -36,6 +37,7 @@ case "$MODEL_KEY" in
   glm)   MPATH_fp8=/mnt/models/zai-org/GLM-4.5-Air-FP8;         VL=0; MINTP=8; TF5=0; FAEL=1 ;;
   g31b)  MPATH_fp8=/mnt/models/RedHatAI/gemma-4-31B-it-FP8-Dynamic;     MPATH_fp16=/mnt/models/google/gemma-4-31B-it;     VL=1; MINTP=4; TF5=1; FAEL=0 ;;
   g26b)  MPATH_fp8=/mnt/models/RedHatAI/gemma-4-26B-A4B-it-FP8-Dynamic; MPATH_fp16=/mnt/models/google/gemma-4-26B-A4B-it; VL=1; MINTP=4; TF5=1; FAEL=0 ;;
+  glm47) MPATH_fp16=/mnt/models/zai-org/GLM-4.7-Flash;                  VL=0; MINTP=4; TF5=1; FAEL=0; MLA=1 ;;  # MLA, BF16 only (no official FP8)
   *) echo "unknown MODEL_KEY=$MODEL_KEY"; exit 1 ;;
 esac
 TP="${TP:-$MINTP}"
@@ -97,7 +99,7 @@ mkdir -p "$OUT/tests"; SUMMARY="$OUT/SUMMARY.txt"; CSV="$OUT/rows.csv"; : > "$SU
 echo "model,prec,engine,tp,metric,c,value,unit,quality_status,exactness" > "$CSV"
 for s in torchext triton torch inductor; do mkdir -p "$HOME/.cache/vllm-v100-${CACHE_TAG}-$s"; done
 note(){ echo "[perfv2] $*" | tee -a "$SUMMARY"; }
-gpus_for(){ local n="$1" o="" i; for ((i=0;i<n;i++)); do o+="${o:+,}$i"; done; echo "$o"; }
+gpus_for(){ local n="$1" o="" i; for ((i=0;i<n;i++)); do o+="${o:+,}$((i+${GPU_OFFSET:-0}))"; done; echo "$o"; }  # GPU_OFFSET to run on a disjoint GPU set (concurrent cells)
 clean_guard(){ local g="$1" any=0 i used; IFS=',' read -ra a <<<"$g"
   for i in "${a[@]}"; do used=$(nvidia-smi --id="$i" --query-gpu=memory.used --format=csv,noheader 2>/dev/null|awk '{print $1+0}'); [[ "${used:-9999}" -gt 2000 ]] && any=1; done
   [[ "$any" -eq 0 ]]; }
@@ -106,17 +108,23 @@ serve_up(){ # $1=extra docker env array name (FA), writes global LPID/CNAME/SLOG
   local faflag="${1:-0}" gpus cname slog; gpus=$(gpus_for "$TP")
   cname="perfv2_${MODEL_KEY}_${PREC}_${ENGINE}_fa${faflag}"; slog="$OUT/serve_fa${faflag}.log"
   CNAME="$cname"; SLOG="$slog"
-  local FAENV=(); local BLOCK=(); local PYLIB=(); local PYPATH=/work/src
-  if [[ "$faflag" == 1 ]]; then
-    FAENV=(-e VLLM_V100_FLASH_ATTN=1); BLOCK=(--block-size 256)
+  local FAENV=(); local BLOCK=(); local PYLIB=(); local PYPATH=/work/src; local need_so=0
+  # FA arm (MHA/GQA prefill) and MLA models (GLM-4.7-Flash) both need the ai-bond .so.
+  [[ "$faflag" == 1 ]] && { FAENV+=(-e VLLM_V100_FLASH_ATTN=1); BLOCK=(--block-size 256); need_so=1; }
+  # MLA: prefill via the .so, AND the MLA decode cudagraph (mandatory for usable decode:
+  # ~6 tok/s eager -> ~32 tok/s captured; FULL_DECODE_ONLY alone does not capture MLA decode).
+  [[ "$MLA" == 1 ]]     && { FAENV+=(-e VLLM_V100_MLA_PREFILL=1 -e VLLM_V100_MLA_DECODE_CUDAGRAPH=1); need_so=1; }
+  if [[ "$need_so" == 1 ]]; then
     # Stage ONLY the compiled .so (root-owned build dir -> alpine copy). The ai-bond
     # python shim must NOT be importable (it half-satisfies vLLM's flash-attn probe
     # and crashes rotary init); expose just flash_attn_v100_cuda.*.so on PYTHONPATH.
     mkdir -p "$OUT/pylib"
-    docker run --rm -v "$FA_DIR":/fasrc:ro -v "$PROJECT_ROOT/$OUT":/out alpine sh -c \
+    # ai-bond .so is torch-ABI-specific: 0.21 build in $FA_DIR; 0.19 (torch 2.10/cu128) = own rebuild.
+    local fasrc="$FA_DIR"; [[ "$ENGINE" == 019 ]] && fasrc="${FA_DIR_019:-/home/kumphanartd/flash-attention-v100-019}"  # rebuild: tools/build_fa_v100_019.sh
+    docker run --rm -v "$fasrc":/fasrc:ro -v "$PROJECT_ROOT/$OUT":/out alpine sh -c \
       "cp /fasrc/build/lib.linux-x86_64-cpython-312/flash_attn_v100_cuda.*.so /out/pylib/ 2>/dev/null && chown -R $(id -u):$(id -g) /out/pylib" >/dev/null 2>&1
     if [[ -z "$(ls "$OUT/pylib"/flash_attn_v100_cuda.*.so 2>/dev/null)" ]]; then
-      note "FA .so stage FAILED ($FA_DIR build missing) — skipping FA arm"; return 1
+      note ".so stage FAILED ($fasrc build missing)"; return 1
     fi
     PYLIB=(-v "$PROJECT_ROOT/$OUT/pylib":/falib:ro); PYPATH=/work/src:/falib
   fi
@@ -136,7 +144,7 @@ serve_up(){ # $1=extra docker env array name (FA), writes global LPID/CNAME/SLOG
     "$IMAGE" $SERVE_MOD --model "$MODEL" --served-model-name "$SERVED" \
       --tensor-parallel-size "$TP" --dtype float16 ${QUANT[@]+"${QUANT[@]}"} \
       --compilation-config '{"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY"}' \
-      --max-model-len 32768 --max-num-seqs "$MAXSEQS" "${SKIPMM[@]}" "${EXTRA_SERVE[@]}" "${BLOCK[@]}" \
+      --max-model-len "${MAXLEN:-32768}" --max-num-seqs "$MAXSEQS" "${SKIPMM[@]}" "${EXTRA_SERVE[@]}" "${BLOCK[@]}" \
       --disable-custom-all-reduce --gpu-memory-utilization "$GPUMEM" \
       $PCFLAG \
       --host 0.0.0.0 --port "$PORT" </dev/null >"$slog" 2>&1 &

@@ -12,14 +12,32 @@ Merge policy (the "same conditions" reconcile):
     int4 (stock vLLM) -> those no-op rows are dropped.
   - g26b:fp8:019                 : MISSING (stock vLLM 0.19 gemma4.py KeyError on MoE
     expert weights; use the 0.21 number).
+  - glm47:fp16                    : MLA (Glm4MoeLite), BF16/fp16 ONLY (no official FP8).
+    Runs on BOTH engines via the env-gated V100 MLA prefill hook (021 dedicated prefill
+    backend / 019 inline MLACommonImpl base) + MLA decode cudagraph. Not FA-eligible
+    (MLA, not MHA/GQA) -> cold_fa stays blank.
+  - q27b4:fp8                     : q27b FP8 pinned to TP4 (same TP as q27b-fp16) for a
+    PURE precision delta. The canonical q27b:fp8 stays at its TP2 min-fit (the
+    half-the-GPUs deployment point). Both kept so the TP2-vs-TP4 trade is visible
+    (is "FP8 at 1/2 the FP16 TP" worth it?). Result dirs are perf_v2_q27b4_fp8_*
+    (renamed from a q27b TP4 run by tools/perf_v2_q27b4_tp4.sh).
+  - q35b2/g31b2/g26b2:fp8 (021)  : the TP2 "half-the-GPUs" indicator, benchmarked at a
+    REDUCED max-model-len (MAXLEN=8192) since a full 32k KV won't fit at TP2 (fp8@TP2 has the
+    same per-GPU weight bytes as fp16@TP4 but HALF the GPUs to shard KV across; est. max ctx
+    g31b ~14k, g26b ~22k). So these rows are DECODE throughput on HALF the GPUs at SHORT
+    context (long-TTFT is N/A at MAXLEN=8192). 021-only. q27b is the EXCEPTION (small enough
+    to keep 32k at TP2 -> its canonical fp8 row); q122b can't fit at TP2 at all. Dirs
+    perf_v2_<m>2_fp8_021_* (renamed by tools/perf_v2_fp8_tp2_indicator.sh).
 Run: python3 tools/perf_v2_consolidate.py
 """
 import glob, csv, os
 
 CELLS = [(m, p, e) for e in ("021", "019") for (m, p) in [
-    ("q27b", "fp8"), ("q27b", "fp16"), ("q35b", "fp8"), ("q35b", "fp16"),
+    ("q27b", "fp8"), ("q27b", "fp16"), ("q27b4", "fp8"), ("q35b", "fp8"), ("q35b", "fp16"),
     ("q122b", "fp8"), ("q122b", "int4"), ("glm", "fp8"),
-    ("g31b", "fp8"), ("g31b", "fp16"), ("g26b", "fp8"), ("g26b", "fp16")]]
+    ("g31b", "fp8"), ("g31b", "fp16"), ("g26b", "fp8"), ("g26b", "fp16"),
+    ("glm47", "fp16")]]
+CELLS += [(m, "fp8", "021") for m in ("q35b2", "g31b2", "g26b2")]  # TP2 half-GPU indicator, 021-only, reduced MAXLEN
 FA_ELIG = {"q27b", "q35b", "q122b", "glm"}
 
 
