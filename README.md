@@ -3,9 +3,13 @@
 Volta-native fallback kernels and vLLM monkey-patches for serving
 DeepSeek-style block-FP8 W8A16 models on NVIDIA Tesla V100 (`sm_70`).
 
-Upstream vLLM rejects FP8 on this architecture. This package keeps vLLM 0.18.0
-usable on V100 by replacing the FP8 linear path with custom CUDA kernels,
-including a Volta WMMA prefill path and grouped routed MoE decode kernels.
+Upstream vLLM dropped practical V100 support; this package is the **V100 vLLM
+compatibility + performance layer** that brings it back on **vLLM 0.19 and 0.21**
+(source-built on CUDA 12.6). It is more than FP8 kernels: it adds the FP8 W8A16
+linear path (Volta WMMA prefill + grouped/coalesced CUDA-core MoE decode), the
+**FP16-MoE `sm_70` config fix**, a **FlashAttention-V100 prefill + MLA bridge**,
+and the benchmark harness behind the companion **V100 vLLM in 2026** write-up
+(7-model dual-engine matrix, frozen at tag `fp8-v100-2026-matrix`).
 
 > **This is not native FP8 execution.** V100 (`sm_70`) has no FP8 tensor-core
 > path. Weights are stored as block-scaled FP8 and dequantized to FP16 *inside*
@@ -29,21 +33,23 @@ re-quantized GPTQ-Int4 today; its FP8 path was the one piece that refused
 capability so a V100 can consume those releases directly, instead of waiting for
 someone to re-quantize them.
 
-The catch: V100 has no native FP8, so weights must be dequantized in software.
-This project is the experiment — can the memory saved by FP8 storage outweigh
-that dequant cost on `sm_70`? For sparse MoE, where only a small fraction of
-weights move per token, the answer appears to be yes (34–52 tok/s); for dense
-models it doesn't (Int4/FP16 win). The rest of this README is the honest
-accounting of where it lands.
+The catch: V100 has no native FP8, so weights must be dequantized in software,
+on **CUDA cores** (there is no FP8/tensor-core path). The original verdict was
+"yes for sparse MoE, no for dense." A branchless E4M3 dequant rewrite overturned
+half of that: because CUDA-core dequant is bandwidth-favorable at low batch,
+**dense FP8 now beats FP16 at 1–2 users, is on par at 4, and loses only at 8**
+(the compute-bound regime that needs a tensor-core kernel we haven't built — no
+timeline). **Sparse MoE wins at every concurrency.** The rest of this README is
+the honest accounting of where it lands.
 
 ## Status
 
 | Tier | What |
 |---|---|
-| **Known good** | vLLM 0.18.0 (and **0.19 via source build** for the Qwen 3.5/3.6 family — see [vLLM 0.19 compatibility](#vllm-019-compatibility)), torch 2.10.0, CUDA 12.x, Python 3.12, NVIDIA V100 (`sm_70`); Qwen3.5/Qwen3.6 **MoE** block-FP8 checkpoints (122B-A10B-FP8, 35B-A3B-FP8). |
+| **Known good** | **vLLM 0.19 + 0.21, source-built on CUDA 12.6** (0.21 = newest models; 0.19 = faster decode; both run the plugin), torch 2.10–2.11, Python 3.12, NVIDIA V100 (`sm_70`); 7 model families — dense + MoE + MLA — across FP8 / FP16 / GPTQ-Int4. The frozen matrix is tag `fp8-v100-2026-matrix`. |
+| **Validated** | dense-FP8 (coalesced + branchless dequant → *faster than FP16* at low concurrency); FlashAttention-V100 prefill + MLA bridge (GLM-4.7-Flash on both engines). |
 | **Optional** | MTP speculative decoding (`ENABLE_QWEN_MTP=1`, default OFF). |
-| **Experimental / in flight** | vLLM 0.21.0 source build on `sm_70` is validated for stock FP16/GPTQ eager+cudagraph workloads; the FP8 W8A16 monkey-patch port is the next step. See [vLLM 0.21 sm_70 base](#vllm-021-sm_70-base). |
-| **Experimental / untested** | dense-FP8 optimization, flash-attention-v100. |
+| **In flight** | warm/chunked-prefill TTFT columns in the matrix; a tensor-core (WMMA) decode kernel to close the dense C8 gap (no timeline). |
 | **Unsupported here** | CUDA 13; native FP8 hardware compute (V100 has none); non-Volta GPUs (A100/H100/etc. — use upstream vLLM, which has native FP8). |
 
 ## Is this for me?
@@ -52,10 +58,13 @@ accounting of where it lands.
 block-FP8 checkpoints (DeepSeek-style W8A16) that upstream vLLM refuses to run
 on this hardware.
 
+**Also useful for dense** models at low concurrency: with the branchless-dequant
+rewrite, dense FP8 now **beats FP16 at 1–2 users and ties at 4** — though FP16 /
+GPTQ-Int4 still win at 8 users (the CUDA-core dequant is compute-bound there).
+
 **Do not use this if** you have H100/A100 or newer (use upstream vLLM with
-native FP8), want generic FP8 acceleration, or are serving **dense** models —
-on V100, GPTQ-Int4 or FP16 is faster there. See **Performance notes** below
-for the numbers.
+native FP8) or want generic FP8 tensor-core acceleration (V100 has none). See
+**Performance notes** below for the per-concurrency numbers.
 
 ## How it works
 
@@ -102,18 +111,17 @@ hardware that has neither native FP8 nor the pipeline features category 3 needs.
 
 ## Current Baseline
 
-The package version is `0.4.1`. The **performance** baseline is the `v0.4.0`
-config below — v0.4.1 only adds the optional MTP knob (see "Optional: MTP
-Speculative Decoding"); nothing else changes:
+The package version is `0.5.0`. The two serving stacks are **vLLM 0.19 and 0.21,
+both source-built on CUDA 12.6** (see [vLLM 0.19 compatibility](#vllm-019-compatibility)
+and [vLLM 0.21 sm_70 base](#vllm-021-sm_70-base)):
 
 | Component | Baseline |
 |---|---|
 | Python | 3.12 (**required for cudagraph** — see below) |
-| vLLM | 0.18.0 |
-| torch | 2.10.0+cu128 |
-| CUDA | 12.x runtime/toolkit; do not use CUDA 13 on V100 |
-| Docker image | `vllm-v100-py312-test:cu128` |
-| Launcher | `docker/run_docker_vllm018_py312.sh` |
+| vLLM | 0.19.x and 0.21.x (source-built; **not** pip wheels) |
+| torch / CUDA | 2.11/cu126 (0.21) · 2.10/cu128 (0.19-tf5); CUDA 12.x — never CUDA 13 on V100 |
+| Docker images | `vllm-v100:vllm021-cu126`, `vllm-v100-py312:vllm019-cu126` (+ a transformers-5 / cu128 variant for Gemma-4 / GLM-4.7) |
+| Launcher | `python3 -m fp8_w8a16_sm70.vllm_serve …` (mount the package on `PYTHONPATH`; kernels JIT-cache) |
 
 > **Python 3.10 breaks cudagraph.** On Python ≤3.10 the cudagraph path hits a
 > FakeTensorMode bug in vLLM 0.18, so the legacy 3.10 stack is forced into
@@ -123,9 +131,9 @@ Speculative Decoding"); nothing else changes:
 
 ## vLLM 0.19 compatibility
 
-vLLM 0.19 is **validated as an alternate baseline for the Qwen 3.5 / 3.6 family
-on V100**, at performance parity with the 0.18 baseline. One important build
-difference from 0.18:
+vLLM 0.19 is a **primary serving baseline on V100** (alongside 0.21), first
+validated for the Qwen 3.5 / 3.6 family at parity with the original 0.18 build.
+One important build difference (shared with 0.21):
 
 **You must build vLLM 0.19 from source for `sm_70`.** Unlike 0.18, the official
 0.19 PyPI wheel is compiled without `7.0` in its CUDA arch list (the release
@@ -331,31 +339,32 @@ tax, and the reason MTP is the highest-leverage optional knob.
 overhead — notably all-reduce — across multiple tokens, so decode-heavy
 traffic gains most (up to 1.36×) and long-prompt/short-output can regress.
 
-**This path is for sparse MoE, not dense models.** On dense Qwen3.6-27B
-(TP=4), block-FP8 W8A16 is the *slowest* option:
+**FP8 decode runs on CUDA cores — so it's a low-concurrency win, by design.**
+V100 has no FP8 (nor any) tensor-core path for this format, so the fused
+dequant→FP16 GEMV executes on **CUDA cores**. That's bandwidth-favorable at low
+batch and compute-bound at high batch — which sets a clean, honest concurrency
+pattern that splits by model type:
 
-| 27B variant (TP=4) | tok/s (ns=8, measured) | vs FP16 |
-|---|---|---|
-| GPTQ-Int4 | **55.99** | 1.47× faster |
-| FP16 (cudagraph) | 38.06 | 1.00× baseline |
-| our block-FP8 W8A16 | **11.81** | **0.31× — ~3.2× slower** |
+- **Dense models:** FP8 **wins at C1/C2**, is **roughly parity at C4**, and
+  **falls behind FP16 at C8** — because FP16 decode runs through cuBLAS, which
+  uses tensor cores more effectively at batch, while our FP8 path is CUDA-core
+  dequant→matmul (Qwen3.6-27B TP4, 0.21: FP8 46 vs FP16 35 at C1; 28 vs 28 at C4;
+  20 vs 27 at C8). Closing the dense C8 gap likely requires a proper **tensor-core
+  / WMMA decode kernel that consumes FP8 weights and scales directly** — future
+  work, no timeline. (Two rewrites got dense this far: a coalesced GEMV and a
+  **branchless E4M3 dequant** — the *converter*, not `sm_70`, was the real
+  limiter — together flipping dense FP8 from ~0.31× FP16 to faster-than-FP16 at
+  low concurrency.)
+- **Sparse MoE — the dense limit does not invalidate this.** Sparse activation
+  moves only ~3B params/token, so FP8's reduced weight traffic stays valuable
+  **across all concurrency** (Qwen3.6-35B-A3B TP4, 0.21: FP8 75 / 48 vs FP16
+  56 / 21 tok/s/user at C1 / C8). FP8 wins broadly here — and for the largest
+  models (122B, GLM) it's **often the only format that fits.** This is the
+  flagship V100 case.
 
-Dense models touch every weight each token, so the per-GEMM dequant/dispatch
-overhead never amortizes. The same FP8 path *wins* on sparse MoE (where only
-~3B params are active per token). See `docs/STAGE_3.1_NEXT_STEPS.md` for the
-dense-FP8 diagnosis. (Qwen3.6-27B is itself hybrid GDN; these are `ns=8`
-figures. Note FP16 here needs `cudagraph_mode: FULL_DECODE_ONLY` — with `mode:0`,
-`FULL_AND_PIECEWISE` is silently disabled and FP16 drops to ~7 tok/s.)
-
-**Update — the coalesced decode GEMV closes the dense gap.** The dense penalty
-above was an *uncoalesced memory access* in the old `A.3` decode kernel, not an
-inherent FP8 cost. An opt-in coalesced GEMV
-(`VLLM_V100_FP8_COALESCED_GEMV=1 VLLM_V100_FP8_COALESCED_UNROLL=4`) fixes it:
-dense Qwen3.6-27B block-FP8 **11.75 → 37.24 tok/s (~0.98× FP16)**, dense
-Gemma-4-31B channel-FP8 **6.54 → 28.24 (97.5% of FP16)** — FP8-resident at
-near-FP16 speed, at half the weight memory. This makes dense FP8 viable on V100
-**where FP16 doesn't fit** (16 GB cards, low TP). Full numbers, decision matrix,
-and flags: **[`docs/COALESCED_FP8_GEMV.md`](docs/COALESCED_FP8_GEMV.md)**.
+Full per-engine (0.19 / 0.21), per-concurrency numbers are the frozen matrix
+(tag `fp8-v100-2026-matrix`), rendered in the companion **V100 vLLM in 2026**
+write-up. Decision matrix + flags: **[`docs/COALESCED_FP8_GEMV.md`](docs/COALESCED_FP8_GEMV.md)**.
 
 ## Known limitations
 
