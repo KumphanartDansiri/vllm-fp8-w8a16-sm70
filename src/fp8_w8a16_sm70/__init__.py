@@ -12,4 +12,4 @@ from .ext_loader import load_kernel
 from .module import FP8W8A16Linear
 
 __all__ = ["load_kernel", "FP8W8A16Linear"]
-__version__ = "0.1.0"
+__version__ = "0.6.0"

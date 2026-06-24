@@ -79,7 +79,7 @@ needs.
 ## Supported engines
 
 Two source-built serving stacks, **both running the FP8 W8A16 plugin** on
-`sm_70`. The package version is `0.5.0`.
+`sm_70`. The package version is `0.6.0`.
 
 | Engine | Image | Dockerfile | Use |
 |---|---|---|---|
