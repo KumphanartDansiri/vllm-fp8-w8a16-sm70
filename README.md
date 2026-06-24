@@ -616,3 +616,19 @@ Useful entry points:
 
 Start every new session by reading `docs/SESSION_LOG.md`; it is the project
 source of truth.
+
+## Acknowledgements
+
+The FlashAttention-V100 prefill and MLA-prefill bridges (`VLLM_V100_FLASH_ATTN=1`)
+wrap the [**ai-bond/flash-attention-v100**](https://github.com/ai-bond/flash-attention-v100)
+kernel by **D. Skryabin** ([@ai_bond007](https://t.me/ai_bond007)) — a from-scratch
+Volta (`sm_70`) reimplementation of FlashAttention / FlashAttention-2, released
+under the BSD 3-Clause License. This project does **not** modify that kernel: it
+loads the compiled `flash_attn_v100_cuda.so` and routes vLLM's prefill through it
+(`src/fp8_w8a16_sm70/fa_v100_prefill.py` for MHA/GQA,
+`fa_v100_mla_prefill.py` for MLA). The underlying FlashAttention algorithm is the
+work of Tri Dao et al.
+
+The FP8 W8A16 kernels (Volta WMMA prefill + grouped/coalesced CUDA-core MoE
+decode), the FP16-MoE `sm_70` config fix, and the benchmark harness are original
+to this project.

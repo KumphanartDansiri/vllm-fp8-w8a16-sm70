@@ -4,3 +4,9 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+
+# Benchmark result dirs are scratch by default; the published-evidence dirs that
+# are already tracked stay tracked. Commit new evidence explicitly with
+#   git add -f results/<dir>
+# This keeps `git status` clean of the many ad-hoc bench/microbench runs.
+results/
