@@ -10,9 +10,9 @@ moving from CUDA 12.8 to 12.9, picking up flash-attention-v100) are obvious
 
 | Constraint | Value | Source / Why |
 |---|---|---|
-| Python | `>=3.10, <3.14` | vLLM 0.18 `pyproject.toml` |
-| vllm | `==0.18.0` (or 0.18.x) | **FP8 production anchor.** vLLM 0.18 remains the validated FP8 W8A16 baseline. vLLM 0.19 also works via source build for Qwen 3.5/3.6 FP8; vLLM 0.21 is a validated stock FP16/GPTQ engine base, but the FP8 wrapper port is still in flight. |
-| torch | `==2.10.0` (any `+cuXX` wheel variant) | vLLM 0.18 `requirements/cuda.txt` exact pin for the current FP8 production baseline. The experimental vLLM 0.21 lane uses torch 2.11.0+cu126. |
+| Python | `3.12` (build supports `>=3.10, <3.14`) | 3.12 is required for the cudagraph path (≤3.10 hits a FakeTensorMode bug → forced eager). |
+| vllm | source-built **0.19 or 0.21** (`sm_70`) | **Current FP8 baselines — both run the FP8 W8A16 plugin** (ported with no code changes; validated dense + MoE). 0.19 = faster decode, 0.21 = newest models. PyPI wheels drop arch `7.0`, so build from source. vLLM 0.18 was the original baseline and still runs, but is **legacy**. |
+| torch | `2.10.0` (0.19 / cu128) · `2.11.0+cu126` (0.21) | The engine's pinned torch; both keep `sm_70` in `get_arch_list()` (0.18 legacy: 2.10.0). |
 | torchaudio | `==2.10.0` | vLLM 0.18 |
 | torchvision | `==0.25.0` | vLLM 0.18 |
 | flashinfer-python | `==0.6.6` | vLLM 0.18 (pure-Python wheel; cuXX-agnostic) |
@@ -21,18 +21,23 @@ moving from CUDA 12.8 to 12.9, picking up flash-attention-v100) are obvious
 | Hardware | NVIDIA V100 (sm_70 / compute capability 7.0) | Whole project exists because vLLM officially rejects sm_70 for FP8; this repo is the patch. |
 | CUDA toolkit | `12.x` (any minor) | CUDA 13.x dropped sm_70. Stay in 12-series. |
 
+> Several **Source / Why** cells above cite *vLLM 0.18* — that is historical
+> pin-provenance (where the constraint originally came from), not the current
+> engine. **The supported engines are 0.19 and 0.21**; their exact pins are in
+> the `vllm` / `torch` rows above, and 0.18 is legacy.
+
 ## Layer 2 — sm_70 viability (must not consume features that require sm_75+)
 
-vLLM 0.18 still has code paths that *would* use sm_80+ features if enabled. We
+vLLM still has code paths that *would* use sm_80+ features if enabled. We
 explicitly disable those to keep V100 working. Each item below is a hard "must
 do" when invoking the serve:
 
 | Setting | Reason |
 |---|---|
-| `--compilation-config '{"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY"}'` | Current v0.4.0 performance baseline. Python 3.12 avoids the Python <=3.10 FakeTensorMode cudagraph bug seen in vLLM 0.18. |
+| `--compilation-config '{"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY"}'` | The cudagraph performance path. Python 3.12 avoids the Python <=3.10 FakeTensorMode cudagraph bug. |
 | `--enforce-eager` | Legacy correctness fallback for Python 3.10 or profiling/debugging paths that are not cudagraph-safe. Not the performance baseline. |
-| `--attention-backend TRITON_ATTN` | FlashAttention v2+ needs sm_80+; Triton attention is the only V100-compatible backend in 0.18 |
-| `--no-enable-chunked-prefill` | Chunked prefill has known instability on V100 in this vllm version |
+| `--attention-backend TRITON_ATTN` | FlashAttention v2+ needs sm_80+; Triton attention is the V100-compatible backend (the FA-V100 bridge handles prefill separately). |
+| chunked prefill: **leave ON** (the default) | Do **not** blanket-disable with `--no-enable-chunked-prefill` — disabling it is a known crash-causer on large hybrid + cudagraph configs (e.g. 122B@28k). Only set it for a specific benchmark that needs it for comparability. |
 | `--disable-custom-all-reduce` | vLLM's custom all-reduce uses sm_75+ features in some paths |
 | `--quantization fp8` | Requires the monkey-patches in `fp8_w8a16_sm70.vllm_serve` (vLLM 0.18 would reject sm_70 otherwise) |
 | `--max-num-seqs 8` (≥2; **not 1**) | On hybrid attention+GDN models (Qwen3.5/3.6-A\*B, 27B), `--max-num-seqs 1` under cudagraph crashes at init: vLLM 0.18's minimal cudagraph-profiling KV cache is 2 blocks wide and its attention/mamba layout check can't disambiguate the `[2,2,…]` shape (`assert shape[1] != 2`). Upstream vLLM bug — reproduces on stock `vllm serve` with FP16. `ns=8` sidesteps it (wider profiling cache) and is faster. For `ns=1` (low-latency streaming) use `--enforce-eager`. |
