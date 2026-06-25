@@ -2,6 +2,17 @@
 
 Cold-start summary for picking up in a new session. Read top to bottom.
 
+> **2026-06-25 publication add-on:** the exact Qwen3.5 precision comparison now
+> has TP4 + TP2 data for dense 27B and MoE 35B-A3B. TP2 was measured in
+> `results/q27b_exact_triad_tp2_20260624_174257/` and
+> `results/q35b_exact_triad_tp2_20260624_174257/`; both FP16 checkpoints were
+> **OOM/infeasible at TP2** under the real vLLM serve envelope, while FP8 and
+> GPTQ fit. Tracked SSOTs updated:
+> `results/qwen35_triad_matrix_20260624.csv` now has 48 rows, and
+> `results/perf_v2_COMBINED.csv` has TP2 condensed rows. The publication repo
+> has `docs/09_precision_tp_comparison.md` and 24 matching TP2 rows in
+> `data/benchmark_matrix.csv`.
+>
 > **NEXT SESSION → MEASURE the flagships (122B + GLM-Air), don't build.** The FP8
 > implementation revisit (2026-06-20) is committed clean on branch
 > `coalesced-fp8-gemv` in 3 separated commits: `ac6dc14` branchless E4M3 converter

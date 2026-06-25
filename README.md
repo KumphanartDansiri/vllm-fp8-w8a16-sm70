@@ -235,7 +235,7 @@ comm-bound flagship more); long-prompt/short-output can regress. **Not
 bit-identical on MoE** (divergences were quality-equivalent in validation), and
 acceptance rate alone is never proof — benchmark your own workload before
 enabling globally. Full claims, per-model `k` curves, and the exactness analysis:
-the **V100 vLLM in 2026** write-up, MTP chapter (`docs/chapters/04_mtp.md`).
+the **V100 vLLM in 2026** write-up, MTP chapter (`docs/04_mtp.md`).
 
 ## Profiling & diagnostics
 
