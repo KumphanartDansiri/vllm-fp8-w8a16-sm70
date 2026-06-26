@@ -33,6 +33,8 @@ MLA=0
 case "$MODEL_KEY" in
   q27b)  MPATH_fp8=/mnt/models/Qwen/Qwen3.6-27B-FP8;            MPATH_fp16=/mnt/models/Qwen/Qwen3.6-27B;            VL=0; MINTP=2; TF5=0; FAEL=1 ;;
   q35b)  MPATH_fp8=/mnt/models/Qwen/Qwen3.6-35B-A3B-FP8;        MPATH_fp16=/mnt/models/Qwen/Qwen3.6-35B-A3B;        VL=0; MINTP=4; TF5=0; FAEL=1 ;;
+  q27b35) MPATH_fp8=/mnt/models/Qwen/Qwen3.5-27B-FP8;           MPATH_fp16=/mnt/models/Qwen/Qwen3.5-27B;            MPATH_int4=/mnt/models/Qwen/Qwen3.5-27B-GPTQ-Int4;     VL=0; MINTP=4; TF5=0; FAEL=1 ;;  # Qwen 3.5 featured dense (full triad)
+  q35b35) MPATH_fp8=/mnt/models/Qwen/Qwen3.5-35B-A3B-FP8;       MPATH_fp16=/mnt/models/Qwen/Qwen3.5-35B-A3B;        MPATH_int4=/mnt/models/Qwen/Qwen3.5-35B-A3B-GPTQ-Int4; VL=0; MINTP=4; TF5=0; FAEL=1 ;;  # Qwen 3.5 featured MoE (full triad)
   q122b) MPATH_fp8=/mnt/models/Qwen/Qwen3.5-122B-A10B-FP8;      MPATH_int4=/mnt/models/Qwen/Qwen3.5-122B-A10B-GPTQ-Int4; VL=1; MINTP=8; TF5=0; FAEL=1 ;;
   glm)   MPATH_fp8=/mnt/models/zai-org/GLM-4.5-Air-FP8;         VL=0; MINTP=8; TF5=0; FAEL=1 ;;
   g31b)  MPATH_fp8=/mnt/models/RedHatAI/gemma-4-31B-it-FP8-Dynamic;     MPATH_fp16=/mnt/models/google/gemma-4-31B-it;     VL=1; MINTP=4; TF5=1; FAEL=0 ;;
@@ -56,7 +58,7 @@ esac
 # at the fp8 min of TP2). FP8/Int4 keep their per-model MINTP.
 [[ "$PREC" == fp16 && "${TP}" -lt 4 ]] && TP=4
 # Qwen block-FP8 needs explicit --quantization fp8; GLM/Gemma are compressed-tensors (auto)
-if [[ "$PREC" == fp8 && ( "$MODEL_KEY" == q27b || "$MODEL_KEY" == q35b || "$MODEL_KEY" == q122b ) ]]; then
+if [[ "$PREC" == fp8 && ( "$MODEL_KEY" == q27b || "$MODEL_KEY" == q35b || "$MODEL_KEY" == q27b35 || "$MODEL_KEY" == q35b35 || "$MODEL_KEY" == q122b ) ]]; then
   QUANT=(--quantization fp8)
 fi
 
