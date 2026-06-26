@@ -11,7 +11,7 @@ config fix** and a **FlashAttention-V100 prefill + MLA bridge**.
 
 The *story* — why V100 still works in 2026, the full per-engine benchmark
 matrix, the methodology, and deployment field-notes — lives in the companion
-**V100 vLLM in 2026** write-up (the `v100-vllm-2026` repo). **This README is the
+**V100 vLLM in 2026** write-up (the [`v100-vllm-2026`](https://github.com/KumphanartDansiri/v100-vllm-2026) repo). **This README is the
 artifact**: what the plugin is, how it works, and how to build, run, and extend
 it.
 

@@ -83,13 +83,13 @@ the `v100-vllm-2026` write-up.
 - Stage 2A active-list + Stage 2B grouped routed GEMM, default-on for V100 —
   1.86× long-run decode on Qwen3.5-122B-A10B at TP8 (2.62 → 4.87 tok/s).
 
-[Unreleased]: https://gitlab.tl-group.net/tl-group/opensource/vllm-fp8-w8a16-sm70/-/compare/v0.6.0...main
-[0.6.0]: https://gitlab.tl-group.net/tl-group/opensource/vllm-fp8-w8a16-sm70/-/compare/v0.5.0...v0.6.0
-[0.5.0]: https://gitlab.tl-group.net/tl-group/opensource/vllm-fp8-w8a16-sm70/-/compare/v0.4.2...v0.5.0
-[0.4.2]: https://gitlab.tl-group.net/tl-group/opensource/vllm-fp8-w8a16-sm70/-/compare/v0.4.1...v0.4.2
-[0.4.1]: https://gitlab.tl-group.net/tl-group/opensource/vllm-fp8-w8a16-sm70/-/compare/v0.4.0...v0.4.1
-[0.4.0]: https://gitlab.tl-group.net/tl-group/opensource/vllm-fp8-w8a16-sm70/-/compare/v0.3.2...v0.4.0
-[0.3.2]: https://gitlab.tl-group.net/tl-group/opensource/vllm-fp8-w8a16-sm70/-/compare/v0.3.1...v0.3.2
-[0.3.1]: https://gitlab.tl-group.net/tl-group/opensource/vllm-fp8-w8a16-sm70/-/compare/v0.3.0...v0.3.1
-[0.3.0]: https://gitlab.tl-group.net/tl-group/opensource/vllm-fp8-w8a16-sm70/-/compare/v0.2.0...v0.3.0
-[0.2.0]: https://gitlab.tl-group.net/tl-group/opensource/vllm-fp8-w8a16-sm70/-/tags/v0.2.0
+[Unreleased]: https://github.com/KumphanartDansiri/vllm-fp8-w8a16-sm70/compare/v0.6.0...main
+[0.6.0]: https://github.com/KumphanartDansiri/vllm-fp8-w8a16-sm70/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/KumphanartDansiri/vllm-fp8-w8a16-sm70/compare/v0.4.2...v0.5.0
+[0.4.2]: https://github.com/KumphanartDansiri/vllm-fp8-w8a16-sm70/compare/v0.4.1...v0.4.2
+[0.4.1]: https://github.com/KumphanartDansiri/vllm-fp8-w8a16-sm70/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/KumphanartDansiri/vllm-fp8-w8a16-sm70/compare/v0.3.2...v0.4.0
+[0.3.2]: https://github.com/KumphanartDansiri/vllm-fp8-w8a16-sm70/compare/v0.3.1...v0.3.2
+[0.3.1]: https://github.com/KumphanartDansiri/vllm-fp8-w8a16-sm70/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/KumphanartDansiri/vllm-fp8-w8a16-sm70/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/KumphanartDansiri/vllm-fp8-w8a16-sm70/releases/tag/v0.2.0
