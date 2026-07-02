@@ -27,7 +27,10 @@ ONE physical page per KV tile from the tile's start row and loads
 paged branch). A 160-row tile starting at row 160 spans rows 160–319 — it
 crosses the 256-row page boundary, and the linear load walks past the physical
 page into whichever block is next in the pool. With a non-contiguous block
-table (the normal case in vLLM) this reads another sequence's KV.
+table — which vLLM produces under fragmentation, preemption, prefix-cache reuse,
+or chunked prefill — this reads another sequence's KV. (In simple runs with
+contiguous allocation the overrun happens to land on the correct next block, so
+the bug is *latent* — which is why it survives casual testing.)
 
 The real invariant is `page_block_size % BLOCK_N == 0`, which D=32/64/256
 already satisfy (BLOCK_N 256/128/64) but D=128 (160) and D=16 (512) do not.
@@ -39,7 +42,59 @@ reference up to 24k tokens, shuffled block tables); measured perf cost ≈ nil
 **Reproducer:** paged varlen, D=128, two sequences with interleaved physical
 blocks (seq0 → blocks [0,2], seq1 → [1,3]), garbage value (100.0) in all
 unused slots → output contains the garbage (max_abs ≈ 100.7, cos ≈ 0.004);
-after the fix, exact. (Script available: `fa_v100_paged_smoke.py`.)
+after the fix, exact. Script: [`tools/fa_v100_paged_smoke.py`](../tools/fa_v100_paged_smoke.py)
+(calls the low-level `varlen_fwd` directly, no vLLM needed); one-command build+A/B
+driver: [`tools/fa_v100_build_microbench.sh`](../tools/fa_v100_build_microbench.sh).
+
+**Run log (full stdout):**
+[`tools/fa_v100_microbench_20260702_114428.txt`](../tools/fa_v100_microbench_20260702_114428.txt)
+— single-variable A/B on V100 (nvcc 12.9 / torch 2.10.0+cu129):
+`BLOCK_N_128=160 → cos=0.004047 max_abs=100.7305 FAIL`, then only `160→128`,
+`patched BLOCK_N_128=128 → cos=1.000000 max_abs=0.0020 PASS`. Re-run 2026-07-02
+under review; bit-identical to the original 2026-06-11 run
+([`…_20260611_084004.txt`](../tools/fa_v100_microbench_20260611_084004.txt)) — deterministic seed.
+
+**How to reproduce the `160 → 128` A/B.** Start from an ai-bond tree where
+`include/forward.h` has `#define BLOCK_N_128 160` (if your tree already has
+`128`, use a clean checkout or set it back to `160` first). The single tested
+variable is `BLOCK_N_128 = 160` vs `128`; everything else is held constant.
+
+*Minimal, in your own tree* (no vLLM, no our harness — just the standalone smoke
+[`tools/fa_v100_paged_smoke.py`](../tools/fa_v100_paged_smoke.py) against your
+native build):
+
+```bash
+# A-side (bug present): include/forward.h has  #define BLOCK_N_128 160
+pip install . --no-build-isolation --no-deps
+python fa_v100_paged_smoke.py     # FAIL: cos≈0.004047  max_abs≈100.7305
+
+# patch exactly one line, then force a clean rebuild (headers aren't dep-tracked):
+sed -i 's/#define BLOCK_N_128 160/#define BLOCK_N_128 128/' include/forward.h
+rm -rf build
+pip install . --no-build-isolation --no-deps
+python fa_v100_paged_smoke.py     # PASS: cos=1.000000  max_abs=0.0020
+```
+
+The patch is:
+
+```diff
+-#define BLOCK_N_128 160
++#define BLOCK_N_128 128
+```
+
+*Or use our automated driver* (does the same A-side → patch → B-side, also runs
+`test.py` as a gate and writes the full run log). Point `AIBOND_DIR` at your
+checkout:
+
+```bash
+AIBOND_DIR=/path/to/flash-attention-v100 AUTOPATCH=1 \
+  /path/to/vllm-fp8-w8a16-sm70/tools/fa_v100_build_microbench.sh
+```
+
+Expected proof line:
+`STRADDLE BUG CONFIRMED + FIX VALIDATED: stock FAIL -> patched PASS`.
+`AUTOPATCH=1` runs the full A/B; `PREPATCH=1` skips the A-side and is only for
+validating an already-patched tree — it is *not* evidence that `160` fails.
 
 ## 2. CUDA 12.6 support: `__tanhf` is 12.8+/12.9-only; the pin can be 12.6
 
