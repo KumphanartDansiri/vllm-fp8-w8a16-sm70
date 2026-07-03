@@ -1,0 +1,137 @@
+GPU 0 used=0 MiB
+=== non-square dense fixed/meta seal  N=1024 K=512  M=1..32 ===
+# shape  N=1024 K=512 block=128
+# meta (PACKED ld from prepare/Convert):  k_ld=16384  q_ld=1024
+# nominal (unpacked) geometry the _auto path reconstructs from: k=512 n=1024
+# -> packed k_ld != nominal k(512); packed q_ld == nominal n(1024)
+# entry points present: fixed=1 meta=1 auto=1
+
+   M path                  cos      max_abs
+   1 fixed              1.0000    5.667e-04
+   1 meta               1.0000    5.667e-04
+   1 auto               0.0175    1.900e+00
+
+   2 fixed              1.0000    5.136e-04
+   2 meta               1.0000    5.136e-04
+   2 auto              -0.0051    2.096e+00
+
+   4 fixed              1.0000    5.322e-04
+   4 meta               1.0000    5.322e-04
+   4 auto               0.0434    1.876e+00
+
+   8 fixed              1.0000    6.144e-04
+   8 meta               1.0000    6.144e-04
+   8 auto               0.0330    1.837e+00
+
+  16 fixed              1.0000    6.062e-04
+  16 meta               1.0000    6.062e-04
+  16 auto               0.0239    2.232e+00
+
+  32 fixed              1.0000    7.936e-04
+  32 meta               1.0000    7.936e-04
+  32 auto               0.0195    2.450e+00
+
+[REPRO CONFIRMED] fixed/meta path cos~=1.0 but _auto path cos<0.5 (garbage).
+
+=== non-square dense fixed/meta seal  N=512 K=1024  M=1..32 ===
+# shape  N=512 K=1024 block=128
+# meta (PACKED ld from prepare/Convert):  k_ld=32768  q_ld=512
+# nominal (unpacked) geometry the _auto path reconstructs from: k=1024 n=512
+# -> packed k_ld != nominal k(1024); packed q_ld == nominal n(512)
+# entry points present: fixed=1 meta=1 auto=1
+
+   M path                  cos      max_abs
+   1 fixed              1.0000    5.902e-04
+   1 meta               1.0000    5.902e-04
+   1 auto               0.0472    1.994e+00
+
+   2 fixed              1.0000    6.168e-04
+   2 meta               1.0000    6.168e-04
+   2 auto               0.1002    2.463e+00
+
+   4 fixed              1.0000    6.299e-04
+   4 meta               1.0000    6.299e-04
+   4 auto               0.0920    2.054e+00
+
+   8 fixed              1.0000    8.607e-04
+   8 meta               1.0000    8.607e-04
+   8 auto               0.0599    2.859e+00
+
+  16 fixed              1.0000    7.610e-04
+  16 meta               1.0000    7.610e-04
+  16 auto               0.0421    2.865e+00
+
+  32 fixed              1.0000    7.867e-04
+  32 meta               1.0000    7.867e-04
+  32 auto               0.0412    2.604e+00
+
+[REPRO CONFIRMED] fixed/meta path cos~=1.0 but _auto path cos<0.5 (garbage).
+
+=== non-square dense fixed/meta seal  N=1536 K=1024  M=1..32 ===
+# shape  N=1536 K=1024 block=128
+# meta (PACKED ld from prepare/Convert):  k_ld=32768  q_ld=1536
+# nominal (unpacked) geometry the _auto path reconstructs from: k=1024 n=1536
+# -> packed k_ld != nominal k(1024); packed q_ld == nominal n(1536)
+# entry points present: fixed=1 meta=1 auto=1
+
+   M path                  cos      max_abs
+   1 fixed              1.0000    7.586e-04
+   1 meta               1.0000    7.586e-04
+   1 auto              -0.0133    2.249e+00
+
+   2 fixed              1.0000    7.124e-04
+   2 meta               1.0000    7.124e-04
+   2 auto               0.0444    2.553e+00
+
+   4 fixed              1.0000    8.248e-04
+   4 meta               1.0000    8.248e-04
+   4 auto               0.0284    2.435e+00
+
+   8 fixed              1.0000    8.031e-04
+   8 meta               1.0000    8.031e-04
+   8 auto               0.0153    2.803e+00
+
+  16 fixed              1.0000    9.071e-04
+  16 meta               1.0000    9.071e-04
+  16 auto               0.0139    3.005e+00
+
+  32 fixed              1.0000    8.643e-04
+  32 meta               1.0000    8.643e-04
+  32 auto               0.0215    2.778e+00
+
+[REPRO CONFIRMED] fixed/meta path cos~=1.0 but _auto path cos<0.5 (garbage).
+
+=== non-square dense fixed/meta seal  N=1024 K=768  M=1..32 ===
+# shape  N=1024 K=768 block=128
+# meta (PACKED ld from prepare/Convert):  k_ld=24576  q_ld=1024
+# nominal (unpacked) geometry the _auto path reconstructs from: k=768 n=1024
+# -> packed k_ld != nominal k(768); packed q_ld == nominal n(1024)
+# entry points present: fixed=1 meta=1 auto=1
+
+   M path                  cos      max_abs
+   1 fixed              1.0000    6.039e-04
+   1 meta               1.0000    6.039e-04
+   1 auto               0.0138    2.199e+00
+
+   2 fixed              1.0000    5.913e-04
+   2 meta               1.0000    5.913e-04
+   2 auto              -0.0214    2.630e+00
+
+   4 fixed              1.0000    5.764e-04
+   4 meta               1.0000    5.764e-04
+   4 auto               0.0180    2.187e+00
+
+   8 fixed              1.0000    8.934e-04
+   8 meta               1.0000    8.934e-04
+   8 auto               0.0552    2.820e+00
+
+  16 fixed              1.0000    8.957e-04
+  16 meta               1.0000    8.957e-04
+  16 auto               0.0377    2.617e+00
+
+  32 fixed              1.0000    8.937e-04
+  32 meta               1.0000    8.937e-04
+  32 auto               0.0255    2.706e+00
+
+[REPRO CONFIRMED] fixed/meta path cos~=1.0 but _auto path cos<0.5 (garbage).
+

@@ -1,0 +1,47 @@
+GPU 0 used=0 MiB
+# grouped-MoE cos gate  E=8 H=1024 I=768 block=128  COS_PASS=0.99
+# w13: N=1536 K=1024   w2: N=1024 K=768
+
+[PASS] w13_gate_up          mode=spread E=8 N=1536 K=1024 tpe=1 T=8 k_ld=32768 q_ld=1536  worst_cos=1.0000@e0
+       per-expert cos(rows): e0:1.0000(1)  e1:1.0000(1)  e2:1.0000(1)  e3:1.0000(1)  e4:1.0000(1)  e5:1.0000(1)  e6:1.0000(1)  e7:1.0000(1)
+[PASS] w13_gate_up          mode=spread E=8 N=1536 K=1024 tpe=2 T=16 k_ld=32768 q_ld=1536  worst_cos=1.0000@e0
+       per-expert cos(rows): e0:1.0000(2)  e1:1.0000(2)  e2:1.0000(2)  e3:1.0000(2)  e4:1.0000(2)  e5:1.0000(2)  e6:1.0000(2)  e7:1.0000(2)
+[PASS] w13_gate_up          mode=spread E=8 N=1536 K=1024 tpe=4 T=32 k_ld=32768 q_ld=1536  worst_cos=1.0000@e3
+       per-expert cos(rows): e0:1.0000(4)  e1:1.0000(4)  e2:1.0000(4)  e3:1.0000(4)  e4:1.0000(4)  e5:1.0000(4)  e6:1.0000(4)  e7:1.0000(4)
+
+[PASS] w13_gate_up          mode=hot    E=8 N=1536 K=1024 tpe=1 T=8 k_ld=32768 q_ld=1536  worst_cos=1.0000@e-1
+       per-expert cos(rows): e0:1.0000(8)  e1:--(0)  e2:--(0)  e3:--(0)  e4:--(0)  e5:--(0)  e6:--(0)  e7:--(0)
+[PASS] w13_gate_up          mode=hot    E=8 N=1536 K=1024 tpe=2 T=16 k_ld=32768 q_ld=1536  worst_cos=1.0000@e0
+       per-expert cos(rows): e0:1.0000(16)  e1:--(0)  e2:--(0)  e3:--(0)  e4:--(0)  e5:--(0)  e6:--(0)  e7:--(0)
+[PASS] w13_gate_up          mode=hot    E=8 N=1536 K=1024 tpe=4 T=32 k_ld=32768 q_ld=1536  worst_cos=1.0000@e0
+       per-expert cos(rows): e0:1.0000(32)  e1:--(0)  e2:--(0)  e3:--(0)  e4:--(0)  e5:--(0)  e6:--(0)  e7:--(0)
+
+[PASS] w13_gate_up          mode=skew   E=8 N=1536 K=1024 tpe=1 T=10 k_ld=32768 q_ld=1536  worst_cos=1.0000@e2
+       per-expert cos(rows): e0:1.0000(8)  e1:1.0000(1)  e2:1.0000(1)  e3:--(0)  e4:--(0)  e5:--(0)  e6:--(0)  e7:--(0)
+[PASS] w13_gate_up          mode=skew   E=8 N=1536 K=1024 tpe=2 T=19 k_ld=32768 q_ld=1536  worst_cos=1.0000@e0
+       per-expert cos(rows): e0:1.0000(16)  e1:1.0000(2)  e2:1.0000(1)  e3:--(0)  e4:--(0)  e5:--(0)  e6:--(0)  e7:--(0)
+[PASS] w13_gate_up          mode=skew   E=8 N=1536 K=1024 tpe=4 T=37 k_ld=32768 q_ld=1536  worst_cos=1.0000@e1
+       per-expert cos(rows): e0:1.0000(32)  e1:1.0000(4)  e2:1.0000(1)  e3:--(0)  e4:--(0)  e5:--(0)  e6:--(0)  e7:--(0)
+
+[PASS] w2_down              mode=spread E=8 N=1024 K=768 tpe=1 T=8 k_ld=24576 q_ld=1024  worst_cos=1.0000@e3
+       per-expert cos(rows): e0:1.0000(1)  e1:1.0000(1)  e2:1.0000(1)  e3:1.0000(1)  e4:1.0000(1)  e5:1.0000(1)  e6:1.0000(1)  e7:1.0000(1)
+[PASS] w2_down              mode=spread E=8 N=1024 K=768 tpe=2 T=16 k_ld=24576 q_ld=1024  worst_cos=1.0000@e3
+       per-expert cos(rows): e0:1.0000(2)  e1:1.0000(2)  e2:1.0000(2)  e3:1.0000(2)  e4:1.0000(2)  e5:1.0000(2)  e6:1.0000(2)  e7:1.0000(2)
+[PASS] w2_down              mode=spread E=8 N=1024 K=768 tpe=4 T=32 k_ld=24576 q_ld=1024  worst_cos=1.0000@e3
+       per-expert cos(rows): e0:1.0000(4)  e1:1.0000(4)  e2:1.0000(4)  e3:1.0000(4)  e4:1.0000(4)  e5:1.0000(4)  e6:1.0000(4)  e7:1.0000(4)
+
+[PASS] w2_down              mode=hot    E=8 N=1024 K=768 tpe=1 T=8 k_ld=24576 q_ld=1024  worst_cos=1.0000@e0
+       per-expert cos(rows): e0:1.0000(8)  e1:--(0)  e2:--(0)  e3:--(0)  e4:--(0)  e5:--(0)  e6:--(0)  e7:--(0)
+[PASS] w2_down              mode=hot    E=8 N=1024 K=768 tpe=2 T=16 k_ld=24576 q_ld=1024  worst_cos=1.0000@e0
+       per-expert cos(rows): e0:1.0000(16)  e1:--(0)  e2:--(0)  e3:--(0)  e4:--(0)  e5:--(0)  e6:--(0)  e7:--(0)
+[PASS] w2_down              mode=hot    E=8 N=1024 K=768 tpe=4 T=32 k_ld=24576 q_ld=1024  worst_cos=1.0000@e0
+       per-expert cos(rows): e0:1.0000(32)  e1:--(0)  e2:--(0)  e3:--(0)  e4:--(0)  e5:--(0)  e6:--(0)  e7:--(0)
+
+[PASS] w2_down              mode=skew   E=8 N=1024 K=768 tpe=1 T=10 k_ld=24576 q_ld=1024  worst_cos=1.0000@e0
+       per-expert cos(rows): e0:1.0000(8)  e1:1.0000(1)  e2:1.0000(1)  e3:--(0)  e4:--(0)  e5:--(0)  e6:--(0)  e7:--(0)
+[PASS] w2_down              mode=skew   E=8 N=1024 K=768 tpe=2 T=19 k_ld=24576 q_ld=1024  worst_cos=1.0000@e1
+       per-expert cos(rows): e0:1.0000(16)  e1:1.0000(2)  e2:1.0000(1)  e3:--(0)  e4:--(0)  e5:--(0)  e6:--(0)  e7:--(0)
+[PASS] w2_down              mode=skew   E=8 N=1024 K=768 tpe=4 T=37 k_ld=24576 q_ld=1024  worst_cos=1.0000@e0
+       per-expert cos(rows): e0:1.0000(32)  e1:1.0000(4)  e2:1.0000(1)  e3:--(0)  e4:--(0)  e5:--(0)  e6:--(0)  e7:--(0)
+
+=== GATE PASS: 18/18 configs cos>=0.99 ===

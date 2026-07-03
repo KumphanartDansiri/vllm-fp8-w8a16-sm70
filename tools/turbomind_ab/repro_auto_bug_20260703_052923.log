@@ -1,0 +1,65 @@
+GPU 0 used=0 MiB
+# shape  N=256 K=256 block=128
+# meta (PACKED ld from prepare/Convert):  k_ld=8192  q_ld=256
+# nominal (unpacked) geometry the _auto path reconstructs from: k=256 n=256
+# -> packed k_ld != nominal k(256); packed q_ld == nominal n(256)
+# entry points present: fixed=1 meta=1 auto=1
+
+   M path                  cos      max_abs
+   1 fixed              1.0000    3.212e-04
+   1 meta               1.0000    3.212e-04
+   1 auto               0.2039    1.085e+00
+
+   4 fixed              1.0000    2.921e-04
+   4 meta               1.0000    2.921e-04
+   4 auto               0.1282    1.014e+00
+
+  16 fixed              1.0000    4.378e-04
+  16 meta               1.0000    4.378e-04
+  16 auto               0.1659    1.153e+00
+
+[REPRO CONFIRMED] fixed/meta path cos~=1.0 but _auto path cos<0.5 (garbage).
+
+=== non-square N=1024 K=512 ===
+# shape  N=1024 K=512 block=128
+# meta (PACKED ld from prepare/Convert):  k_ld=16384  q_ld=1024
+# nominal (unpacked) geometry the _auto path reconstructs from: k=512 n=1024
+# -> packed k_ld != nominal k(512); packed q_ld == nominal n(1024)
+# entry points present: fixed=1 meta=1 auto=1
+
+   M path                  cos      max_abs
+   1 fixed              1.0000    5.667e-04
+   1 meta               1.0000    5.667e-04
+   1 auto               0.0175    1.900e+00
+
+   4 fixed              1.0000    5.322e-04
+   4 meta               1.0000    5.322e-04
+   4 auto               0.0434    1.876e+00
+
+  16 fixed              1.0000    6.062e-04
+  16 meta               1.0000    6.062e-04
+  16 auto               0.0239    2.232e+00
+
+[REPRO CONFIRMED] fixed/meta path cos~=1.0 but _auto path cos<0.5 (garbage).
+
+=== canonical N=3072 K=4096 ===
+# shape  N=3072 K=4096 block=128
+# meta (PACKED ld from prepare/Convert):  k_ld=131072  q_ld=3072
+# nominal (unpacked) geometry the _auto path reconstructs from: k=4096 n=3072
+# -> packed k_ld != nominal k(4096); packed q_ld == nominal n(3072)
+# entry points present: fixed=1 meta=1 auto=1
+
+   M path                  cos      max_abs
+   1 fixed              1.0000    1.564e-03
+   1 meta               1.0000    1.564e-03
+   1 auto              -0.0100    4.695e+00
+
+   4 fixed              1.0000    1.617e-03
+   4 meta               1.0000    1.617e-03
+   4 auto               0.0019    5.402e+00
+
+  16 fixed              1.0000    1.713e-03
+  16 meta               1.0000    1.713e-03
+  16 auto               0.0110    6.101e+00
+
+[REPRO CONFIRMED] fixed/meta path cos~=1.0 but _auto path cos<0.5 (garbage).
