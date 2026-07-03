@@ -1,0 +1,29 @@
+GPU 0 used=0 MiB
+
+==========
+== CUDA ==
+==========
+
+CUDA Version 12.6.3
+
+Container image Copyright (c) 2016-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+This container image and its contents are governed by the NVIDIA Deep Learning Container License.
+By pulling and using the container, you accept the terms and conditions of this license:
+https://developer.nvidia.com/ngc/nvidia-deep-learning-container-license
+
+A copy of this license is made available in this container at /NGC-DL-CONTAINER-LICENSE for your convenience.
+
+[spike] CUTLASS include = /vllm-src/.deps/qutlass-src/third_party/cutlass/include
+[spike] compiling 26 sources for sm_70 (this is long)...
+ninja: no work to do.
+[spike] BUILD OK in 0s
+[spike] real Qwen expert w13=(1024, 2048) scale=(8, 16)
+[spike] prepare OK  k_ld=65536 q_ld=1024
+   M        cos      max_abs
+   1     1.0000    4.402e-05
+   4     1.0000    6.062e-05
+  16     1.0000    7.592e-05
+
+=== SPIKE PASS: upstream-lmdeploy SM70 FP8 builds in cu126 + real-Qwen gate cos>=0.99 = True ===
+[spike] exit=0

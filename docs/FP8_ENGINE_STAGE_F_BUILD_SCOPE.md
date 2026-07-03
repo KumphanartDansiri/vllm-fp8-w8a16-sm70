@@ -88,3 +88,24 @@ Bounded: ~1 MB subtree, one coupling header, sm70-only compile. The risk is buil
 (CUTLASS prune + CUDA 12.6 + ABI), not algorithmic. Recommend a throwaway build spike first
 (compile the trimmed subtree + a single `fp8_gemm_sm70_out` binding, run the Stage-D gate in our
 image) before wiring the loader.
+
+## ✅ BUILD SPIKE RESULT — PASS (2026-07-03, `spike/`)
+Feasibility PROVEN. Compiled the upstream-lmdeploy sm70 FP8 gemm (1catai's proven sm70-trimmed source
+list = custom `tm_registry_sm70.cu` + only `sm70_884_{4,8,16}` kernels + core/utils/tuner + `awq_sm70_gemm.cu`)
+as a standalone `torch.utils.cpp_extension` in **our `vllm-v100:vllm021-cu126` image**:
+- **Builds + links clean** — 27/27 units, CUTLASS from the image's vendored copy
+  (`/vllm-src/.deps/qutlass-src/third_party/cutlass/include`), `-gencode arch=compute_70,code=sm_70`,
+  `-DCUTE_SM90_EXTENDED_MMA_SHAPES_ENABLED`. No source edits needed.
+- **Real Qwen3.5-35B-A3B-FP8 expert round-trip = cos 1.0000** @ M=1/4/16 (max_abs ~5e-5,
+  k_ld=65536, q_ld=1024) — identical to the 1catai cu128 image.
+- One gotcha (fixed): a `TORCH_LIBRARY`-only ext must `load(is_python_module=False)` (no `PyInit_`).
+Artifacts: `spike/spike_binding.cpp` (minimal binding, never `_auto`), `spike/build_and_test_spike.py`,
+`spike/spike_run_20260703_102333.log`. Build used the on-disk `~/1catai-vllm` as the lmdeploy source
+mount; production step copies the pinned v0.14.0 subtree into `third_party/`.
+
+### Next (now that feasibility holds — still NOT loader integration)
+1. Copy the pinned lmdeploy **v0.14.0** minimal subtree into `third_party/turbomind_gemm_sm70/` (+ LICENSE
+   + PROVENANCE); reproduce the spike build from OUR tree (not the 1catai mount).
+2. Add the remaining ops (`fp8_moe_gemm_sm70_out`, `awq_moe_build_strided_ptrs`, `fp8_sm70_prepare`
+   already in) + re-run `stage_d_full_moe.py` in our image.
+3. THEN wire `select_backend()` into `compressed_tensors_v100.py`; then serving.
