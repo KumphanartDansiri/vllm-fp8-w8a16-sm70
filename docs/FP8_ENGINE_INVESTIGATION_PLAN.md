@@ -108,9 +108,19 @@ clean adapter; ours = compat/fallback/control; 1catai = reference oracle (NOT ba
 - [ ] License of each: ai-bond FA = BSD-3; check `~/aibond-vllm-v100` + `~/1catai-vllm` +
   vendored lmdeploy (Apache-2.0) licenses → what can be adopted, how to credit.
 
-### F. Decision gate → narrative
-- [ ] Only after A–E: adopt TurboMind FP8 as backend / contribute fixes upstream / keep ours for X.
+### F. Engine build + serving  — **scope DONE (planning) → `docs/FP8_ENGINE_STAGE_F_BUILD_SCOPE.md`**
+- [x] **Build scope PINNED:** source = **lmdeploy v0.14.0** (Config_E4M3 verified at tag); method =
+  **copied minimal subtree** (~1MB `third_party/`, not full-vendor/submodule); runtime coupling = ONE
+  header (`kernels/attention/quantization.h`), prune sm75/80/90 + tma + test/, trim registry to sm70;
+  CUTLASS headers-only for `mainloop_sm70.h`; target CUDA 12.6 (our image). Op names match the adapter.
+- [ ] **IMPLEMENT (after push+review):** build spike (trimmed subtree + `fp8_gemm_sm70_out` binding →
+  Stage-D gate in OUR image) → full ops → wire `select_backend` into `compressed_tensors_v100.py`.
+- [ ] Serving: TP≤4 clean, TP8 MoE sharding decision, eager+cudagraph, real-prompt sanity + throughput.
+
+### G. Decision gate → narrative + maintenance
+- [ ] Only after A–F: adopt TurboMind FP8 as backend / keep ours for channel-scale + M=1 niche.
 - [ ] Update repo narrative to "candidate backend" ONLY if code is actually integrated + validated.
+- [ ] Maintenance home: if adapter stays thin+stable, consider offering to ai-bond (else keep local/plugin).
 
 ## 3. Progress / next steps
 - [x] **Stage A DONE + SEALED (2026-07-03):** `_auto` root cause + minimal repro
