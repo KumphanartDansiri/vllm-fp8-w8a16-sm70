@@ -1,0 +1,14 @@
+GPU 0 used=0 MiB
+[real ckpt] layer 0 experts.0  gate=(512, 2048)/torch.float8_e4m3fn scale=(4, 16)/torch.bfloat16
+[fused]   w13=(1024, 2048)/torch.float8_e4m3fn  scale=(8, 16)/torch.float32  (expect scale=[8,16])
+[prepare] OK  meta k_ld=65536 q_ld=1024 (packed)
+
+   M        cos      max_abs   (real block-FP8 expert -> TurboMind)
+   1     1.0000    4.402e-05
+   4     1.0000    6.062e-05
+  16     1.0000    7.592e-05
+
+[channel-scale gate] feeding [N,1] channel scale to fp8_sm70_prepare ...
+  REJECTED loudly (expected): fp8_sm70_prepare: output scale block mismatch.
+
+=== FORMAT GATE PASS: block-FP8 round-trip cos>=0.99=True; channel-scale rejected=True ===

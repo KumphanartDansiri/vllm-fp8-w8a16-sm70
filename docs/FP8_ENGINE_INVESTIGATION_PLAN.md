@@ -71,15 +71,28 @@ Written at the end of the 2026-07-03 session; entry point for the next (fresh) s
   checkpoints TurboMind's block-128 kernel can't load (GLM-4.5-Air real ckpt = channel W8A8 → Stage-D gap).
 - [ ] Optional: full serving A/B (cross-fork, label as such) — deferred; primitive A/B is decisive.
 
-### D. Integration & compatibility
-- [ ] Does the engine load OUR compressed-tensors FP8 checkpoints without silent format mismatch?
-- [ ] Exact block-scale layout handling (128×128) vs channel-scale.
-- [ ] vLLM serving: TP8, cudagraph, routing, real prompts; fails LOUDLY on unsupported?
+### D. Integration & compatibility  — **format gate DONE 2026-07-03 → `docs/FP8_ENGINE_STAGE_D_FORMAT_GATE.md`**
+DIRECTION (user+Codex): make TurboMind/lmdeploy FP8 work INSIDE our vLLM + patch behind the smallest
+clean adapter; ours = compat/fallback/control; 1catai = reference oracle (NOT baseline); ai-bond handoff
+= later Stage G. Roadmap: **D format/loader → E adapter (`VLLM_V100_FP8_BACKEND`) → F serving → G maintenance.**
+- [x] **Format gate PROVEN on real weights:** real Qwen3.5-35B-A3B-FP8 block-FP8 expert round-trips
+  `fp8_sm70_prepare`→`fp8_gemm_sm70_out` at **cos=1.0000** with only bf16→fp32 scale cast + gate/up fusion
+  (our loader already does both; block dequant `W*scale` [N/128,K/128] matches prepare exactly). Channel-scale
+  [N,1] **rejected loudly** → GLM W8A8 falls back to ours. `tools/turbomind_ab/stage_d_format_gate.py`.
+- [ ] w2/down-proj round-trip; full real-checkpoint MoE layer (all E experts) e2e cos; TP scale sharding.
+- [ ] vLLM serving: TP8, cudagraph, routing, real prompts; fails LOUDLY on unsupported (Stage F).
 - **SERVING CONTRACT (firm):** NEVER `fp8_gemm_sm70_out_auto` in serving; `prepare`→`meta`(k_ld,q_ld)
   is a REQUIRED contract — wrapper threads packed ld explicitly (dense) / via `awq_moe_build_strided_ptrs`
   (MoE) or **fails loudly**. No geometry reconstruction. Silent low-cos is the risk, not the bug.
 
-### E. Licensing / adoptability
+### E. Adapter integration + licensing / adoptability
+- [ ] `turbomind_fp8_backend` wrapper in OUR repo: `VLLM_V100_FP8_BACKEND=ours|turbomind|auto`
+  (auto = turbomind iff BLOCK-128 eligible else ours; log selected backend + fallback reason; never `_auto`).
+- [ ] Engine sourcing: vendor 1catai's TurboMind gemm vs build against upstream lmdeploy — first DIFF
+  1catai's vendored lmdeploy vs upstream to isolate the sm_70 delta (s884 m8n8k4 + arch-70 converters may
+  be 1catai's addition, not upstream). Adapter is thin at the call site but the engine underneath is a
+  vendored subsystem (224 `turbomind::` refs), NOT a liftable file — that's the real adoption cost.
+- [ ] License: ai-bond FA = BSD-3; `~/1catai-vllm` + vendored lmdeploy = Apache-2.0 → adopt/credit path.
 - [ ] License of each: ai-bond FA = BSD-3; check `~/aibond-vllm-v100` + `~/1catai-vllm` +
   vendored lmdeploy (Apache-2.0) licenses → what can be adopted, how to credit.
 
