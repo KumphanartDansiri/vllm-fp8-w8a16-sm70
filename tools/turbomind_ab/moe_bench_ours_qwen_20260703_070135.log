@@ -1,0 +1,32 @@
+GPU 0 used=1264 MiB
+
+==========
+== CUDA ==
+==========
+
+CUDA Version 12.6.3
+
+Container image Copyright (c) 2016-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+This container image and its contents are governed by the NVIDIA Deep Learning Container License.
+By pulling and using the container, you accept the terms and conditions of this license:
+https://developer.nvidia.com/ngc/nvidia-deep-learning-container-license
+
+A copy of this license is made available in this container at /NGC-DL-CONTAINER-LICENSE for your convenience.
+
+[build+run starting]
+  hot1    tpe=1 R=    1 cos=1.0000[ok]  coalesced kern=e2e=0.145  |  tiled kern=0.241 (cos=1.0000, sort=0.626) ms
+  hot1    tpe=2 R=    2 cos=1.0000[ok]  coalesced kern=e2e=0.147  |  tiled kern=0.244 (cos=1.0000, sort=0.643) ms
+  hot1    tpe=4 R=    4 cos=1.0000[ok]  coalesced kern=e2e=0.146  |  tiled kern=0.244 (cos=1.0000, sort=0.642) ms
+  hot1    tpe=8 R=    8 cos=1.0000[ok]  coalesced kern=e2e=0.149  |  tiled kern=0.245 (cos=1.0000, sort=0.646) ms
+  hot8    tpe=1 R=    8 cos=1.0000[ok]  coalesced kern=e2e=0.149  |  tiled kern=0.257 (cos=1.0000, sort=0.645) ms
+  hot8    tpe=2 R=   16 cos=1.0000[ok]  coalesced kern=e2e=0.150  |  tiled kern=0.257 (cos=1.0000, sort=0.703) ms
+  hot8    tpe=4 R=   32 cos=1.0000[ok]  coalesced kern=e2e=0.240  |  tiled kern=0.258 (cos=1.0000, sort=0.657) ms
+  hot8    tpe=8 R=   64 cos=1.0000[ok]  coalesced kern=e2e=0.445  |  tiled kern=0.255 (cos=1.0000, sort=0.645) ms
+  spread  tpe=1 R=  256 cos=1.0000[ok]  coalesced kern=e2e=1.704  |  tiled kern=2.732 (cos=1.0000, sort=0.643) ms
+  spread  tpe=2 R=  512 cos=1.0000[ok]  coalesced kern=e2e=3.034  |  tiled kern=2.717 (cos=1.0000, sort=0.643) ms
+  spread  tpe=4 R= 1024 cos=1.0000[ok]  coalesced kern=e2e=6.075  |  tiled kern=2.732 (cos=1.0000, sort=0.642) ms
+  spread  tpe=8 R= 2048 cos=1.0000[ok]  coalesced kern=e2e=12.128  |  tiled kern=2.804 (cos=1.0000, sort=0.644) ms
+[ok] wrote /work/tools/turbomind_ab/results_moe_ours_qwen35_a3b.csv (12 configs)
+[done rc=0]
+[background wrapper exited]

@@ -61,13 +61,15 @@ Written at the end of the 2026-07-03 session; entry point for the next (fresh) s
 - [x] ai-bond AWQ-only: **inferred** from design (single compact Int4 tensor-core kernel, no FP8 weight
   GEMM; single/dual-V100 AWQ target) — README does NOT state it explicitly; don't quote as documented.
 
-### C. Performance (only cos=1.0 kernels)  — harness must isolate FIVE timing components
-- [ ] Grouped-MoE A/B `fp8_moe_gemm_sm70_out` **vs our coalesced GEMV**, cross-image. Measure separately:
-  **kernel-only / prepare-repack / route-materialization / scatter-index-add / end-to-end MoE call.**
-  Regimes: **spread + hot1 + hot8/skew**; **tpe ∈ {1,2,4,8}** min. At ≤5 users per-expert M is tiny &
-  discrete → overheads may dominate even if HMMA wins the core GEMM (that's the finding to test).
-- [ ] Map effective-M (C·top_k/E) to our ≤5-user envelope; where (if anywhere) we're competitive.
-- [ ] Optional: full serving A/B (cross-fork, label as such).
+### C. Performance (only cos=1.0 kernels)  — **DONE 2026-07-03 → `docs/FP8_ENGINE_STAGE_C_FINDINGS.md`**
+- [x] Grouped-MoE A/B `fp8_moe_gemm_sm70_out` vs our coalesced GEMV, cross-image, 5-timing split,
+  spread/hot1/hot8 × tpe{1,2,4,8}, both Qwen3.5-35B-A3B (E=256,I=512) + GLM-4.5-Air (E=128,I=1408) dims,
+  all cos=1.0000. **RESULT: TurboMind faster e2e across the decode envelope both models; kernel faster at
+  ALL M (2.2–6.3×). Ours only ~ties at Qwen M=1–2 (skips permute); GLM ours never wins.** Our GEMV is
+  per-row (M=1 semantics, O(R)) → loses as M/R grow; permute tax (~0.09ms) is the only thing we save.
+- [x] Envelope map: ours' niche = single-user M=1 decode, few active experts, and/or channel-scale
+  checkpoints TurboMind's block-128 kernel can't load (GLM-4.5-Air real ckpt = channel W8A8 → Stage-D gap).
+- [ ] Optional: full serving A/B (cross-fork, label as such) — deferred; primitive A/B is decisive.
 
 ### D. Integration & compatibility
 - [ ] Does the engine load OUR compressed-tensors FP8 checkpoints without silent format mismatch?
@@ -93,7 +95,12 @@ Written at the end of the 2026-07-03 session; entry point for the next (fresh) s
 - [x] **Stage B DONE (2026-07-03):** lineage/adoptability matrix → `docs/FP8_ENGINE_STAGE_B_LINEAGE.md`.
   ai-bond = own BSD-3 Int4 kernel, drop-in on standard `awq_gemm`, minimal but AWQ-only (off-mission);
   1catai = vendored TurboMind s884 (Apache-2.0), only FP8 option, proven correct, adoption cost is structural.
-- [ ] **NEXT — Stage C:** build the **cross-image grouped-MoE perf harness** (our GEMV image ↔ 1catai
-  fp8sm70 image). Isolate 5 timings (kernel-only / prepare-repack / route-mat / scatter-index-add /
-  e2e MoE) × {spread, hot1, hot8/skew} × tpe{1,2,4,8}. Then map to ≤5-user envelope.
+- [x] **Stage C DONE (2026-07-03):** cross-image grouped-MoE A/B (harness `prepare_moe_inputs.py` +
+  `bench_moe_ours.py` + `bench_moe_1catai.py` + `compare_moe.py`), both models, all cos=1.0000 →
+  `docs/FP8_ENGINE_STAGE_C_FINDINGS.md`. **TurboMind faster e2e across the decode envelope + kernel
+  faster at ALL M; ours only ~ties at Qwen M=1–2.** Kernel speed is NOT our differentiator.
+- [ ] **NEXT — Stage D (integration/compat):** the real differentiators are non-speed — does TurboMind
+  load OUR compressed-tensors FP8? **channel-scale gap** (GLM-4.5-Air real ckpt = channel W8A8, 1catai
+  grouped kernel is block-128 only); TP/cudagraph/serving; fail-loudly on unsupported. Then E (licensing,
+  mostly done in Stage B) → F decision.
 - No repo narrative change until Stage F decision gate.

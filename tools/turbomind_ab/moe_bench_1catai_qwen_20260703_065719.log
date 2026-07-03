@@ -1,0 +1,15 @@
+GPU 0 used=0 MiB
+[1catai/qwen35_a3b] prepare/repack (one-time, all 256 experts): 124.844 ms
+  hot1    tpe=1 R=    1 cos=1.0000[ok]  route=0.076 kern=0.060 unperm=0.016 e2e=0.153 ms
+  hot1    tpe=2 R=    2 cos=1.0000[ok]  route=0.075 kern=0.060 unperm=0.016 e2e=0.152 ms
+  hot1    tpe=4 R=    4 cos=1.0000[ok]  route=0.074 kern=0.060 unperm=0.016 e2e=0.151 ms
+  hot1    tpe=8 R=    8 cos=1.0000[ok]  route=0.075 kern=0.060 unperm=0.016 e2e=0.152 ms
+  hot8    tpe=1 R=    8 cos=1.0000[ok]  route=0.074 kern=0.065 unperm=0.016 e2e=0.152 ms
+  hot8    tpe=2 R=   16 cos=1.0000[ok]  route=0.075 kern=0.066 unperm=0.016 e2e=0.153 ms
+  hot8    tpe=4 R=   32 cos=1.0000[ok]  route=0.075 kern=0.066 unperm=0.016 e2e=0.152 ms
+  hot8    tpe=8 R=   64 cos=1.0000[ok]  route=0.075 kern=0.066 unperm=0.016 e2e=0.152 ms
+  spread  tpe=1 R=  256 cos=1.0000[ok]  route=0.075 kern=1.058 unperm=0.016 e2e=1.152 ms
+  spread  tpe=2 R=  512 cos=1.0000[ok]  route=0.076 kern=1.129 unperm=0.016 e2e=1.166 ms
+  spread  tpe=4 R= 1024 cos=1.0000[ok]  route=0.076 kern=1.177 unperm=0.020 e2e=1.226 ms
+  spread  tpe=8 R= 2048 cos=1.0000[ok]  route=0.076 kern=1.263 unperm=0.036 e2e=1.341 ms
+[ok] wrote /work/tools/turbomind_ab/results_moe_1catai_qwen35_a3b.csv (12 configs)

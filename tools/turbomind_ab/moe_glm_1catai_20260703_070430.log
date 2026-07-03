@@ -1,0 +1,29 @@
+GPU 0 used=0 MiB
+[prepare] glm45_air: E=128 top_k=8 H=4096 I=1408 w13=[2816,4096] w2=[4096,1408]
+  froze spread_tpe1    R=  128 active=128
+  froze spread_tpe2    R=  256 active=128
+  froze spread_tpe4    R=  512 active=128
+  froze spread_tpe8    R= 1024 active=128
+  froze hot1_tpe1      R=    1 active=1
+  froze hot1_tpe2      R=    2 active=1
+  froze hot1_tpe4      R=    4 active=1
+  froze hot1_tpe8      R=    8 active=1
+  froze hot8_tpe1      R=    8 active=8
+  froze hot8_tpe2      R=   16 active=8
+  froze hot8_tpe4      R=   32 active=8
+  froze hot8_tpe8      R=   64 active=8
+[ok] -> moe_inputs_glm45_air/  (12 configs)
+[1catai/glm45_air] prepare/repack (one-time, all 128 experts): 146.101 ms
+  hot1    tpe=1 R=    1 cos=1.0000[ok]  route=0.074 kern=0.084 unperm=0.016 e2e=0.152 ms
+  hot1    tpe=2 R=    2 cos=1.0000[ok]  route=0.075 kern=0.084 unperm=0.016 e2e=0.153 ms
+  hot1    tpe=4 R=    4 cos=1.0000[ok]  route=0.074 kern=0.084 unperm=0.016 e2e=0.152 ms
+  hot1    tpe=8 R=    8 cos=1.0000[ok]  route=0.074 kern=0.085 unperm=0.016 e2e=0.152 ms
+  hot8    tpe=1 R=    8 cos=1.0000[ok]  route=0.073 kern=0.211 unperm=0.016 e2e=0.230 ms
+  hot8    tpe=2 R=   16 cos=1.0000[ok]  route=0.074 kern=0.210 unperm=0.016 e2e=0.229 ms
+  hot8    tpe=4 R=   32 cos=1.0000[ok]  route=0.074 kern=0.212 unperm=0.016 e2e=0.232 ms
+  hot8    tpe=8 R=   64 cos=1.0000[ok]  route=0.073 kern=0.215 unperm=0.016 e2e=0.247 ms
+  spread  tpe=1 R=  128 cos=1.0000[ok]  route=0.074 kern=2.752 unperm=0.016 e2e=2.892 ms
+  spread  tpe=2 R=  256 cos=1.0000[ok]  route=0.074 kern=2.922 unperm=0.016 e2e=2.975 ms
+  spread  tpe=4 R=  512 cos=1.0000[ok]  route=0.074 kern=3.028 unperm=0.020 e2e=3.079 ms
+  spread  tpe=8 R= 1024 cos=1.0000[ok]  route=0.075 kern=3.185 unperm=0.035 e2e=3.264 ms
+[ok] wrote /work/tools/turbomind_ab/results_moe_1catai_glm45_air.csv (12 configs)

@@ -1,0 +1,29 @@
+GPU 0 used=0 MiB
+
+==========
+== CUDA ==
+==========
+
+CUDA Version 12.6.3
+
+Container image Copyright (c) 2016-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+This container image and its contents are governed by the NVIDIA Deep Learning Container License.
+By pulling and using the container, you accept the terms and conditions of this license:
+https://developer.nvidia.com/ngc/nvidia-deep-learning-container-license
+
+A copy of this license is made available in this container at /NGC-DL-CONTAINER-LICENSE for your convenience.
+
+  hot1    tpe=1 R=    1 cos=1.0000[ok]  coalesced kern=e2e=0.168  |  tiled kern=0.513 (cos=1.0000, sort=0.728) ms
+  hot1    tpe=2 R=    2 cos=1.0000[ok]  coalesced kern=e2e=0.172  |  tiled kern=0.516 (cos=1.0000, sort=0.854) ms
+  hot1    tpe=4 R=    4 cos=1.0000[ok]  coalesced kern=e2e=0.174  |  tiled kern=0.517 (cos=1.0000, sort=0.750) ms
+  hot1    tpe=8 R=    8 cos=1.0000[ok]  coalesced kern=e2e=0.302  |  tiled kern=0.519 (cos=1.0000, sort=0.750) ms
+  hot8    tpe=1 R=    8 cos=1.0000[ok]  coalesced kern=e2e=0.304  |  tiled kern=0.671 (cos=1.0000, sort=0.750) ms
+  hot8    tpe=2 R=   16 cos=1.0000[ok]  coalesced kern=e2e=0.547  |  tiled kern=0.621 (cos=1.0000, sort=0.750) ms
+  hot8    tpe=4 R=   32 cos=1.0000[ok]  coalesced kern=e2e=1.020  |  tiled kern=0.619 (cos=1.0000, sort=0.767) ms
+  hot8    tpe=8 R=   64 cos=1.0000[ok]  coalesced kern=e2e=1.902  |  tiled kern=0.611 (cos=1.0000, sort=0.753) ms
+  spread  tpe=1 R=  128 cos=1.0000[ok]  coalesced kern=e2e=3.825  |  tiled kern=8.328 (cos=1.0000, sort=0.755) ms
+  spread  tpe=2 R=  256 cos=1.0000[ok]  coalesced kern=e2e=7.694  |  tiled kern=8.406 (cos=1.0000, sort=0.756) ms
+  spread  tpe=4 R=  512 cos=1.0000[ok]  coalesced kern=e2e=15.375  |  tiled kern=8.468 (cos=1.0000, sort=0.756) ms
+  spread  tpe=8 R= 1024 cos=1.0000[ok]  coalesced kern=e2e=30.896  |  tiled kern=8.699 (cos=1.0000, sort=0.758) ms
+[ok] wrote /work/tools/turbomind_ab/results_moe_ours_glm45_air.csv (12 configs)
