@@ -1,0 +1,13 @@
+GPU 0 used=0 MiB
+[real ckpt] layer 0, E=256 experts, top_k=8
+  w13=(256, 1024, 2048) w2=(256, 2048, 512)  (H=2048 I=512)
+[w2 round-trip] cos=1.0000
+[full MoE layer e2e]  n_token=16 top_k=8 T=128 uniq_experts=104  cos=1.0000
+
+[TP scale sharding] intermediate I sharded across TP ranks (w13 col-par, w2 row-par):
+  tp=1: I/tp=  512  block-128 OK
+  tp=2: I/tp=  256  block-128 OK
+  tp=4: I/tp=  128  block-128 OK
+  tp=8: I/tp=   64  block-128 BREAKS (I/tp=64 not mult of 128)
+
+=== FULL-LAYER GATE PASS: real-ckpt MoE layer cos=1.0000 ===

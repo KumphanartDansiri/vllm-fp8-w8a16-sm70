@@ -79,8 +79,12 @@ clean adapter; ours = compat/fallback/control; 1catai = reference oracle (NOT ba
   `fp8_sm70_prepare`→`fp8_gemm_sm70_out` at **cos=1.0000** with only bf16→fp32 scale cast + gate/up fusion
   (our loader already does both; block dequant `W*scale` [N/128,K/128] matches prepare exactly). Channel-scale
   [N,1] **rejected loudly** → GLM W8A8 falls back to ours. `tools/turbomind_ab/stage_d_format_gate.py`.
-- [ ] w2/down-proj round-trip; full real-checkpoint MoE layer (all E experts) e2e cos; TP scale sharding.
-- [ ] vLLM serving: TP8, cudagraph, routing, real prompts; fails LOUDLY on unsupported (Stage F).
+- [x] **w2/down round-trip cos=1.0000; full real-ckpt MoE layer (256 experts, top_k=8) cos=1.0000**
+  (`stage_d_full_moe.py`). Gotcha: `moe_unpermute` topk_weights must be fp32 (fp16 → cos≈0 garbage).
+- [x] **TP block-128 constraint found:** intermediate `I/tp` must be mult of 128 → Qwen (I=512) clean only
+  to TP≤4; TP8 (I/tp=64) BREAKS. Property of block-128 + intermediate-TP → constrains BOTH engines;
+  Stage F must confirm real TP8 sharding (expert-parallel vs intermediate-sharded vs pad).
+- [ ] vLLM serving: TP≤4 clean / TP8 sharding question, cudagraph, routing, real prompts (Stage F).
 - **SERVING CONTRACT (firm):** NEVER `fp8_gemm_sm70_out_auto` in serving; `prepare`→`meta`(k_ld,q_ld)
   is a REQUIRED contract — wrapper threads packed ld explicitly (dense) / via `awq_moe_build_strided_ptrs`
   (MoE) or **fails loudly**. No geometry reconstruction. Silent low-cos is the risk, not the bug.
@@ -88,10 +92,11 @@ clean adapter; ours = compat/fallback/control; 1catai = reference oracle (NOT ba
 ### E. Adapter integration + licensing / adoptability
 - [ ] `turbomind_fp8_backend` wrapper in OUR repo: `VLLM_V100_FP8_BACKEND=ours|turbomind|auto`
   (auto = turbomind iff BLOCK-128 eligible else ours; log selected backend + fallback reason; never `_auto`).
-- [ ] Engine sourcing: vendor 1catai's TurboMind gemm vs build against upstream lmdeploy — first DIFF
-  1catai's vendored lmdeploy vs upstream to isolate the sm_70 delta (s884 m8n8k4 + arch-70 converters may
-  be 1catai's addition, not upstream). Adapter is thin at the call site but the engine underneath is a
-  vendored subsystem (224 `turbomind::` refs), NOT a liftable file — that's the real adoption cost.
+- [ ] Engine sourcing UNRESOLVED until a lmdeploy-vs-1catai diff: upstream LMDeploy appears to already
+  carry the SM70 s884 engine; the open question is whether 1catai adds ESSENTIAL deltas or mostly the vLLM
+  adapter. Decide vendor-1catai vs build-against-upstream-lmdeploy AFTER that diff. Either way the adapter
+  is thin at the call site but the engine underneath is a vendored subsystem (224 `turbomind::` refs), NOT
+  a liftable file — that's the real adoption cost.
 - [ ] License: ai-bond FA = BSD-3; `~/1catai-vllm` + vendored lmdeploy = Apache-2.0 → adopt/credit path.
 - [ ] License of each: ai-bond FA = BSD-3; check `~/aibond-vllm-v100` + `~/1catai-vllm` +
   vendored lmdeploy (Apache-2.0) licenses → what can be adopted, how to credit.

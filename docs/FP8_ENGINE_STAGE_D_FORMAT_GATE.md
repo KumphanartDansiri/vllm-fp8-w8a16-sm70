@@ -41,13 +41,38 @@ serves** — so the fallback path is load-bearing, not decorative.
 - **Fail loudly / log:** on unsupported layout, and always log the selected backend + the reason
   (eligibility or fallback cause) so the choice is observable.
 
-## Open (rest of Stage D, before serving)
-- [ ] w2 (down_proj) block-FP8 round-trip (same as w13; expected pass — same layout).
-- [ ] Full MoE layer via the real checkpoint (all E experts) end-to-end cos, not one expert.
-- [ ] TP sharding: how block scales `[N/128,K/128]` split across TP ranks vs prepare's per-shard
-  N,K; confirm packed meta is per-shard.
-- [ ] Then Stage F serving (TP2/4 smoke → TP8 target, eager + cudagraph, real-prompt sanity).
+## Full-layer + w2 + TP — DONE 2026-07-03 (`stage_d_full_moe.py`)
+Real Qwen3.5-35B-A3B-FP8 **layer 0, all 256 experts** loaded off disk, prepared, and run through
+the **complete serving path** (`moe_permute → fp8_moe_gemm(w13) → silu_and_mul → fp8_moe_gemm(w2)
+→ moe_unpermute`) with **real top_k=8 routing** vs an independent fp32 per-token reference:
 
-## Caveat
-This gate proves the **weight/scale format** round-trips. It does **not** yet prove a full
-served layer (routing + all experts + TP + cudagraph) — those are the remaining Stage D/F items.
+| check | result |
+|---|---|
+| w2 / down_proj single-expert round-trip | **cos = 1.0000** |
+| full MoE layer e2e (256 experts, top_k=8, 16 tokens, 104 uniq experts) | **cos = 1.0000** |
+
+Gotcha found + fixed: `moe_unpermute` `topk_weights` must be **float32** — passing float16 is
+byte-reinterpreted (cos≈0 garbage). Same discipline class as the `_auto` hazard: dtype/layout
+contracts must be exact or fail loudly.
+
+### TP scale-sharding constraint (block-128) — applies to ANY block-128 FP8 MoE, not TurboMind-specific
+Intermediate `I` is sharded across TP ranks (w13 col-parallel on 2I, w2 row-parallel on I). Block-128
+requires `I/tp` to be a multiple of 128:
+
+| tp | I/tp (Qwen I=512) | block-128 |
+|---|---|---|
+| 1 | 512 | OK |
+| 2 | 256 | OK |
+| 4 | 128 | OK |
+| 8 | **64** | **BREAKS** |
+
+**Qwen block-FP8 MoE is cleanly intermediate-sharded only to TP≤4; TP8 gives a 64-wide shard that
+violates block-128 scale granularity.** This is a property of block-128 + intermediate-TP, so it
+constrains our coalesced path too — Stage F must confirm how the real stack shards MoE at TP8
+(expert-parallel vs intermediate-sharded, or pad `I/tp`→128) for both backends.
+
+## Status
+Format + loader + full-layer correctness for **block-FP8** is CLEARED (weight/scale round-trip,
+w13+w2, full real-ckpt layer with top_k combine). Remaining before adopting as serving code:
+Stage E adapter (`VLLM_V100_FP8_BACKEND`) + engine-source diff; Stage F serving (TP≤4 clean, the
+TP8 sharding question, eager+cudagraph, real-prompt sanity).
