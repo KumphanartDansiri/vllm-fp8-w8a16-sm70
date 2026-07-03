@@ -10,3 +10,5 @@ dist/
 #   git add -f results/<dir>
 # This keeps `git status` clean of the many ad-hoc bench/microbench runs.
 results/
+third_party/turbomind_gemm_sm70/vendor_build_*.log
+third_party/turbomind_gemm_sm70/vendor_regate_*.log
