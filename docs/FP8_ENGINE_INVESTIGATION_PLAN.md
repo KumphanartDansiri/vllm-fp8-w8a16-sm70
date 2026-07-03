@@ -89,15 +89,19 @@ clean adapter; ours = compat/fallback/control; 1catai = reference oracle (NOT ba
   is a REQUIRED contract — wrapper threads packed ld explicitly (dense) / via `awq_moe_build_strided_ptrs`
   (MoE) or **fails loudly**. No geometry reconstruction. Silent low-cos is the risk, not the bug.
 
-### E. Adapter integration + licensing / adoptability
-- [ ] `turbomind_fp8_backend` wrapper in OUR repo: `VLLM_V100_FP8_BACKEND=ours|turbomind|auto`
-  (auto = turbomind iff BLOCK-128 eligible else ours; log selected backend + fallback reason; never `_auto`).
-- [ ] Engine sourcing UNRESOLVED until a lmdeploy-vs-1catai diff: upstream LMDeploy appears to already
-  carry the SM70 s884 engine; the open question is whether 1catai adds ESSENTIAL deltas or mostly the vLLM
-  adapter. Decide vendor-1catai vs build-against-upstream-lmdeploy AFTER that diff. Either way the adapter
-  is thin at the call site but the engine underneath is a vendored subsystem (224 `turbomind::` refs), NOT
-  a liftable file — that's the real adoption cost.
-- [ ] License: ai-bond FA = BSD-3; `~/1catai-vllm` + vendored lmdeploy = Apache-2.0 → adopt/credit path.
+### E. Adapter integration + licensing / adoptability  (Codex: 2 commits — source audit, then adapter)
+- [x] **Source audit DONE → `docs/FP8_ENGINE_STAGE_E_SOURCE_AUDIT.md`.** RESOLVED: the SM70 FP8 (E4M3)
+  s884 engine is **UPSTREAM InternLM/lmdeploy** (`Config_E4M3` defined in `config_sm70_s884.h` AND
+  registered in `kernel/sm70_884_8.cu` on `main`). 1catai's delta = the vLLM wrapper/quant-method/bindings
+  (where the `_auto` bug lives), NOT the kernel. → **source the engine from upstream lmdeploy (Apache-2.0),
+  write our OWN thin adapter, 1catai = wiring reference only.** Residual: pin a lmdeploy release tag w/
+  Config_E4M3 + full diff for any essential 1catai engine patches (expected none/minor).
+- [ ] **Adapter (commit 2):** `turbomind_fp8_backend` in OUR repo, `VLLM_V100_FP8_BACKEND=ours|turbomind|auto`.
+  **`auto` → turbomind ONLY IF ALL:** (1) quant = block-FP8 group_size 128; (2) scales representable as
+  fp32 block scales; (3) local shard dims block-128-aligned (`I/tp % 128 == 0` — the TP8 finding);
+  (4) `k_ld/q_ld` meta available from `prepare`; (5) backend op present on SM70; (6) NOT channel/tensor
+  scale; (7) never `_auto`. ELSE fallback to ours + one-line reason (logged/observable).
+- [ ] License: ai-bond FA = BSD-3; `~/1catai-vllm` + lmdeploy = Apache-2.0 → adopt/credit path.
 - [ ] License of each: ai-bond FA = BSD-3; check `~/aibond-vllm-v100` + `~/1catai-vllm` +
   vendored lmdeploy (Apache-2.0) licenses → what can be adopted, how to credit.
 
