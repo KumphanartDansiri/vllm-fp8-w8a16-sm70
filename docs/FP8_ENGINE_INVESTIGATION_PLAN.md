@@ -96,11 +96,14 @@ clean adapter; ours = compat/fallback/control; 1catai = reference oracle (NOT ba
   (where the `_auto` bug lives), NOT the kernel. → **source the engine from upstream lmdeploy (Apache-2.0),
   write our OWN thin adapter, 1catai = wiring reference only.** Residual: pin a lmdeploy release tag w/
   Config_E4M3 + full diff for any essential 1catai engine patches (expected none/minor).
-- [ ] **Adapter (commit 2):** `turbomind_fp8_backend` in OUR repo, `VLLM_V100_FP8_BACKEND=ours|turbomind|auto`.
-  **`auto` → turbomind ONLY IF ALL:** (1) quant = block-FP8 group_size 128; (2) scales representable as
-  fp32 block scales; (3) local shard dims block-128-aligned (`I/tp % 128 == 0` — the TP8 finding);
-  (4) `k_ld/q_ld` meta available from `prepare`; (5) backend op present on SM70; (6) NOT channel/tensor
-  scale; (7) never `_auto`. ELSE fallback to ours + one-line reason (logged/observable).
+- [x] **Adapter (commit 2) DONE (scaffolding) → `src/fp8_w8a16_sm70/turbomind_fp8_backend.py` +
+  `docs/FP8_ENGINE_STAGE_E_ADAPTER.md`.** `VLLM_V100_FP8_BACKEND=ours|turbomind|auto`; full eligibility
+  predicate (block-FP8 gs128 + fp32 scales + local block-128 align incl. `I/tp%128==0` + k_ld/q_ld +
+  op-present + not channel/tensor + never `_auto`); `mode=turbomind` on ineligible RAISES (no silent
+  fallback). Self-test PASS; real-image check: ops absent → all block-FP8 → ours w/ reason (ours path
+  unchanged). Wrappers `prepare/gemm_out/moe_gemm_out` thread packed ld, never `_auto`.
+  REMAINING (Stage F): build the engine into the image so turbomind goes live; wire select_backend into
+  `compressed_tensors_v100.py`; serving validation.
 - [ ] License: ai-bond FA = BSD-3; `~/1catai-vllm` + lmdeploy = Apache-2.0 → adopt/credit path.
 - [ ] License of each: ai-bond FA = BSD-3; check `~/aibond-vllm-v100` + `~/1catai-vllm` +
   vendored lmdeploy (Apache-2.0) licenses → what can be adopted, how to credit.
