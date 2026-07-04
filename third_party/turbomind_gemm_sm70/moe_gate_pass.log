@@ -1,0 +1,7 @@
+[vendor] BUILD OK in 87s
+[moe] real ckpt layer 0, E=256 experts, top_k=8
+[moe] w13=(256, 1024, 2048) w2=(256, 2048, 512) (H=2048 I=512)
+[moe] stock moe_permute layout: active=104 M-dist={1: 84, 2: 16, 3: 4} aligned32=False
+[moe] w13->w2 per-expert cos<0.99: 0 experts -> []
+=== VENDOR MoE GATE PASS: v0.14.0 engine + stock moe_permute, real-ckpt MoE per-expert cos>=0.99 = True ===
+[moe] exit=0

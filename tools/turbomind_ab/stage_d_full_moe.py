@@ -142,6 +142,25 @@ def main():
                                  perm, off64, inv, pidx, midx)
     off32.copy_(off64)
     ops.fp8_moe_gemm_sm70_out(gate_up, perm, off32, p13[0], p13[1], E, K13, N13, BLOCK, False)
+
+    # --- RECONCILE (2026-07-04): does the moe_permute layout make w13 (K=2048) correct per-expert? ---
+    o64 = off64.tolist()
+    counts_ = [o64[e + 1] - o64[e] for e in range(E)]
+    active = [(e, c) for e, c in enumerate(counts_) if c > 0]
+    mdist = {}
+    for _, c in active:
+        mdist[c] = mdist.get(c, 0) + 1
+    bad = []
+    for e, c in active:
+        lo, hi = o64[e], o64[e + 1]
+        ce = cossim(gate_up[lo:hi], perm[lo:hi].float() @ dq13[e].T)
+        if ce < 0.99:
+            bad.append((e, c, round(ce, 3)))
+    aligned32 = all(o % 32 == 0 for o in o64)
+    print(f"[reconcile] active_experts={len(active)} M-dist(count:num_experts)={mdist} "
+          f"offsets_aligned32={aligned32}")
+    print(f"[reconcile] w13 per-expert cos<0.99: {len(bad)} experts -> {bad[:12]}")
+
     torch.ops._C.silu_and_mul(inter, gate_up)
     ops.fp8_moe_gemm_sm70_out(sorted_out, inter, off32, p2[0], p2[1], E, K2, N2, BLOCK, False)
     torch.ops._moe_C.moe_unpermute(sorted_out, w, inv, off64, tk, out)  # w is float32

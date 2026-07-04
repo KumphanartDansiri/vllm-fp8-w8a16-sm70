@@ -9,73 +9,11 @@ round-trips a real Qwen3.5-35B-A3B-FP8 expert vs an fp32 dequant reference (expe
 
 Run inside vllm-v100:vllm021-cu126 with /mnt/models mounted ro.
 """
-import glob, os, re, sys, time
+import glob, os, re, sys
 import torch
-from torch.utils.cpp_extension import load
+from _ext_build import build_ops, BLOCK
 
-TP = os.path.dirname(os.path.abspath(__file__))          # third_party/turbomind_gemm_sm70
-S = f"{TP}/src/turbomind"
-G = f"{S}/kernels/gemm"
-BLOCK = 128
-
-CUTLASS_CANDIDATES = [
-    "/vllm-src/.deps/qutlass-src/third_party/cutlass/include",
-    "/usr/local/lib/python3.12/dist-packages/tilelang/3rdparty/cutlass/include",
-    "/usr/local/lib/python3.12/dist-packages/flashinfer/data/cutlass/include",
-]
-CUTLASS_INC = next((c for c in CUTLASS_CANDIDATES if os.path.exists(c + "/cutlass/cutlass.h")), None)
-if not CUTLASS_INC:
-    sys.exit("[FATAL] no CUTLASS include found in image")
-# v0.14.0's TM_LOG uses {fmt}; no libfmt in the image -> header-only fmt (inline, no link symbol)
-FMT_CANDIDATES = [
-    "/vllm-src/.deps/deepgemm-src/third-party/fmt/include",
-    "/usr/local/lib/python3.12/dist-packages/torch/include",
-]
-FMT_INC = next((c for c in FMT_CANDIDATES if os.path.exists(c + "/fmt/format.h")), None)
-if not FMT_INC:
-    sys.exit("[FATAL] no fmt headers found in image")
-
-# v0.14.0 build source list (sm70-only): binding + engine core/utils + gemm .cu + sm70 kernels
-CORE_CC = ["allocator", "buffer", "check", "context", "copy", "data_format", "layout",
-           "logger", "module", "registry", "scope", "stream", "tensor"]
-UTILS_CC = ["cuda_utils", "nvtx_utils", "parser"]
-GEMM_CU = ["gemm", "kernel", "dispatch_cache", "context", "convert_v3", "cast", "unpack"]
-TUNER = ["tuner/cache_utils.cu", "tuner/measurer.cu", "tuner/sampler.cu",
-         "tuner/stopping_criterion.cc", "tuner/params.cc"]
-SOURCES = (
-    [f"{TP}/binding/fp8_sm70_bindings.cpp",
-     f"{TP}/binding/awq_sm70_gemm.cu",
-     f"{TP}/binding/tm_registry_sm70.cu"]
-    + [f"{S}/core/{n}.cc" for n in CORE_CC]
-    + [f"{S}/utils/{n}.cc" for n in UTILS_CC]
-    + [f"{G}/{n}.cu" for n in GEMM_CU]
-    + [f"{G}/{t}" for t in TUNER]
-    + [f"{G}/kernel/sm70_884_{k}.cu" for k in (4, 8, 16)]
-)
-missing = [s for s in SOURCES if not os.path.exists(s)]
-if missing:
-    sys.exit("[FATAL] missing sources:\n  " + "\n  ".join(missing))
-
-print(f"[vendor] compiling {len(SOURCES)} sources from third_party/ for sm_70 ...")
-t0 = time.time()
-load(
-    name="turbomind_fp8_sm70",
-    sources=SOURCES,
-    extra_include_paths=[TP, CUTLASS_INC, f"{TP}/3rdparty/moodycamel", FMT_INC],
-    extra_cflags=["-std=c++17", "-O2", "-DCUTE_SM90_EXTENDED_MMA_SHAPES_ENABLED", "-DFMT_HEADER_ONLY"],
-    extra_cuda_cflags=[
-        "-std=c++17", "-O2", "-gencode=arch=compute_70,code=sm_70",
-        "-DCUTE_SM90_EXTENDED_MMA_SHAPES_ENABLED", "-DFMT_HEADER_ONLY",
-        "--expt-relaxed-constexpr", "--expt-extended-lambda",
-        "-U__CUDA_NO_HALF_OPERATORS__", "-U__CUDA_NO_HALF_CONVERSIONS__",
-        "-U__CUDA_NO_HALF2_OPERATORS__", "-U__CUDA_NO_BFLOAT16_CONVERSIONS__",
-    ],
-    extra_ldflags=["-L/usr/local/cuda/lib64/stubs", "-lcuda"],  # CUDA driver API (cuGetErrorString etc.)
-    is_python_module=False,
-    verbose=True,
-)
-print(f"[vendor] BUILD OK in {time.time()-t0:.0f}s")
-ops = torch.ops.turbomind_fp8_sm70
+ops = build_ops()
 
 # ---- Stage-D real-Qwen dense gate ----
 dev = "cuda:0"

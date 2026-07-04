@@ -36,6 +36,18 @@ to v0.14.0; the only functional deltas we carry are V100 (sm_70) tuning:
 Everything else is pure v0.14.0. `thread_map.h` differs from 1catai (v0.14.0 is newer — added a `WarpC`
 template param) but is self-consistent and kept as v0.14.0.
 
+## Ops + verification status
+- **Dense** (`fp8_sm70_prepare`, `fp8_gemm_sm70_out`): real Qwen block-FP8 round-trip cos=1.0000
+  (`build_and_gate.py`).
+- **Grouped MoE** (`fp8_moe_gemm_sm70_out`, `awq_moe_build_strided_ptrs`): full real-Qwen MoE layer, 104 active
+  experts (M-dist {1:84, 2:16, 3:4}), stock vLLM-0.21 `moe_permute` layout, **per-expert cos ≥ 0.99 for all**
+  (`build_and_gate_moe.py`). Verified in `vllm-v100:vllm021-cu126`.
+- **Grouped-MoE caveat:** the s884 grouped kernel has an autotuner edge case for *uniform-dense* expert
+  distributions (every expert the same M ≥ 2, large K e.g. 2048) — a synthetic probe (`vendor_moe_smoke.py`)
+  reproduces garbage there. **Real decode routing is sparse** (mostly M=1, a few M=2/3 scattered among empty
+  experts) and does NOT hit it (confirmed on the real checkpoint). Not a correctness risk for the ≤5-user
+  decode target; flagged for awareness.
+
 ## Binding (`binding/`)
 - `awq_sm70_gemm.cu` + `tm_registry_sm70.cu` — the vLLM integration layer from `1catai/1Cat-vLLM`
   (Apache-2.0). This is NOT upstream lmdeploy; it wraps the engine's public API
