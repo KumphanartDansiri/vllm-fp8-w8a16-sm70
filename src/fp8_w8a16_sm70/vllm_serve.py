@@ -173,10 +173,13 @@ _ENABLE_MOE_FALLBACK = os.environ.get(
     "VLLM_V100_FP8_MOE_FALLBACK", "1").lower() not in ("0", "off", "false")
 # Stage F: after prepare() packs an eligible block-FP8 weight for the vendored TurboMind
 # engine, drop the raw FP8 weight to reclaim its memory (the packed copy is self-sufficient).
-# Default OFF until the loader smoke + TP serving confirm the packed path end-to-end
-# (Codex condition); flip to 1 for the memory win once validated. Keeping raw ≈ FP16 footprint.
+# Default ON (2026-07-05): validated by the loader smoke (packed cos=1.0000) + TP=2 eager
+# serving of both Qwen3.5-27B-FP8 dense and 35B-A3B-FP8 MoE (coherent output). REQUIRED for
+# the MoE model to fit — keeping raw+packed ~doubles expert memory and OOMs. Set
+# VLLM_V100_FP8_TM_FREE_RAW=0 to keep the raw weight (debug; ≈FP16 footprint). apply() only
+# ever reads the packed weight, so freeing raw is safe (incl. under cudagraph — raw is dead).
 _TM_FREE_RAW = os.environ.get(
-    "VLLM_V100_FP8_TM_FREE_RAW", "0").lower() not in ("0", "off", "false", "")
+    "VLLM_V100_FP8_TM_FREE_RAW", "1").lower() not in ("0", "off", "false", "")
 _MOE_ACTIVE_LIST = os.environ.get(
     "VLLM_V100_FP8_MOE_ACTIVE_LIST", "1").lower() not in ("0", "off", "false")
 _MOE_GROUPED_ROUTED_GEMM = os.environ.get(

@@ -19,7 +19,20 @@ Code written (uncommitted; both files `py_compile` clean, adapter `_selftest` PA
   keep raw ≈FP16 footprint until smoke+serving validate; flip to 1 for the memory win).
 - **Smoke** `third_party/turbomind_gemm_sm70/loader_smoke.py` — drives the WIRED helpers on real
   Qwen3.5-35B-A3B-FP8 weights (dense M=1/4/16 + full grouped MoE with the unpermute combine
-  build_and_gate_moe.py skipped). **NEXT: run it in `vllm-v100:vllm021-cu126` (needs the box back).**
+  build_and_gate_moe.py skipped).
+
+### VALIDATION RESULTS (2026-07-05)
+- **Loader smoke: PASS** (`vllm-v100:vllm021-cu126`, JIT engine). Real Qwen3.5-35B-A3B-FP8 layer 0:
+  dense M=1/4/16 **cos=1.0000**; full grouped MoE permute→w13→SwiGLU→w2→**unpermute cos=1.0000**
+  (the combine the lower-level gate skipped). `ops_available=True` confirms the namespace fix.
+- **TP=2 eager serve: PASS** (`tools/turbomind_ab/tp_serve_validate.sh`, path A = prewarm→persisted
+  `torch_extensions` cache→JIT). Dense Qwen3.5-27B-FP8 + MoE Qwen3.5-35B-A3B-FP8: `TurboMind
+  DENSE/MoE engaged` on **both** TP workers, coherent output (rep≈0.09), 0 fallback lines.
+- **`_TM_FREE_RAW` now defaults ON** — validated (smoke packed cos=1.0 + both TP serves) and REQUIRED:
+  with it off, a turbomind MoE layer keeps raw+packed (~2× experts) and OOMs at TP2. apply() only reads
+  the packed weight, so freeing raw is safe.
+- **NEXT:** TP=4, then bake the engine into the image (`docker/Dockerfile.prod`) + rerun without JIT,
+  then cudagraph (non-eager) + throughput. TP8 stays on ours (I/tp=64 breaks block-128) — deferred.
 
 Safety: with the engine absent (baseline image, default `auto`), every FP8 weight resolves to
 `ours` → **zero behaviour change**. Verified: adapter returns `ours` when ops absent.
