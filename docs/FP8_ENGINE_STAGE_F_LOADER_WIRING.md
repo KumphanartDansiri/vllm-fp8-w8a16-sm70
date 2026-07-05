@@ -25,9 +25,11 @@ Code written (uncommitted; both files `py_compile` clean, adapter `_selftest` PA
 - **Loader smoke: PASS** (`vllm-v100:vllm021-cu126`, JIT engine). Real Qwen3.5-35B-A3B-FP8 layer 0:
   dense M=1/4/16 **cos=1.0000**; full grouped MoE permute→w13→SwiGLU→w2→**unpermute cos=1.0000**
   (the combine the lower-level gate skipped). `ops_available=True` confirms the namespace fix.
-- **TP=2 eager serve: PASS** (`tools/turbomind_ab/tp_serve_validate.sh`, path A = prewarm→persisted
-  `torch_extensions` cache→JIT). Dense Qwen3.5-27B-FP8 + MoE Qwen3.5-35B-A3B-FP8: `TurboMind
-  DENSE/MoE engaged` on **both** TP workers, coherent output (rep≈0.09), 0 fallback lines.
+- **TP≤4 eager serve: PASS** (`tools/turbomind_ab/tp_serve_validate.sh`, path A = prewarm→persisted
+  `torch_extensions` cache→JIT). Dense Qwen3.5-27B-FP8 + MoE Qwen3.5-35B-A3B-FP8, both TP=2 and TP=4:
+  `TurboMind DENSE/MoE engaged` on **every** rank, coherent output (rep≈0.09), 0 fallback lines.
+  Output sha is identical across TP=2 and TP=4 (sharding numerically consistent). TP=4 is the boundary:
+  MoE `w2 K=I/tp=128` still block-128 eligible and engages on all 4 ranks (TP8 → I/tp=64 → ours).
 - **`_TM_FREE_RAW` now defaults ON** — validated (smoke packed cos=1.0 + both TP serves) and REQUIRED:
   with it off, a turbomind MoE layer keeps raw+packed (~2× experts) and OOMs at TP2. apply() only reads
   the packed weight, so freeing raw is safe.
