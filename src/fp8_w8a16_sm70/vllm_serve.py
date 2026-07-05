@@ -171,6 +171,12 @@ _APPLY_BAD  = float(os.environ.get("VLLM_V100_FP8_APPLY_MAG",  "10000"))
 # models on V100; a fused/batched MoE kernel is a later optimization.
 _ENABLE_MOE_FALLBACK = os.environ.get(
     "VLLM_V100_FP8_MOE_FALLBACK", "1").lower() not in ("0", "off", "false")
+# Stage F: after prepare() packs an eligible block-FP8 weight for the vendored TurboMind
+# engine, drop the raw FP8 weight to reclaim its memory (the packed copy is self-sufficient).
+# Default OFF until the loader smoke + TP serving confirm the packed path end-to-end
+# (Codex condition); flip to 1 for the memory win once validated. Keeping raw ≈ FP16 footprint.
+_TM_FREE_RAW = os.environ.get(
+    "VLLM_V100_FP8_TM_FREE_RAW", "0").lower() not in ("0", "off", "false", "")
 _MOE_ACTIVE_LIST = os.environ.get(
     "VLLM_V100_FP8_MOE_ACTIVE_LIST", "1").lower() not in ("0", "off", "false")
 _MOE_GROUPED_ROUTED_GEMM = os.environ.get(
@@ -1204,6 +1210,162 @@ def _maybe_log_apply_stats(layer, x_in, out_pre, out_post, variant):
     )
 
 
+# ─── Stage F: vendored TurboMind SM70 FP8 engine (block-128 fast path) ───────────
+# Wired behind turbomind_fp8_backend.select_backend(). A weight becomes a "turbomind"
+# layer ONLY when: format is block-128, LOCAL (post-TP-shard) dims are 128-aligned, and
+# the engine ops are present in the image. Otherwise the existing "ours" path runs
+# unchanged. prepare() runs ONCE here at load; apply reads the packed weights + meta off
+# the layer (never per-forward prepare, never the broken `_auto` entry point).
+_TM_DENSE_LOGGED = False
+_TM_MOE_LOGGED = False
+
+
+def _tm_backend():
+    from fp8_w8a16_sm70 import turbomind_fp8_backend as tb
+    return tb
+
+
+def _tm_dense_prepare(self, layer, weight, weight_scale_inv, wbs, why):
+    """Load-time: pack an eligible block-FP8 dense weight for the TurboMind engine and
+    stash (packed weight, packed scale, k_ld, q_ld, N, K) on the layer."""
+    from vllm.model_executor.utils import replace_parameter
+    global _TM_DENSE_LOGGED
+    tb = _tm_backend()
+    gs = int(wbs[1])
+    N, K = int(weight.shape[0]), int(weight.shape[1])
+    tm_w, tm_s, meta = tb.prepare(weight.contiguous(),
+                                  weight_scale_inv.float().contiguous(), gs)
+    layer._v100_fp8_backend = "turbomind"
+    layer._v100_tm = {"w": tm_w, "s": tm_s, "k_ld": int(meta[0]), "q_ld": int(meta[1]),
+                      "N": N, "K": K, "gs": gs}
+    layer.input_scale = None
+    if _TM_FREE_RAW:
+        empty = torch.empty(0, dtype=weight.dtype, device=weight.device)
+        replace_parameter(layer, "weight", empty)
+        if "weight_scale_inv" in getattr(layer, "_parameters", {}):
+            replace_parameter(layer, "weight_scale_inv",
+                              torch.empty(0, dtype=weight_scale_inv.dtype,
+                                          device=weight.device))
+    else:
+        # keep raw around (≈FP16 footprint) until freeing is validated; apply ignores it.
+        replace_parameter(layer, "weight", weight.data)
+        replace_parameter(layer, "weight_scale_inv",
+                          weight_scale_inv.to(torch.float16).data)
+    if not _TM_DENSE_LOGGED:
+        _TM_DENSE_LOGGED = True
+        print(f"[serve_fp8_v100 pid={os.getpid()}] TurboMind DENSE engaged: "
+              f"prefix={getattr(layer, 'prefix', '?')} N={N} K={K} "
+              f"k_ld={layer._v100_tm['k_ld']} q_ld={layer._v100_tm['q_ld']} "
+              f"free_raw={_TM_FREE_RAW} [{why}]", flush=True)
+
+
+def _tm_dense_apply(layer, x, bias):
+    """Forward: dense FP8 W8A16 via the vendored engine (explicit ld; never `_auto`)."""
+    tb = _tm_backend()
+    tm = layer._v100_tm
+    N, K = tm["N"], tm["K"]
+    orig_shape = x.shape
+    x2d = x.reshape(-1, K)
+    if x2d.dtype != torch.float16:
+        x2d = x2d.to(torch.float16)
+    x2d = x2d.contiguous()
+    out = torch.empty((x2d.size(0), N), dtype=torch.float16, device=x2d.device)
+    tb.gemm_out(out, x2d, tm["w"], tm["s"], tm["k_ld"], tm["q_ld"], tm["gs"])
+    out = out.reshape(orig_shape[:-1] + (N,))
+    if bias is not None:
+        out = out + bias.to(out.dtype)
+    if out.dtype != x.dtype:
+        out = out.to(x.dtype)
+    return out
+
+
+def _tm_moe_prepare(self, layer):
+    """Load-time: per-expert prepare() + build strided ptrs for the grouped engine.
+
+    IMPORTANT: the strided-ptr tensors carry raw device pointers INTO the stacked packed
+    weight/scale tensors, so those stacks MUST stay alive for the layer's lifetime — we
+    store them on the layer (`_w13/_s13/_w2/_s2`) and pass the SAME stacks to the builder.
+    """
+    from vllm.model_executor.utils import replace_parameter
+    global _TM_MOE_LOGGED
+    tb = _tm_backend()
+    gs = int(self.weight_block_size[1])
+    w13 = layer.w13_weight                     # [E, N13=2I, K13=H] fp8
+    w2 = layer.w2_weight                       # [E, N2=H, K2=I]   fp8
+    w13s = getattr(layer, f"w13_{self.weight_scale_name}")
+    w2s = getattr(layer, f"w2_{self.weight_scale_name}")
+    E, N13, K13 = int(w13.shape[0]), int(w13.shape[1]), int(w13.shape[2])
+    N2, K2 = int(w2.shape[1]), int(w2.shape[2])
+    W13t, S13t, W2t, S2t = [], [], [], []
+    k13 = q13 = k2 = q2 = None
+    for e in range(E):
+        r13 = tb.prepare(w13[e].contiguous(), w13s[e].float().contiguous(), gs)
+        r2 = tb.prepare(w2[e].contiguous(), w2s[e].float().contiguous(), gs)
+        W13t.append(r13[0]); S13t.append(r13[1]); W2t.append(r2[0]); S2t.append(r2[1])
+        if e == 0:
+            k13, q13 = int(r13[2][0]), int(r13[2][1])
+            k2, q2 = int(r2[2][0]), int(r2[2][1])
+    sw13, ss13 = torch.stack(W13t), torch.stack(S13t)
+    sw2, ss2 = torch.stack(W2t), torch.stack(S2t)
+    p13 = tb.moe_build_strided_ptrs(sw13, ss13, k13, q13, E)
+    p2 = tb.moe_build_strided_ptrs(sw2, ss2, k2, q2, E)
+    layer._v100_fp8_backend = "turbomind"
+    layer._v100_tm_moe = {
+        "p13w": p13[0], "p13s": p13[1], "N13": N13, "K13": K13,
+        "p2w": p2[0], "p2s": p2[1], "N2": N2, "K2": K2,
+        "E": E, "I": K2, "gs": gs,
+        "_w13": sw13, "_s13": ss13, "_w2": sw2, "_s2": ss2,   # keep ptr targets alive
+    }
+    layer._already_called_process_weights_after_loading = True
+    self.moe_quant_config = None
+    self.moe_kernel = None
+    layer.w13_input_scale = None
+    layer.w2_input_scale = None
+    if _TM_FREE_RAW:
+        for n in ("w13_weight", "w2_weight"):
+            replace_parameter(layer, n, torch.empty(0, dtype=w13.dtype, device=w13.device))
+    if not _TM_MOE_LOGGED:
+        _TM_MOE_LOGGED = True
+        print(f"[serve_fp8_v100 pid={os.getpid()}] TurboMind MoE engaged: "
+              f"prefix={getattr(layer, 'prefix', '?')} E={E} "
+              f"w13=[{N13},{K13}] w2=[{N2},{K2}] I={K2} free_raw={_TM_FREE_RAW}", flush=True)
+
+
+def _our_moe_apply_turbomind(self, layer, x, topk_weights, topk_ids):
+    """Forward: grouped FP8 MoE via the vendored engine, following the proven recipe
+    (moe_permute -> w13 grouped GEMM -> SwiGLU -> w2 grouped GEMM -> moe_unpermute).
+    Returns routed-only [M, H]; shared experts are combined by the runner."""
+    from vllm.model_executor.layers.fused_moe.moe_permute_unpermute import (
+        moe_permute, moe_unpermute,
+    )
+    tb = _tm_backend()
+    tm = layer._v100_tm_moe
+    E, I, gs = tm["E"], tm["I"], tm["gs"]
+    N13, K13, N2, K2 = tm["N13"], tm["K13"], tm["N2"], tm["K2"]
+    # EP (expert_map) is not supported by this path yet; it was excluded at load, but
+    # guard here too — we freed the raw weights, so a silent wrong result is the hazard.
+    if getattr(layer, "expert_map", None) is not None:
+        raise RuntimeError("serve_fp8_v100: TurboMind MoE path does not support expert "
+                           "parallelism (expert_map present); should have stayed on ours.")
+    x_work = x if x.dtype == torch.float16 else x.to(torch.float16)
+    x_work = x_work.contiguous()
+    M, H = x_work.shape
+    topk = topk_ids.size(1)
+    T = M * topk
+    # permute tokens into expert-contiguous order (n_local_expert=E, no expert_map).
+    perm, _a, off64, inv_idx, _p = moe_permute(x_work, None, topk_ids, E, E, None, None)
+    off32 = off64.to(torch.int32)
+    gate_up = torch.empty(T, N13, dtype=torch.float16, device=x_work.device)
+    tb.moe_gemm_out(gate_up, perm, off32, tm["p13w"], tm["p13s"], E, K13, N13, gs, False)
+    inter = (torch.nn.functional.silu(gate_up[:, :I].float())
+             * gate_up[:, I:].float()).half().contiguous()
+    down = torch.empty(T, N2, dtype=torch.float16, device=x_work.device)
+    tb.moe_gemm_out(down, inter, off32, tm["p2w"], tm["p2s"], E, K2, N2, gs, False)
+    out = torch.empty(M, H, dtype=torch.float16, device=x_work.device)
+    moe_unpermute(out, down, topk_weights.float(), inv_idx, off64)   # topk_weights fp32
+    return out
+
+
 def _our_apply(self, layer, x, bias=None):
     """Replacement for Fp8LinearMethod.apply that uses our V100 W8A16 kernel.
 
@@ -1215,6 +1377,9 @@ def _our_apply(self, layer, x, bias=None):
       - layer.input_size_per_partition  == K
       - layer.output_size_per_partition == N
     """
+    if getattr(layer, "_v100_fp8_backend", None) == "turbomind":
+        return _tm_dense_apply(layer, x, bias)
+
     N = layer.output_size_per_partition
     K = layer.input_size_per_partition
     block_h, block_w = layer.weight_block_size
@@ -1321,6 +1486,23 @@ def _our_process_weights_after_loading(self, layer):
     weight, weight_scale_inv = process_fp8_weight_block_strategy(
         layer.weight, layer.weight_scale_inv
     )
+    weight = weight.contiguous()
+
+    # Stage F: route eligible block-128 weights to the vendored TurboMind engine.
+    # LOCAL (post-TP-shard) dims decide eligibility; non-128 shards / absent engine ->
+    # ours (unchanged). Uses the RAW (pre-FP16-cast) scale so prepare gets fp32 blocks.
+    tb = _tm_backend()
+    N, K = int(weight.shape[0]), int(weight.shape[1])
+    wbs = getattr(self, "weight_block_size", None) or getattr(
+        layer, "weight_block_size", None)
+    if wbs is not None:
+        backend, why = tb.select_backend(
+            strategy="BLOCK", weight_block_size=tuple(wbs),
+            local_n=N, local_k=K, need_moe=False, quiet=True)
+        if backend == "turbomind":
+            _tm_dense_prepare(self, layer, weight, weight_scale_inv, wbs, why)
+            _maybe_log_block_shapes(self, layer, weight, weight_scale_inv)
+            return
 
     # Cast scale to FP16 once (model usually stores BF16). Lossless in practice
     # for DeepSeek-style scales; saves a per-call cast.
@@ -1379,6 +1561,26 @@ def _our_moe_process_weights_after_loading(self, layer):
             "serve_fp8_v100: V100 FP8 MoE fallback supports only block-FP8 "
             "weights with weight_block_size."
         )
+
+    # Stage F: route eligible block-128 MoE to the vendored TurboMind grouped engine.
+    # All-or-nothing per layer (w13 AND w2 must be eligible); expert parallelism
+    # (expert_map) stays on ours for now. Both LOCAL shard dims must be 128-aligned
+    # (TP8 w2 K=I/tp=64 fails this -> ours). Absent engine -> ours (unchanged).
+    tb = _tm_backend()
+    _ep = getattr(layer, "expert_map", None) is not None
+    _wbs = getattr(self, "weight_block_size", None)
+    if (not _ep) and _wbs is not None:
+        _w13, _w2 = layer.w13_weight, layer.w2_weight
+        b13, r13 = tb.select_backend(
+            strategy="BLOCK", weight_block_size=tuple(_wbs),
+            local_n=int(_w13.shape[1]), local_k=int(_w13.shape[2]), need_moe=True,
+            quiet=True)
+        b2, r2 = tb.select_backend(
+            strategy="BLOCK", weight_block_size=tuple(_wbs),
+            local_n=int(_w2.shape[1]), local_k=int(_w2.shape[2]), need_moe=True, quiet=True)
+        if b13 == "turbomind" and b2 == "turbomind":
+            _tm_moe_prepare(self, layer)
+            return
 
     w13 = layer.w13_weight.contiguous()
     w2 = layer.w2_weight.contiguous()
@@ -1976,6 +2178,10 @@ def _our_moe_apply(self, layer, x, topk_weights, topk_ids, shared_experts_input)
     """
     del shared_experts_input  # Shared experts are handled by DefaultMoERunner.
 
+    if getattr(layer, "_v100_fp8_backend", None) == "turbomind":
+        out = _our_moe_apply_turbomind(self, layer, x, topk_weights, topk_ids)
+        return out if out.dtype == x.dtype else out.to(x.dtype)
+
     if not self.block_quant:
         raise NotImplementedError(
             "serve_fp8_v100: V100 FP8 MoE fallback supports only block-FP8."
@@ -2508,6 +2714,29 @@ def _patch_vllm_for_v100():
 
     Fp8MoEMethod.maybe_make_prepare_finalize = patched_moe_maybe_pf
     Fp8OnlineMoEMethod.maybe_make_prepare_finalize = patched_online_moe_maybe_pf
+
+    # Stage F: resolve the vendored TurboMind SM70 FP8 engine ONCE, here at startup.
+    # Presence check by default (baked image); JIT-build only under
+    # VLLM_V100_FP8_ENGINE_JIT=1 (dev). select_backend() gates every FP8 weight on
+    # ops_available(), so resolving here pays the (dev) build cost at startup rather
+    # than on the first layer's process_weights_after_loading. NEVER silently JITs
+    # under a service (flag off by default).
+    if _is_volta():
+        try:
+            from fp8_w8a16_sm70 import turbomind_fp8_backend as _tb
+            _mode = _tb.backend_mode()
+            _have = _tb.ops_available(need_moe=True)
+            print(f"[serve_fp8_v100 pid={os.getpid()}] TurboMind FP8 engine: mode={_mode} "
+                  f"ops_available={_have} jit={'on' if _tb._jit_enabled() else 'off'}",
+                  flush=True)
+            if _mode == "turbomind" and not _have:
+                print(f"[serve_fp8_v100 pid={os.getpid()}] WARNING: "
+                      f"VLLM_V100_FP8_BACKEND=turbomind but engine ops absent — eligible "
+                      f"layers will HARD-RAISE at load. Build the engine into the image or "
+                      f"set VLLM_V100_FP8_ENGINE_JIT=1.", flush=True)
+        except Exception as _exc:
+            print(f"[serve_fp8_v100 pid={os.getpid()}] TurboMind FP8 engine probe skipped: "
+                  f"{type(_exc).__name__}: {_exc}", flush=True)
 
     # Patch 9: optional coarse decode breakdown for Qwen3-Next/Qwen3.5.
     # Attach once after model construction so forward hooks cover all layers but

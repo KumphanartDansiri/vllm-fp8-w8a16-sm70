@@ -49,18 +49,79 @@ def backend_mode() -> str:
     return m if m in _VALID_MODES else "auto"
 
 
-def ops_available(need_moe: bool = False) -> bool:
-    """True iff the upstream-lmdeploy SM70 FP8 ops are built into this image."""
+# ── engine resolution: presence-check by default, JIT only when explicitly asked ──
+# The vendored engine registers its ops under the `turbomind_fp8_sm70` TORCH_LIBRARY
+# namespace (third_party/turbomind_gemm_sm70/binding/fp8_sm70_bindings.cpp), NOT under
+# vLLM's `_C`. `ensure_engine()` returns that namespace handle (or None) and is memoized
+# so it is safe to call per-weight during load.
+#
+# Deployment (Codex, firm): PRODUCTION bakes the engine into the image → the ops are
+# already registered at import and `ensure_engine()` is a pure presence check. It NEVER
+# silently JIT-compiles under a service. A dev box may opt in to a one-time JIT build with
+# VLLM_V100_FP8_ENGINE_JIT=1 (compiles the third_party/ subtree via _ext_build.build_ops()).
+_ENGINE_CACHE = None  # None = unchecked; False = checked-absent; else the ops namespace
+
+
+def _jit_enabled() -> bool:
+    return os.environ.get("VLLM_V100_FP8_ENGINE_JIT", "0").strip().lower() in (
+        "1", "on", "true", "yes")
+
+
+def _build_engine_via_ext():
+    """Dev-only: compile the vendored engine from this repo's third_party/ subtree."""
+    import importlib.util
+    here = os.path.dirname(os.path.abspath(__file__))
+    repo_root = os.path.dirname(os.path.dirname(here))          # src/fp8_w8a16_sm70 -> src -> repo
+    ext_path = os.path.join(repo_root, "third_party", "turbomind_gemm_sm70", "_ext_build.py")
+    if not os.path.exists(ext_path):
+        raise FileNotFoundError(f"engine builder not found: {ext_path}")
+    spec = importlib.util.spec_from_file_location("_tm_fp8_sm70_ext_build", ext_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.build_ops()
+
+
+def ensure_engine():
+    """Return the `torch.ops.turbomind_fp8_sm70` ops namespace, or None if absent.
+
+    Presence check first (baked image); JIT-build once only under
+    VLLM_V100_FP8_ENGINE_JIT=1 (dev). Memoized — the build (if any) runs at most once.
+    """
+    global _ENGINE_CACHE
+    if _ENGINE_CACHE is not None:
+        return _ENGINE_CACHE or None
     try:
         import torch
-        C = torch.ops._C
-        ok = hasattr(C, "fp8_sm70_prepare") and hasattr(C, "fp8_gemm_sm70_out")
-        if need_moe:
-            ok = ok and hasattr(C, "fp8_moe_gemm_sm70_out") and \
-                hasattr(C, "awq_moe_build_strided_ptrs")
-        return bool(ok)
+        ns = torch.ops.turbomind_fp8_sm70               # lazy proxy; never raises here
+        if hasattr(ns, "fp8_sm70_prepare"):             # already registered (baked)
+            _ENGINE_CACHE = ns
+            return ns
+        if _jit_enabled():                              # dev opt-in: build once
+            try:
+                _build_engine_via_ext()
+                ns = torch.ops.turbomind_fp8_sm70
+                if hasattr(ns, "fp8_sm70_prepare"):
+                    _log("engine JIT-built (VLLM_V100_FP8_ENGINE_JIT=1)")
+                    _ENGINE_CACHE = ns
+                    return ns
+            except BaseException as exc:                # build_ops may sys.exit -> SystemExit
+                _log(f"engine JIT build FAILED ({type(exc).__name__}: {exc}); backend->ours")
     except Exception:
+        pass
+    _ENGINE_CACHE = False
+    return None
+
+
+def ops_available(need_moe: bool = False) -> bool:
+    """True iff the upstream-lmdeploy SM70 FP8 ops are resolvable (baked or dev-JIT)."""
+    ns = ensure_engine()
+    if ns is None:
         return False
+    ok = hasattr(ns, "fp8_sm70_prepare") and hasattr(ns, "fp8_gemm_sm70_out")
+    if need_moe:
+        ok = ok and hasattr(ns, "fp8_moe_gemm_sm70_out") and \
+            hasattr(ns, "awq_moe_build_strided_ptrs")
+    return bool(ok)
 
 
 def turbomind_eligible(
@@ -134,30 +195,49 @@ def select_backend(
 
 
 # ── TurboMind call wrappers (the required contract; NEVER `_auto`) ───────────────
-# These pass straight through to the upstream-lmdeploy SM70 FP8 ops via vLLM's _custom_ops,
+# These pass straight through to the vendored SM70 FP8 ops (torch.ops.turbomind_fp8_sm70),
 # always threading the packed leading dims (k_ld,q_ld) from prepare. They raise if the ops
 # are absent (image without the engine) — callers must gate on select_backend()=="turbomind".
 
+def _engine():
+    ns = ensure_engine()
+    if ns is None:
+        raise RuntimeError(
+            "turbomind_fp8_sm70 ops are not available in this image. Build the engine into "
+            "the image (production) or set VLLM_V100_FP8_ENGINE_JIT=1 (dev). This call should "
+            "be gated on select_backend()=='turbomind'.")
+    return ns
+
+
 def prepare(qweight, scales, group_size: int = BLOCK):
     """Pack an FP8 [N,K] weight + block scales -> (tm_weight, tm_scales, meta[k_ld,q_ld])."""
-    from vllm import _custom_ops as ops
-    if scales.dtype not in (getattr(__import__("torch"), "float32"),):
+    import torch
+    if scales.dtype != torch.float32:
         scales = scales.float()               # prepare requires fp32 block scales
-    return ops.fp8_sm70_prepare(qweight, scales, group_size)
+    return _engine().fp8_sm70_prepare(qweight, scales, group_size)
 
 
 def gemm_out(out, x, tm_weight, tm_scales, k_ld, q_ld, group_size: int = BLOCK):
     """Dense FP8 W8A16 GEMM via the explicit-ld (correct) entry point. Never `_auto`."""
-    from vllm import _custom_ops as ops
-    ops.fp8_gemm_sm70_out(out, x, tm_weight, tm_scales, group_size, int(k_ld), int(q_ld))
+    _engine().fp8_gemm_sm70_out(out, x, tm_weight, tm_scales, group_size, int(k_ld), int(q_ld))
+
+
+def moe_build_strided_ptrs(tm_weights_stacked, tm_scales_stacked, k_ld, q_ld, num_experts):
+    """Build the per-expert strided (weight,scale) pointer tensors the grouped GEMM consumes.
+
+    `tm_weights_stacked`/`tm_scales_stacked` are torch.stack() of each expert's prepared
+    packed weight/scale; all experts share the packed (k_ld,q_ld) for a given shape.
+    """
+    return _engine().awq_moe_build_strided_ptrs(
+        tm_weights_stacked, tm_scales_stacked, int(k_ld), int(q_ld), int(num_experts))
 
 
 def moe_gemm_out(out, sorted_x, expert_offsets, ptrs_w, ptrs_s, num_experts,
                  k, n, group_size: int = BLOCK, gated_silu: bool = False):
     """Grouped FP8 MoE GEMM. Strided ptrs carry the packed ld (built via prepare meta)."""
-    from vllm import _custom_ops as ops
-    ops.fp8_moe_gemm_sm70_out(out, sorted_x, expert_offsets, ptrs_w, ptrs_s,
-                              int(num_experts), int(k), int(n), int(group_size), bool(gated_silu))
+    _engine().fp8_moe_gemm_sm70_out(out, sorted_x, expert_offsets, ptrs_w, ptrs_s,
+                                    int(num_experts), int(k), int(n), int(group_size),
+                                    bool(gated_silu))
 
 
 # ── self-test: exercises the DECISION logic without needing the engine ───────────
