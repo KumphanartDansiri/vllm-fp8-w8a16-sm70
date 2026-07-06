@@ -61,8 +61,11 @@ COMMON_MOUNTS=(
 # layer's footprint is packed-only (≈ the ours-FP8-resident size). Required for the MoE
 # model to fit (keeping raw+packed ~doubles expert memory -> OOM). Validated safe: smoke
 # cos=1.0000 on the packed path + dense TP serve. Set FREE_RAW=0 to keep raw (debug).
+# ENGINE_JIT=1 (default): dev — JIT-build the engine into the persisted cache.
+# ENGINE_JIT=0: use a baked image whose VLLM_V100_FP8_ENGINE_SO points at a prebuilt .so
+# (production packaging; no runtime compile). ensure_engine() load_library()'s it.
 TM_ENV=(
-  -e VLLM_V100_FP8_ENGINE_JIT=1 -e VLLM_V100_FP8_BACKEND=auto
+  -e VLLM_V100_FP8_ENGINE_JIT="${ENGINE_JIT:-1}" -e VLLM_V100_FP8_BACKEND=auto
   -e VLLM_V100_FP8_TM_FREE_RAW="${FREE_RAW:-1}"
   -e VLLM_V100_FP8_COALESCED_GEMV=1 -e VLLM_V100_FP8_COALESCED_UNROLL=4
   -e VLLM_V100_FP8_COALESCED_M_UNROLL=4 -e VLLM_V100_FP8_COALESCED_GEMV_M_MAX=8

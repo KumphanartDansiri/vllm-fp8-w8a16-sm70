@@ -34,8 +34,16 @@ _TUNER = ["tuner/cache_utils.cu", "tuner/measurer.cu", "tuner/sampler.cu",
           "tuner/stopping_criterion.cc", "tuner/params.cc"]
 
 
-def build_ops():
-    """Compile (or load from cache) the vendored engine; return torch.ops.turbomind_fp8_sm70."""
+def build_ops(build_directory=None, allow_load_failure=False):
+    """Compile (or load from cache) the vendored engine; return torch.ops.turbomind_fp8_sm70.
+
+    build_directory: if given, build the extension there (AOT). The resulting standalone
+    `turbomind_fp8_sm70.so` can be baked into an image and loaded at runtime via
+    torch.ops.load_library() with NO recompile and NO JIT (production path).
+    allow_load_failure: for AOT bakes at `docker build` time there is no CUDA DRIVER
+    (libcuda.so.1) to dlopen the freshly-linked .so — the compile+link still succeeds and
+    the .so is valid; tolerate the build-time load failure and return None (runtime
+    load_library() with the driver present registers the ops)."""
     cutlass = next((c for c in _CUTLASS_CANDIDATES if os.path.exists(c + "/cutlass/cutlass.h")), None)
     if not cutlass:
         sys.exit("[FATAL] no CUTLASS include found in image")
@@ -58,10 +66,13 @@ def build_ops():
         sys.exit("[FATAL] missing sources:\n  " + "\n  ".join(missing))
 
     print(f"[vendor] compiling {len(sources)} sources from third_party/ for sm_70 ...")
+    if build_directory:
+        os.makedirs(build_directory, exist_ok=True)
     t0 = time.time()
-    load(
+    load_kwargs = dict(
         name="turbomind_fp8_sm70",
         sources=sources,
+        build_directory=build_directory,          # None => default JIT cache; set => AOT bake
         extra_include_paths=[TP, cutlass, f"{TP}/3rdparty/moodycamel", fmt],
         extra_cflags=["-std=c++17", "-O2", "-DCUTE_SM90_EXTENDED_MMA_SHAPES_ENABLED", "-DFMT_HEADER_ONLY"],
         extra_cuda_cflags=[
@@ -75,5 +86,19 @@ def build_ops():
         is_python_module=False,
         verbose=True,
     )
-    print(f"[vendor] BUILD OK in {time.time()-t0:.0f}s")
+    so = os.path.join(build_directory, "turbomind_fp8_sm70.so") if build_directory else None
+    try:
+        load(**load_kwargs)
+    except OSError as exc:
+        # compile+link done, but no CUDA driver to dlopen at build time (docker build).
+        if allow_load_failure and so and os.path.exists(so):
+            print(f"[vendor] AOT COMPILE OK in {time.time()-t0:.0f}s -> {so} "
+                  f"(build-time dlopen skipped, no driver: {type(exc).__name__})")
+            return None
+        raise
+    dt = time.time() - t0
+    if build_directory:
+        print(f"[vendor] AOT BUILD OK in {dt:.0f}s -> {so} (exists={os.path.exists(so)})")
+    else:
+        print(f"[vendor] BUILD OK in {dt:.0f}s")
     return torch.ops.turbomind_fp8_sm70

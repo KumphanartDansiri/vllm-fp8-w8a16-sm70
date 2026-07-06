@@ -93,9 +93,24 @@ def ensure_engine():
     try:
         import torch
         ns = torch.ops.turbomind_fp8_sm70               # lazy proxy; never raises here
-        if hasattr(ns, "fp8_sm70_prepare"):             # already registered (baked)
+        if hasattr(ns, "fp8_sm70_prepare"):             # already registered (imported)
             _ENGINE_CACHE = ns
             return ns
+        # PRODUCTION: a prebuilt .so baked into the image (VLLM_V100_FP8_ENGINE_SO) —
+        # load_library is a pure dlopen (no compile), so serving needs NO JIT flag.
+        so = os.environ.get("VLLM_V100_FP8_ENGINE_SO", "").strip()
+        if so and os.path.exists(so):
+            try:
+                torch.ops.load_library(so)
+                ns = torch.ops.turbomind_fp8_sm70
+                if hasattr(ns, "fp8_sm70_prepare"):
+                    # print (not info_once) so the baked path is auditable in serve logs.
+                    print(f"[fp8-backend] engine loaded from baked .so: {so}", flush=True)
+                    _ENGINE_CACHE = ns
+                    return ns
+            except Exception as exc:
+                print(f"[fp8-backend] load baked .so FAILED ({so}): "
+                      f"{type(exc).__name__}: {exc}", flush=True)
         if _jit_enabled():                              # dev opt-in: build once
             try:
                 _build_engine_via_ext()

@@ -1,0 +1,28 @@
+# TurboMind SM70 FP8 engine baked into the validated cu126 image (Stage F production packaging).
+#
+# Produces a prebuilt torch.ops.turbomind_fp8_sm70 .so so serving needs NO runtime JIT:
+# ensure_engine() load_library()'s the .so pointed to by VLLM_V100_FP8_ENGINE_SO (a pure
+# dlopen — no compile, no torch_extensions cache, no "works in shell not systemd").
+#
+# The adapter/loader Python (src/) is still mounted at serve time; this image only bakes the
+# engine .so + the pointer env, so it composes with the existing serve invocation.
+#
+# Build (from repo root):
+#   docker build -t vllm-v100:vllm021-cu126-fp8engine -f docker/Dockerfile.fp8engine .
+# Serve WITHOUT the JIT flag:
+#   IMAGE=vllm-v100:vllm021-cu126-fp8engine ENGINE_JIT=0 bash tools/turbomind_ab/tp_serve_validate.sh
+
+ARG BASE_IMAGE=vllm-v100:vllm021-cu126
+FROM ${BASE_IMAGE}
+
+# Vendored engine sources (pinned lmdeploy v0.14.0 + V100 deltas; see PROVENANCE.md).
+COPY third_party/turbomind_gemm_sm70 /opt/fp8engine/third_party/turbomind_gemm_sm70
+
+# AOT-compile the sm70 FP8 s884 engine to a standalone .so. No GPU is needed to compile+link;
+# the freshly-linked .so cannot be dlopen'd at build time (no CUDA DRIVER libcuda.so.1 without
+# --gpus), so allow_load_failure=True tolerates that — runtime load_library() (driver present)
+# registers the ops. The `test -f` asserts the .so was produced.
+RUN python3 -c "import sys; sys.path.insert(0, '/opt/fp8engine/third_party/turbomind_gemm_sm70'); import _ext_build; _ext_build.build_ops(build_directory='/opt/fp8engine/lib', allow_load_failure=True)" \
+    && test -f /opt/fp8engine/lib/turbomind_fp8_sm70.so
+
+ENV VLLM_V100_FP8_ENGINE_SO=/opt/fp8engine/lib/turbomind_fp8_sm70.so

@@ -33,8 +33,16 @@ Code written (uncommitted; both files `py_compile` clean, adapter `_selftest` PA
 - **`_TM_FREE_RAW` now defaults ON** — validated (smoke packed cos=1.0 + both TP serves) and REQUIRED:
   with it off, a turbomind MoE layer keeps raw+packed (~2× experts) and OOMs at TP2. apply() only reads
   the packed weight, so freeing raw is safe.
-- **NEXT:** TP=4, then bake the engine into the image (`docker/Dockerfile.prod`) + rerun without JIT,
-  then cudagraph (non-eager) + throughput. TP8 stays on ours (I/tp=64 breaks block-128) — deferred.
+- **Baked-image no-JIT serve: PASS** (`docker/Dockerfile.fp8engine` → `vllm-v100:vllm021-cu126-fp8engine`).
+  The engine is AOT-compiled to `/opt/fp8engine/lib/turbomind_fp8_sm70.so` at image build; runtime
+  `ensure_engine()` `load_library()`'s it (pointed to by `VLLM_V100_FP8_ENGINE_SO`) — **no compile, no
+  torch_extensions, no JIT flag**. Served both models at `ENGINE_JIT=0`: turbomind engaged on all ranks,
+  0 turbomind JIT compiles, output sha identical to the JIT runs (baked .so byte-equivalent). This is the
+  production path; runtime JIT (`VLLM_V100_FP8_ENGINE_JIT=1`) is dev-only. (AOT build tolerates the
+  build-time dlopen failure — no CUDA driver during `docker build`; the linked .so is valid.)
+- **NEXT:** cudagraph (drop `--enforce-eager`, `{"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY"}`) +
+  throughput vs ours/FP16 baseline. TP8 stays on ours (I/tp=64 breaks block-128) — deferred. Eager decode
+  (~6 tok/s) is correctness/logistics only, not the perf story.
 
 Safety: with the engine absent (baseline image, default `auto`), every FP8 weight resolves to
 `ours` → **zero behaviour change**. Verified: adapter returns `ours` when ops absent.
