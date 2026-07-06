@@ -78,7 +78,7 @@ done
 [[ "$healthy" == 1 ]] || { note "$CNAME FAILED to become healthy"; docker stop "$CNAME" >/dev/null 2>&1; exit 1; }
 
 # engagement confirmation (buyer trust: prove which path actually ran)
-eng=$(grep -cE "TurboMind (DENSE|MoE) engaged" "$SLOG" 2>/dev/null || echo 0)
+eng=$(grep -cE "TurboMind (DENSE|MoE) engaged" "$SLOG" 2>/dev/null || true); eng=${eng:-0}
 if [[ "$BACKEND" == turbomind ]]; then
   (( eng > 0 )) && note "engagement OK: TurboMind engaged ($eng banners)" \
     || note "WARN: BACKEND=turbomind but NO TurboMind-engaged banner — measuring ours?!"
