@@ -1,8 +1,29 @@
 # Stage F — Loader-wiring design note (TurboMind SM70 FP8 engine → the loader)
 
-Status: **IMPLEMENTED (native Fp8 path), awaiting the loader smoke.** Branch
-`fp8-engine-stage-f-loader-wiring` off `fp8-engine-stage-f-build` (@33885e7). Codex confirmed both
-findings + all open decisions (2026-07-05); wiring targets the native Fp8 path as recommended.
+Status: **✅ FP8 EXTENSION COMPLETE — correctness locked (2026-07-06).** Branch
+`fp8-engine-stage-f-loader-wiring` off `fp8-engine-stage-f-build` (@33885e7). Ready to push (dual-host,
+user passphrase). All gates green: wiring → smoke (cos=1.0000) → TP≤4 serve → baked/no-JIT → cudagraph →
+**serving exactness (agrees with `ours`)**.
+
+## Stage-G wrap — backend contract + final verdict
+- **`VLLM_V100_FP8_BACKEND=auto`** (default): TurboMind for eligible **block-128 FP8** (block-(128,128),
+  LOCAL post-TP-shard dims 128-aligned, engine ops present); **`ours` otherwise** (channel/tensor scale,
+  TP-broken shards e.g. TP8 MoE I/tp=64, or engine absent). **`=ours`** always ours. **`=turbomind`**
+  turbomind-or-hard-raise (no silent wrong backend). Engine absent → every weight → ours → zero change.
+- **Production packaging:** engine baked into the image (`docker/Dockerfile.fp8engine` →
+  `vllm-v100:vllm021-cu126-fp8engine`, AOT `.so` + `load_library`); **no runtime JIT** under the service.
+  Dev may opt into JIT with `VLLM_V100_FP8_ENGINE_JIT=1`. `VLLM_V100_FP8_TM_FREE_RAW=1` (default) drops the
+  raw FP8 after packing (packed-only footprint; required for MoE to fit).
+- **Correctness: COMPLETE.** Numerical cos=1.0000 (kernel + wired loader) AND serving agreement vs the
+  trusted `ours` path (dense 100% bit-identical; MoE diverges only at benign logit-ties, both outputs
+  correct). The benign MoE divergence = FP8 numerical noise flipping coin-toss tokens under greedy
+  (grows with TP-sharding), NOT a kernel defect.
+- **Session lesson (recorded):** never run parallel GPU jobs sharing the `torch_extensions` cache during
+  cudagraph capture — it invalidates the capture.
+- **Deferred (separate topics, user 2026-07-06):** performance sweep (turbomind vs our FP8 dequant — the
+  buyer-facing "what do I get?" numbers) is next; GPTQ/AWQ is a later phase after all FP8 is settled.
+
+Codex confirmed both findings + all open decisions (2026-07-05); wiring targets the native Fp8 path.
 
 ## IMPLEMENTATION STATUS (2026-07-05)
 Code written (uncommitted; both files `py_compile` clean, adapter `_selftest` PASS):
