@@ -48,7 +48,7 @@ if [[ "$busy" -gt 0 ]]; then
   nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv 2>/dev/null | tee -a "$SUMMARY"
   exit 2
 fi
-note "box clean; IMAGE=$IMAGE TP=$TP GPUS=$GPUS gentok=$GENTOK maxlen=$MAXLEN"
+note "box clean; IMAGE=$IMAGE TP=$TP GPUS=$GPUS MODE=${MODE:-eager} BACKEND=${BACKEND:-auto} gentok=$GENTOK maxlen=$MAXLEN"
 
 COMMON_MOUNTS=(
   -v /mnt/models:/mnt/models:ro -v "$PWD":/work -w /work -e PYTHONPATH=/work/src
@@ -65,11 +65,20 @@ COMMON_MOUNTS=(
 # ENGINE_JIT=0: use a baked image whose VLLM_V100_FP8_ENGINE_SO points at a prebuilt .so
 # (production packaging; no runtime compile). ensure_engine() load_library()'s it.
 TM_ENV=(
-  -e VLLM_V100_FP8_ENGINE_JIT="${ENGINE_JIT:-1}" -e VLLM_V100_FP8_BACKEND=auto
+  -e VLLM_V100_FP8_ENGINE_JIT="${ENGINE_JIT:-1}" -e VLLM_V100_FP8_BACKEND="${BACKEND:-auto}"
   -e VLLM_V100_FP8_TM_FREE_RAW="${FREE_RAW:-1}"
   -e VLLM_V100_FP8_COALESCED_GEMV=1 -e VLLM_V100_FP8_COALESCED_UNROLL=4
   -e VLLM_V100_FP8_COALESCED_M_UNROLL=4 -e VLLM_V100_FP8_COALESCED_GEMV_M_MAX=8
 )
+
+# MODE=eager (default): --enforce-eager. MODE=cudagraph: mode-0 + FULL_DECODE_ONLY capture
+# (the V100-validated decode config; TRITON_ATTN is set above). Cudagraph gives the real
+# decode throughput; eager is correctness/logistics only.
+if [[ "${MODE:-eager}" == "cudagraph" ]]; then
+  MODE_ARGS=(--compilation-config '{"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY"}')
+else
+  MODE_ARGS=(--enforce-eager)
+fi
 
 # ── 1) PREWARM: build both extensions into the persisted cache (once) ─────────────
 note "prewarm: building W8A16 kernel + TurboMind engine into $TEXT_CACHE ..."
@@ -97,7 +106,7 @@ for row in "${MODELS[@]}"; do
   CNAME="tpval_${TAG}_tp${TP}"
   SLOG="$OUT/serve_${TAG}.log"; SAMPLE="$OUT/sample_${TAG}.txt"
   docker rm -f "$CNAME" >/dev/null 2>&1 || true
-  note "=== $TAG: serving $MODEL (TP=$TP, eager, backend=auto) ==="
+  note "=== $TAG: serving $MODEL (TP=$TP, ${MODE:-eager}, backend=${BACKEND:-auto}) ==="
 
   docker run --rm -i --name "$CNAME" --gpus "\"device=$GPUS\"" \
     "${COMMON_MOUNTS[@]}" -p ${PORT}:${PORT} --shm-size=16g \
@@ -109,7 +118,7 @@ for row in "${MODELS[@]}"; do
     python3 -m fp8_w8a16_sm70.vllm_serve \
       --model "$MODEL" --served-model-name "$SERVED" \
       --tensor-parallel-size "$TP" --dtype float16 --quantization fp8 \
-      --enforce-eager \
+      "${MODE_ARGS[@]}" \
       --max-model-len "$MAXLEN" --max-num-seqs "$NS" --skip-mm-profiling \
       --gpu-memory-utilization "$GPUMEM" \
       --host 0.0.0.0 --port "$PORT" \

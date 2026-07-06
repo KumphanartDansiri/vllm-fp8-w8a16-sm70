@@ -40,9 +40,16 @@ Code written (uncommitted; both files `py_compile` clean, adapter `_selftest` PA
   0 turbomind JIT compiles, output sha identical to the JIT runs (baked .so byte-equivalent). This is the
   production path; runtime JIT (`VLLM_V100_FP8_ENGINE_JIT=1`) is dev-only. (AOT build tolerates the
   build-time dlopen failure — no CUDA driver during `docker build`; the linked .so is valid.)
-- **NEXT:** cudagraph (drop `--enforce-eager`, `{"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY"}`) +
-  throughput vs ours/FP16 baseline. TP8 stays on ours (I/tp=64 breaks block-128) — deferred. Eager decode
-  (~6 tok/s) is correctness/logistics only, not the perf story.
+- **Cudagraph serve: PASS** (baked image, no JIT, TP=2, `MODE=cudagraph` =
+  `{"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY"}` + TRITON_ATTN). Graph capture is SAFE with the
+  turbomind path incl. grouped MoE (moe_permute + grouped GEMM + freed-raw weights all capture fine).
+  Real decode throughput: **27B dense 35.08 tok/s** (6.1× eager), **35B-A3B MoE 74.06 tok/s** (12× eager) —
+  both comfortable (>30). Output coherent both models. NOTE: MoE greedy output sha differs eager-vs-cudagraph
+  (dense is identical) — coherent both, almost certainly greedy-MoE numerical sensitivity to graph capture,
+  not a bug; to isolate, compare against `BACKEND=ours` under cudagraph (does ours diverge the same way?).
+- **NEXT:** `BACKEND=ours` cudagraph A/B (turbomind-vs-ours decode tok/s + the sha-divergence isolation)
+  and the FP16 baseline for the perf story; then Stage G (narrative/maintenance). TP8 stays on ours
+  (I/tp=64 breaks block-128) — deferred.
 
 Safety: with the engine absent (baseline image, default `auto`), every FP8 weight resolves to
 `ours` → **zero behaviour change**. Verified: adapter returns `ours` when ops absent.
