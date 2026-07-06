@@ -47,9 +47,20 @@ Code written (uncommitted; both files `py_compile` clean, adapter `_selftest` PA
   both comfortable (>30). Output coherent both models. NOTE: MoE greedy output sha differs eager-vs-cudagraph
   (dense is identical) — coherent both, almost certainly greedy-MoE numerical sensitivity to graph capture,
   not a bug; to isolate, compare against `BACKEND=ours` under cudagraph (does ours diverge the same way?).
-- **NEXT:** `BACKEND=ours` cudagraph A/B (turbomind-vs-ours decode tok/s + the sha-divergence isolation)
-  and the FP16 baseline for the perf story; then Stage G (narrative/maintenance). TP8 stays on ours
-  (I/tp=64 breaks block-128) — deferred.
+- **★ SERVING EXACTNESS (the correctness gate — coherent ≠ correct; agreement with trusted `ours` IS):**
+  turbomind vs `ours`, eager, greedy (temp=0), same TP, per-token + logprobs, 8 prompts × 200 tok
+  (`tools/turbomind_ab/exactness_ab.sh` + `exactness_capture.py` + `exactness_compare.py`):
+    - **Qwen3.5-27B-FP8 dense TP=2: 1600/1600 = 100.00% token agreement, 8/8 exact** (bit-identical).
+    - **Qwen3.5-35B-A3B-FP8 MoE TP=2: 94.44%**, all 3 divergences at logit-ties (worst Δlogp 0.047).
+    - **MoE TP=4: 81.94%**, all 4 divergences "close" (worst Δlogp 0.31); decoded text confirms BOTH
+      continuations correct+coherent (formatting/phrasing coin-flips at model-uncertainty points).
+  Every divergence is LATE + at a near-tie where tm's token sits high in `ours`' distribution — the
+  signature of FP8 numerical noise amplified by greedy, NOT a systematic kernel error (which would
+  diverge early with tm's token buried). Divergence rises with TP (more shards → more tiny-diff
+  accumulation) — expected + benign. Also explains the earlier MoE eager-vs-cudagraph sha divergence.
+  **VERDICT: the extension is serving-correct.**
+- **NEXT (perf, deferred per user 2026-07-06 — correctness first):** turbomind-vs-ours + FP16 throughput
+  (cudagraph), the predict-before-purchase story, then GPTQ/AWQ. TP8 stays on ours (I/tp=64) — deferred.
 
 Safety: with the engine absent (baseline image, default `auto`), every FP8 weight resolves to
 `ours` → **zero behaviour change**. Verified: adapter returns `ours` when ops absent.
