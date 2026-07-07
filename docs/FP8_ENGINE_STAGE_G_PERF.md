@@ -55,6 +55,28 @@ grouped GEMM holds (~6.3) → **3–3.7×**. TTFT ~9× better even in eager.
 **⇒ For MoE, TurboMind is categorical: the only FP8 path that reaches usable serving speed (~11× over
 `ours` eager-only).**
 
+## Flagship — Qwen3.5-122B-A10B-FP8, TP=8
+This model has `moe_intermediate_size I = 1024`, so at TP8 `w2 K = I/8 = 128` — **still block-128
+eligible**. So the flagship gets **full TurboMind (dense + MoE) + cudagraph at TP8** (TurboMind engaged on
+all 8 ranks, 16 banners). The TP8 fallback caveat does NOT apply here — it is specific to I=512 models.
+
+| backend/mode | C1 per-user | C8 per-user | C8 aggregate | C8 TTFT |
+|--------------|-------------|-------------|--------------|---------|
+| **turbomind cudagraph** | **53.6** | **43.1** | **280.2** | 0.68s |
+| turbomind eager | 5.5 | 5.3 | 41.0 | 0.66s |
+| ours eager | 4.8 | 1.45 | 10.8 | 7.5s |
+| ours cudagraph | ❌ capture fails (MoE not capturable) | | | |
+
+- **TurboMind serves the 122B-A10B at ~53 tok/s single-user / 280 tok/s aggregate (8 users) on 8×V100**,
+  per-user barely degrading (53.6→43.1). That is comfortable flagship serving.
+- Same-mode eager: turbomind 1.1–1.4× (C1–C4) → **3.8× at C8** (ours per-user collapses 4.8→1.45).
+- **ours cannot cudagraph** the MoE here either → best it can do is eager ~4.8 tok/s. Real-world
+  (turbomind cudagraph vs ours' best eager): **~11× per-user, ~19× aggregate**.
+- CONTEXT/UNRECONCILED: the legacy prod 122B (our path, vLLM **0.19** + MTP k=3) reports ~100 tok/s peak
+  single-user — a different engine/config (0.19, speculative decoding) than this 0.21 baked-image measurement;
+  not directly comparable. The finding "ours native-Fp8 grouped-MoE can't cudagraph" is specific to this
+  0.21 path/image.
+
 ## Mechanism (why)
 1. **M=1 decode ties.** Both paths are memory-bandwidth-bound reading the FP8 weights once; tensor cores
    don't help a single row. (Dense +6–8%, MoE +2% eager.)
@@ -74,8 +96,9 @@ grouped GEMM holds (~6.3) → **3–3.7×**. TTFT ~9× better even in eager.
   the weight-size difference isn't visible in these numbers.
 
 ## Caveats
-- **TP8 MoE:** at TP8 the MoE `w2` shard is `K = I/tp = 64`, which breaks block-128 eligibility → falls back
-  to `ours` → eager-only (slow). The current flagship 122B-A10B deployment at TP8 hits this; TurboMind MoE
-  needs TP≤4 (I/tp≥128). Document as a deployment reality, not a TurboMind-MoE benchmark.
+- **TP8 MoE is MODEL-SPECIFIC** (depends on `I = moe_intermediate_size`): TurboMind MoE needs `I/tp ≥ 128`
+  and 128-aligned. **I=512 (Qwen3.5-35B-A3B): TP8 → K=64 → falls back to `ours` → eager-only.** **I=1024
+  (Qwen3.5-122B-A10B): TP8 → K=128 → TurboMind stays eligible** (verified above). So the flagship 122B is
+  fully TurboMind at TP8; only the smaller I=512 MoE loses TurboMind past TP4.
 - Eager numbers are diagnostic (correctness/mechanism), not the headline; cudagraph is the real serving path.
 - Single 256/128-token run per (config, C); ballpark, not a tuned throughput campaign.
