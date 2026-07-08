@@ -208,6 +208,17 @@ _CT_MOE_W13_COAL_ENGAGED = [False]
 # (R = M*topk). Env-tunable mainly so the offline numtest can force chunking with
 # small tensors.
 _CT_MOE_W13_CHUNK = max(1, int(os.environ.get("VLLM_V100_CT_MOE_W13_CHUNK", "60000")))
+# Stage H: route CT BLOCK-128 dense weights to the vendored TurboMind engine instead of
+# dequantizing them to FP16 at load. Keeps the weight FP8-resident (no 2× VRAM blowup, so
+# block ckpts like gemma-4-31B-FP8-block fit at TP2) and gives the same accel as Qwen
+# native-fp8. Double-gated: the shared select_backend() (auto engages / ours skips /
+# turbomind raises-if-ineligible) AND a mandatory per-layer loader-cos self-check (guards
+# the "CT weight_scale ≡ native weight_scale_inv" assumption). Kill switch below (=0 →
+# CT-block reverts to the FP16-dequant path). MoE CT-block is out of scope (Stage H2).
+_CT_BLOCK_TM = os.environ.get(
+    "VLLM_V100_CT_BLOCK_TM", "1").lower() not in ("0", "off", "false", "")
+# Per-process tally of the three CT-block outcomes (buyer-facing writeup wants them distinct).
+_CT_BLOCK_TM_COUNTS = {"tm": 0, "fp16_selfcheck": 0, "fp16_ineligible": 0}
 
 
 def _is_volta() -> bool:
@@ -293,6 +304,103 @@ def _ct_log_decision(layer, kind: str, detail: str) -> None:
           f"{' [first-of-kind]' if first else ''}", flush=True)
 
 
+def _ct_block_selfcheck_ok(w, wscale, N, K):
+    """Loader-cos guard for the CT-block scale-semantics assumption (CT `weight_scale`
+    [N/128,K/128] ≡ native `weight_scale_inv`, both = fp8_weight × block_scale).
+
+    Runs the TurboMind block-128 gemm on a random probe vs the FP16-dequant reference.
+    Returns (ok, L2rel). ok=True => the packed engine reproduces the dequant path => safe
+    to serve this layer on TurboMind. Requires the engine present (caller only reaches here
+    when select_backend()=='turbomind', which already checked ops-present)."""
+    from fp8_w8a16_sm70 import turbomind_fp8_backend as tb
+    probe = torch.randn(4, K, device=w.device, dtype=torch.float16) * 0.1
+    scale_exp = (wscale.to(torch.float16)
+                 .repeat_interleave(128, 0).repeat_interleave(128, 1)[:N, :K])
+    ref = F.linear(probe, w.to(torch.float16) * scale_exp)
+    tm_w, tm_s, meta = tb.prepare(w.contiguous(), wscale.float().contiguous(), 128)
+    out = torch.empty((4, N), dtype=torch.float16, device=w.device)
+    tb.gemm_out(out, probe.contiguous(), tm_w, tm_s, int(meta[0]), int(meta[1]), 128)
+    l2 = ((out.float() - ref.float()).norm()
+          / ref.float().norm().clamp_min(1e-12)).item()
+    return (l2 < 1e-2), l2
+
+
+def _ct_handle_block(self, layer, w, N, K, strat, wbs, excluded):
+    """Stage H: own the CT BLOCK-128 dense weight path. Returns True if handled (caller
+    returns), False if this is not a block-strategy weight (fall through to channel/tensor).
+
+    Outcomes (each gets a DISTINCT ct-layer log line for the buyer-facing writeup):
+      • ct-block->TurboMind      : eligible + self-check passed → FP8-resident engine path.
+      • ct-block->FP16 (selfcheck): self-check FAIL/ERR → per-layer FP16 dequant fallback.
+      • ct-block->FP16 (ineligible/no-engine/killswitch/excluded) → FP16 dequant fallback.
+    """
+    if "BLOCK" not in strat or wbs is None:
+        return False                          # not block strategy → channel/tensor logic
+    from vllm.model_executor.utils import replace_parameter
+    wscale = getattr(layer, "weight_scale", None)
+
+    tm_ok = False
+    why = ""
+    l2 = 0.0
+    kind = "fp16_ineligible"
+    detail = ""
+    if not _CT_BLOCK_TM:
+        detail = "ct-block->FP16 (killswitch VLLM_V100_CT_BLOCK_TM=0)"
+    elif excluded:
+        detail = "ct-block->FP16 (excluded)"
+    elif wscale is None:
+        detail = "ct-block->FP16 (no weight_scale)"
+    else:
+        from fp8_w8a16_sm70 import turbomind_fp8_backend as tb
+        # mode from env (auto engages / ours skips / turbomind raises-if-ineligible).
+        backend, why = tb.select_backend(
+            strategy="BLOCK", weight_block_size=tuple(wbs),
+            local_n=N, local_k=K, need_moe=False, quiet=True)
+        if backend != "turbomind":
+            detail = f"ct-block->FP16 (ineligible/no-engine: {why})"
+        elif not _CT_SELFCHECK:
+            tm_ok, l2 = True, -1.0
+        else:
+            try:
+                ok, l2 = _ct_block_selfcheck_ok(w, wscale, N, K)
+            except Exception as exc:                    # be safe: fall back on any error
+                kind, detail = "fp16_selfcheck", f"ct-block->FP16 (selfcheck-ERR: {type(exc).__name__})"
+            else:
+                if ok:
+                    tm_ok = True
+                else:
+                    kind, detail = "fp16_selfcheck", f"ct-block->FP16 (selfcheck-FAIL L2={l2:.4f})"
+
+    if tm_ok:
+        # reuse the proven native dense prepare (frees raw FP8 weight if _TM_FREE_RAW → the
+        # memory win). It frees weight_scale_inv, not CT's weight_scale — free that below.
+        from fp8_w8a16_sm70.vllm_serve import _tm_dense_prepare
+        _tm_dense_prepare(self, layer, w.contiguous(), wscale, (128, 128), f"ct-block: {why}")
+        layer._v100_ct_tm = True
+        if "weight_scale" in getattr(layer, "_parameters", {}):
+            replace_parameter(layer, "weight_scale",
+                              torch.empty(0, dtype=wscale.dtype, device=w.device))
+        _CT_BLOCK_TM_COUNTS["tm"] += 1
+        _ct_log_decision(layer, "resident",
+                         f"ct-block->TurboMind N={N},K={K} L2={l2:.4f} [{why}]")
+        return True
+
+    # FP16-dequant this block layer (same commit as the generic fallback; distinct log).
+    wdq = _dequant_ct_weight_to_fp16(layer, strat, wbs)
+    replace_parameter(layer, "weight", wdq)
+    layer._v100_ct_resident = False
+    layer._v100_ct_fp16 = True
+    if hasattr(layer, "weight_scale"):
+        try:
+            del layer._parameters["weight_scale"]
+        except Exception:
+            layer.weight_scale = None
+    layer.input_scale = None
+    _CT_BLOCK_TM_COUNTS[kind] += 1
+    _ct_log_decision(layer, "fallback", detail)
+    return True
+
+
 def patch_compressed_tensors_for_v100() -> bool:
     """Enable compressed-tensors W8A16-FP8 on sm_70. Returns True if applied.
 
@@ -359,6 +467,10 @@ def patch_compressed_tensors_for_v100() -> bool:
 
         prefix = str(getattr(layer, "prefix", ""))
         excluded = any(pat in prefix for pat in _CT_EXCLUDE)
+        # Stage H: BLOCK-128 strategy → TurboMind (FP8-resident) or per-layer FP16 fallback.
+        # Fully owns the block path; non-block strategies fall through unchanged.
+        if _ct_handle_block(self, layer, w, N, K, strat, wbs, excluded):
+            return
         sf = getattr(layer, "weight_scale", None)
         # K must be 128-aligned (the vectorized uint4 K-loop reads 128-wide chunks;
         # a non-128 K would read out of bounds). N alignment is NO LONGER required
@@ -440,6 +552,10 @@ def patch_compressed_tensors_for_v100() -> bool:
     # 3) replace apply. Resident layers -> V100 W8A16 kernel (block_h=1,block_w=128);
     #    FP16 fallback layers -> plain cuBLAS F.linear on the dequantized weight.
     def patched_apply_weights(self, layer, x, bias=None):
+        if getattr(layer, "_v100_ct_tm", False):
+            # Stage H: CT block-128 on the vendored TurboMind engine (reuse native apply).
+            from fp8_w8a16_sm70.vllm_serve import _tm_dense_apply
+            return _tm_dense_apply(layer, x, bias)
         if getattr(layer, "_v100_ct_resident", False):
             # lazy import avoids a module-load cycle (vllm_serve imports this file)
             from fp8_w8a16_sm70.vllm_serve import _v100_fp8_gemm
@@ -459,7 +575,8 @@ def patch_compressed_tensors_for_v100() -> bool:
 
     print(f"[serve_fp8_v100 ct pid={os.getpid()}] compressed-tensors W8A16-FP8 "
           f"patched for sm_70 (min_cap=70; FP8-resident channel="
-          f"{'on' if _CT_FP8_RESIDENT else 'off'}, else dequant-to-FP16). "
+          f"{'on' if _CT_FP8_RESIDENT else 'off'}; CT-block->TurboMind="
+          f"{'on' if _CT_BLOCK_TM else 'off (killswitch)'}, else dequant-to-FP16). "
           f"W8A8 left at cap=89 so its fallback to W8A16 fires.", flush=True)
     return True
 
