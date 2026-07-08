@@ -1,7 +1,8 @@
 # FP8 W8A16 on V100 for vLLM
 
-Volta-native fallback kernels and vLLM monkey-patches for serving
-DeepSeek-style block-FP8 W8A16 models on NVIDIA Tesla V100 (`sm_70`).
+A vendored TurboMind FP8 engine (default for block-128) plus Volta-native dequant
+kernels and vLLM monkey-patches, for serving block-FP8 W8A16 models — dense and
+MoE — on NVIDIA Tesla V100 (`sm_70`).
 
 Upstream vLLM dropped practical V100 support; this package brings it back on
 **vLLM 0.19 and 0.21** (source-built on CUDA 12.6). Beyond the FP8 W8A16 linear
@@ -16,10 +17,10 @@ artifact**: what the plugin is, how it works, and how to build, run, and extend
 it.
 
 > **This is not native FP8 execution.** V100 (`sm_70`) has no FP8 tensor-core
-> path. Weights are stored as block-scaled FP8 and dequantized to FP16 *inside*
-> the GEMM kernel — dequantized weights never round-trip through HBM — then
-> executed as FP16: WMMA tensor cores for prefill, CUDA-core GEMM for MoE
-> decode. See **How it works** below.
+> path. Weights are stored as block-scaled FP8 and dequantized to FP16 before the
+> math — interleaved in registers inside the TurboMind engine's WMMA kernel, or
+> *inside* our fallback GEMM kernels — never round-tripping an FP16 weight matrix
+> through HBM, then executed as FP16. See **How it works** below.
 
 ## Is this for me?
 
@@ -37,41 +38,80 @@ native FP8) or want generic FP8 tensor-core acceleration (V100 has none). See
 
 ## How it works
 
-**Mechanism.** Weights are stored in block-scaled FP8 (DeepSeek-style E4M3),
-activations stay FP16 (W8A16). Custom Volta kernels apply the per-block scale
-and dequantize FP8→FP16 *inside* the kernel, immediately before the FP16
-computation, so dequantized weights never round-trip through HBM. The two paths
-differ in how: the **prefill** path stages the dequantized FP16 weight tiles in
-shared memory (double-buffered) and feeds them to an FP16 WMMA tensor-core
-matmul; the **MoE decode** path dequantizes inline inside a CUDA-core grouped
-GEMM.
+**Mechanism.** Weights are stored in block-scaled FP8 (E4M3); activations stay
+FP16 (W8A16). Volta has **no FP8 tensor cores**, so FP8 here is a
+*memory-bandwidth* play — read half the weight bytes, compute in FP16. Two
+backends implement it, picked **per weight at load** (see [FP8 backends](#fp8-backends)):
 
-**Where this sits.** This is a **fused dequant→compute** design. FP8 weights are
-dequantized to FP16 *inside* the compute kernel, immediately before the FP16
-math; dequantized weights are never materialized as an FP16 matrix in HBM, and
-are not handed to a separate GEMM launch.
+**TurboMind engine — the default for block-128.** A vendored LMDeploy `s884`
+SM70 FP8 GEMM: a *format-integrated* kernel, where the block-scaled FP8 weight is
+unpacked and dequantized in registers *interleaved with* the WMMA tensor-core
+matmul — the way Marlin/GPTQ-Marlin weave the quantized format into the pipeline,
+rather than pre-dequantizing to an FP16 matrix. This is the real serving backend
+for block-128 weights: native `quant_method=fp8` (Qwen/DeepSeek) **and**
+compressed-tensors block (e.g. `gemma-4-31B-FP8-block`).
 
-What it is **not** is a natively-integrated quantized kernel like Marlin or
-GPTQ-Marlin, where the quantized format itself is woven into the tensor-core
-pipeline — format-aware packing, async-pipelined loads, dequantization
-interleaved directly with MMA execution. On Volta (`sm_70`) there is no
-`cp.async` and no native FP8/INT4 tensor-core support to integrate against — so
-dequant-feeds-FP16 is the pragmatic structure here, not the optimal one. The
-payoff is enabling block-FP8 MoE on hardware upstream dropped, where per-token
-sparsity (~3B of weights active) makes "read fewer bytes" matter more than peak
-GEMM efficiency.
+**Our dequant path — universal fallback + correctness reference.** A
+*fused dequant→compute* design: custom Volta kernels apply the per-block scale
+and dequantize FP8→FP16 *inside* the compute kernel, immediately before the FP16
+math, so dequantized weights never round-trip through HBM (prefill stages FP16
+tiles in shared memory for a WMMA matmul; MoE decode dequantizes inline in a
+CUDA-core grouped GEMM). It carries everything TurboMind can't: channel/tensor
+scale (RedHatAI CT-channel, GLM-4.5-Air), non-128-aligned TP shards, and any
+image without the engine baked in. It is also the bit-exact reference the engine
+is validated against.
 
-If you arrived assuming Marlin/GPTQ-Marlin, or assuming "FP8" means Hopper FP8
-tensor cores, or just "half the memory" — this is fused-dequant on hardware that
-has neither native FP8 nor the pipeline features a format-integrated kernel
-needs.
+**The Volta honesty.** Our path is fused-dequant, *not* a format-integrated
+kernel — on `sm_70` there is no `cp.async`, and for our CUDA-core decode the
+dequant-feeds-FP16 structure is pragmatic, not optimal. TurboMind closes that gap
+for the block-128 case (a real format-integrated kernel); ours remains the
+coverage path where one doesn't apply. If you arrived assuming Hopper FP8 tensor
+cores or "half the memory for free" — this is block-FP8 on hardware with neither
+native FP8 nor `cp.async`, made to serve dense **and** MoE where per-token
+sparsity makes "read fewer bytes" matter more than peak GEMM efficiency.
+
+## FP8 backends
+
+`VLLM_V100_FP8_BACKEND` selects the FP8 GEMM backend per weight:
+
+| Value | Behavior |
+|---|---|
+| `auto` *(default)* | TurboMind where **eligible**, our dequant path everywhere else |
+| `ours` | force our dequant path (the pre-engine behavior) |
+| `turbomind` | force TurboMind; **raise** if a weight is ineligible (never a silent wrong backend) |
+
+**Eligible for TurboMind** = block-128 scale (`weight_block_size == (128,128)`),
+per-rank (post-TP-shard) `N` and `K` both `% 128 == 0`, and the engine ops present
+in the image. That is native `quant_method=fp8` block (Qwen3-MoE, DeepSeek) and
+compressed-tensors block (`gemma-4-31B-FP8-block`). **Everything else stays on
+ours:** channel/tensor scale, non-aligned shards (e.g. a TP8 MoE `w2` where
+`K=I/tp` isn't 128), or any image without the engine — so with the engine absent,
+behavior is byte-for-byte the pre-engine path.
+
+**Coverage/memory fix — compressed-tensors block.** A checkpoint *labeled*
+FP8-block used to fall onto our FP16-dequant path purely because it's
+compressed-tensors instead of native `quant_method=fp8` — doubling weight VRAM.
+Wiring the compressed-tensors loader to the engine, `gemma-4-31B-FP8-block` went
+from **OOM at TP2** (30.4 GiB/worker, FP16-dequant) to **fitting at TP2**
+(TurboMind FP8-resident, ~17 GiB/worker), output **bit-identical** to the
+FP16-dequant reference (517/517 tokens), single-user decode **1.41×**. Guarded by
+a mandatory per-layer loader self-check and the `VLLM_V100_CT_BLOCK_TM` kill
+switch; falls back to FP16-dequant on any divergence.
+
+The engine is compiled **ahead-of-time into the image** (`docker/Dockerfile.fp8engine`
+→ `vllm-v100:vllm021-cu126-fp8engine`, no runtime JIT). Vendored from
+[LMDeploy](https://github.com/InternLM/lmdeploy) `v0.14.0` (Apache-2.0) with three
+documented V100 deltas, in `third_party/turbomind_gemm_sm70/`. Design + validation:
+[`docs/FP8_ENGINE_STAGE_F_LOADER_WIRING.md`](docs/FP8_ENGINE_STAGE_F_LOADER_WIRING.md),
+[`docs/FP8_ENGINE_STAGE_G_PERF.md`](docs/FP8_ENGINE_STAGE_G_PERF.md),
+[`docs/FP8_ENGINE_STAGE_H_CT_BLOCK_WIRING.md`](docs/FP8_ENGINE_STAGE_H_CT_BLOCK_WIRING.md).
 
 ## Status
 
 | Tier | What |
 |---|---|
 | **Known good** | **vLLM 0.19 + 0.21, source-built on CUDA 12.6** (0.21 = newest models; 0.19 = faster decode; both run the FP8 plugin), torch 2.10–2.11, Python 3.12, NVIDIA V100 (`sm_70`); 7 model families — dense + MoE + MLA — across FP8 / FP16 / GPTQ-Int4. The frozen matrix is tag `fp8-v100-2026-matrix`. |
-| **Validated** | dense-FP8 (coalesced + branchless dequant → *faster than FP16* at low concurrency); FlashAttention-V100 prefill + MLA bridge (GLM-4.7-Flash on both engines). |
+| **Validated** | dense-FP8 (coalesced + branchless dequant → *faster than FP16* at low concurrency); FlashAttention-V100 prefill + MLA bridge (GLM-4.7-Flash on both engines); **TurboMind FP8 engine** (default via `auto`) — serving-exactness vs ours: dense **bit-identical**, MoE benign logit-ties, 122B-A10B TP8 flagship agreement; compressed-tensors block wired in (`gemma-4-31B-FP8-block`: fits TP2, bit-identical, 1.41× C1). |
 | **Optional** | MTP speculative decoding (`ENABLE_QWEN_MTP=1`, default OFF). |
 | **In flight** | warm/chunked-prefill TTFT columns in the matrix; a tensor-core (WMMA) decode kernel to close the dense C8 gap (no timeline). |
 | **Unsupported here** | CUDA 13; native FP8 hardware compute (V100 has none); non-Volta GPUs (A100/H100/etc. — use upstream vLLM, which has native FP8). |
@@ -141,6 +181,12 @@ The launcher defaults the MoE knobs (`VLLM_V100_FP8_MOE_GROUPED_ROUTED_GEMM=1`,
 lane, run `python3 -m fp8_w8a16_sm70.vllm_serve <same args>` inside the
 `vllm-v100:vllm021-cu126` image.
 
+> **For the TurboMind engine (default for block-128), serve from the
+> engine-baked image** `vllm-v100:vllm021-cu126-fp8engine`; `VLLM_V100_FP8_BACKEND`
+> defaults to `auto` (TurboMind where eligible, ours elsewhere). The base
+> `vllm-v100:vllm021-cu126` image has no engine, so it runs the dequant path
+> unchanged. See [FP8 backends](#fp8-backends).
+
 > **Use `--max-num-seqs 8`, not `1`.** On hybrid (attention + GDN/mamba) models,
 > `--max-num-seqs 1` under cudagraph crashes at init — an upstream vLLM issue,
 > not this package. See **Known limitations**.
@@ -193,17 +239,22 @@ runs **~7–8× slower** (needs Python 3.12).
 **FP8 decode runs on CUDA cores, so the concurrency pattern splits by model
 type:**
 
-- **Dense:** FP8 **wins at 1–2 users, ~ties at 4, falls behind FP16 at 8**
-  (FP16 decode uses tensor cores more effectively at batch; ours is CUDA-core
-  dequant→matmul). Closing the C8 gap needs a WMMA decode kernel that consumes
-  FP8 directly — future work, no timeline.
+- **Dense:** on **our dequant path**, FP8 **wins at 1–2 users, ~ties at 4, falls
+  behind FP16 at 8** (FP16 batch decode uses tensor cores more effectively; ours
+  is CUDA-core dequant→matmul). The **TurboMind engine** (default) consumes FP8
+  directly through its `s884` WMMA kernel — the "WMMA decode kernel that consumes
+  FP8 directly" this section used to file under future work is now the shipped
+  default, so the C8 ceiling is engine- and model-dependent, not a fixed CUDA-core
+  limit (e.g. `gemma-4-31B-FP8-block`: TurboMind leads ours **1.41× at C1** and
+  fits at **half the TP**).
 - **Sparse MoE:** sparse activation (~3B params/token) keeps FP8's reduced weight
   traffic valuable **at every concurrency**, and for the largest models (122B,
   GLM) FP8 is **often the only format that fits**.
 
 Full per-engine (0.19 / 0.21), per-concurrency numbers are the frozen matrix
-(tag `fp8-v100-2026-matrix`) in the **V100 vLLM in 2026** write-up. Decision
-matrix + the complete flag list: [`docs/COALESCED_FP8_GEMV.md`](docs/COALESCED_FP8_GEMV.md).
+(tag `fp8-v100-2026-matrix`) in the **V100 vLLM in 2026** write-up. TurboMind-vs-ours
+serving perf (concurrency, TTFT, MoE cudagraph): [`docs/FP8_ENGINE_STAGE_G_PERF.md`](docs/FP8_ENGINE_STAGE_G_PERF.md).
+Decision matrix + the complete flag list: [`docs/COALESCED_FP8_GEMV.md`](docs/COALESCED_FP8_GEMV.md).
 
 ## Known limitations
 
@@ -294,6 +345,15 @@ loads the compiled `flash_attn_v100_cuda.so` and routes vLLM's prefill through i
 `fa_v100_mla_prefill.py` for MLA). The underlying FlashAttention algorithm is the
 work of Tri Dao et al.
 
-The FP8 W8A16 kernels (Volta WMMA prefill + grouped/coalesced CUDA-core MoE
-decode), the FP16-MoE `sm_70` config fix, and the benchmark harness are original
-to this project.
+The default FP8 GEMM backend for block-128 weights is the `s884` SM70 kernel
+vendored from [**LMDeploy / TurboMind**](https://github.com/InternLM/lmdeploy)
+`v0.14.0` (Apache-2.0), in `third_party/turbomind_gemm_sm70/` with three
+documented V100 deltas. This project does **not** rewrite that kernel: it wires
+the compiled engine into vLLM's FP8 loaders behind `VLLM_V100_FP8_BACKEND`
+(`src/fp8_w8a16_sm70/turbomind_fp8_backend.py`), and validates every eligible
+weight against our own dequant path as the bit-exact reference.
+
+Our FP8 W8A16 dequant kernels (Volta WMMA prefill + grouped/coalesced CUDA-core
+MoE decode — the universal fallback and correctness reference), the
+compressed-tensors → TurboMind loader wiring, the FP16-MoE `sm_70` config fix,
+and the benchmark harness are original to this project.
