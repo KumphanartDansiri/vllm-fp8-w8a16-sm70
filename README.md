@@ -40,26 +40,30 @@ native FP8) or want generic FP8 tensor-core acceleration (V100 has none). See
 
 **Mechanism.** Weights are stored in block-scaled FP8 (E4M3); activations stay
 FP16 (W8A16). Volta has **no FP8 tensor cores**, so FP8 here is a
-*memory-bandwidth* play — read half the weight bytes, compute in FP16. Two
-backends implement it, picked **per weight at load** (see [FP8 backends](#fp8-backends)):
+*memory-bandwidth* play — read half the weight bytes, compute in FP16. **Two
+engines** implement it, picked **per weight at load**: **our dequant kernels
+(CUDA cores)** and the vendored **TurboMind engine (Volta tensor cores)** —
+see [FP8 backends](#fp8-backends).
 
-**TurboMind engine — the default for block-128.** A vendored LMDeploy `s884`
-SM70 FP8 GEMM: a *format-integrated* kernel, where the block-scaled FP8 weight is
-unpacked and dequantized in registers *interleaved with* the WMMA tensor-core
-matmul — the way Marlin/GPTQ-Marlin weave the quantized format into the pipeline,
-rather than pre-dequantizing to an FP16 matrix. This is the real serving backend
-for block-128 weights: native `quant_method=fp8` (Qwen/DeepSeek) **and**
-compressed-tensors block (e.g. `gemma-4-31B-FP8-block`).
+**TurboMind engine — the default for block-128 (tensor cores).** A vendored
+LMDeploy `s884` SM70 FP8 GEMM — we found it through the **1catai-vLLM** project's
+V100 work and vendored it (Apache-2.0). It's a *format-integrated* kernel: the
+block-scaled FP8 weight is unpacked and dequantized in registers *interleaved
+with* the Volta `m8n8k4` **HMMA tensor-core** matmul — the way Marlin/GPTQ-Marlin
+weave the quantized format into the pipeline, rather than pre-dequantizing to an
+FP16 matrix. This is the real serving backend for block-128 weights: native
+`quant_method=fp8` (Qwen/DeepSeek) **and** compressed-tensors block (e.g.
+`gemma-4-31B-FP8-block`).
 
 **Our dequant path — universal fallback + correctness reference.** A
 *fused dequant→compute* design: custom Volta kernels apply the per-block scale
 and dequantize FP8→FP16 *inside* the compute kernel, immediately before the FP16
-math, so dequantized weights never round-trip through HBM (prefill stages FP16
-tiles in shared memory for a WMMA matmul; MoE decode dequantizes inline in a
-CUDA-core grouped GEMM). It carries everything TurboMind can't: channel/tensor
-scale (RedHatAI CT-channel, GLM-4.5-Air), non-128-aligned TP shards, and any
-image without the engine baked in. It is also the bit-exact reference the engine
-is validated against.
+math, so dequantized weights never round-trip through HBM. The **decode** hot path
+runs on **CUDA cores** (a warp-per-output coalesced GEMV / grouped MoE GEMM);
+prefill uses a WMMA matmul on FP16 tiles staged in shared memory. It carries
+everything TurboMind can't: channel/tensor scale (RedHatAI CT-channel,
+GLM-4.5-Air), non-128-aligned TP shards, and any image without the engine baked
+in. It is also the bit-exact reference the engine is validated against.
 
 **The Volta honesty.** Our path is fused-dequant, *not* a format-integrated
 kernel — on `sm_70` there is no `cp.async`, and for our CUDA-core decode the
@@ -80,13 +84,26 @@ sparsity makes "read fewer bytes" matter more than peak GEMM efficiency.
 | `ours` | force our dequant path (the pre-engine behavior) |
 | `turbomind` | force TurboMind; **raise** if a weight is ineligible (never a silent wrong backend) |
 
-**Eligible for TurboMind** = block-128 scale (`weight_block_size == (128,128)`),
-per-rank (post-TP-shard) `N` and `K` both `% 128 == 0`, and the engine ops present
-in the image. That is native `quant_method=fp8` block (Qwen3-MoE, DeepSeek) and
-compressed-tensors block (`gemma-4-31B-FP8-block`). **Everything else stays on
-ours:** channel/tensor scale, non-aligned shards (e.g. a TP8 MoE `w2` where
-`K=I/tp` isn't 128), or any image without the engine — so with the engine absent,
-behavior is byte-for-byte the pre-engine path.
+**"FP8" is not one thing.** What a checkpoint actually ships decides which engine
+serves it. TurboMind is **eligible** only for block-128 scale
+(`weight_block_size == (128,128)`) with per-rank (post-TP-shard) `N`,`K` both
+`% 128 == 0` and the engine present; ours (CUDA-core) carries everything else:
+
+| FP8 type | Config signature | Ours (CUDA-core) | TurboMind (tensor-core) |
+|---|---|:--:|:--:|
+| Native block | `quant_method=fp8`, `weight_block_size=[128,128]` | ✓ fallback/ref | ✓ **default** |
+| CT block (dense) | `compressed-tensors`, `strategy=block`, `[128,128]` | ✓ (FP16-dequant if forced) | ✓ **default** |
+| CT channel / dynamic | `compressed-tensors`, `strategy=channel` | ✓ | ✗ |
+| CT tensor | `compressed-tensors`, `strategy=tensor` | ✓ | ✗ |
+| Native block **MoE** (Qwen) | native block expert scales | ✓ fallback/ref | ✓ **default** (per-shard; TP8 `w2 K=I/tp` → ours) |
+| CT block **MoE** | `compressed-tensors` block MoE | ✗ raises¹ | ✗ deferred² |
+| CT channel/dynamic **MoE** | RedHatAI / Gemma / GLM | ✓ | ✗ |
+
+Rule of thumb: **block-128 → TurboMind; channel / tensor / dynamic / unaligned
+shards → ours.** With the engine absent, behavior is byte-for-byte the pre-engine
+(ours) path. ¹ Ours refuses block-strategy CT MoE (needs block-scale expansion;
+CHANNEL/TENSOR only). ² TurboMind wiring is scoped but deferred — no CT-block-MoE
+checkpoint exists to validate against; it's the only format on **neither** path.
 
 **Coverage/memory fix — compressed-tensors block.** A checkpoint *labeled*
 FP8-block used to fall onto our FP16-dequant path purely because it's
@@ -97,6 +114,29 @@ from **OOM at TP2** (30.4 GiB/worker, FP16-dequant) to **fitting at TP2**
 FP16-dequant reference (517/517 tokens), single-user decode **1.41×**. Guarded by
 a mandatory per-layer loader self-check and the `VLLM_V100_CT_BLOCK_TM` kill
 switch; falls back to FP16-dequant on any divergence.
+
+**Tested models.** TurboMind-vs-ours agreement is measured eager/greedy (temp 0);
+"benign ties" = every divergence is a logit-tie (worst Δlogp ≤ 0.08 across all
+runs, no systematic divergence — dense native-block tends bit-identical, MoE and
+hybrid land on more ties):
+
+| Model | FP8 format | D/MoE | Backend · result |
+|---|---|---|---|
+| Qwen3.5-27B-FP8 | native block | dense | **TurboMind** · 100% bit-identical |
+| Qwen3.6-27B-FP8 | native block | dense (hybrid) | **TurboMind** · 93.3%, benign ties |
+| Qwen3.5-35B-A3B-FP8 | native block | MoE | **TurboMind** · 87–94%, benign ties |
+| Qwen3.6-35B-A3B-FP8 | native block | MoE | **TurboMind** · 75.0%, benign ties |
+| Qwen3.5-122B-A10B-FP8 | native block | MoE | **mixed** (tm where shard-eligible, ours on TP8) · 80.6%, benign |
+| gemma-4-31B-it-FP8-block | CT block | dense | **TurboMind** · 100% bit-identical; fits TP2, 1.41× C1 |
+| gemma-4-31B-it-FP8-Dynamic | CT channel | dense | **ours** · coherent |
+| gemma-4-26B-A4B-it-FP8-Dynamic | CT channel | MoE | **ours** · coherent |
+| GLM-4.5-Air-FP8 | CT channel | MoE | **ours** · validated separately |
+
+**Performance** (cudagraph decode, `gemma-4-31B-FP8-block`, TP4): TurboMind
+**39.1** vs ours **27.8** tok/s at C1 (**1.41×**, FP8-resident beats FP16-dequant
+on the bandwidth-bound single-user path), and TurboMind **fits at TP2** — half the
+GPUs — where ours OOMs. Full concurrency + MoE-cudagraph numbers:
+[`docs/FP8_ENGINE_STAGE_G_PERF.md`](docs/FP8_ENGINE_STAGE_G_PERF.md).
 
 The engine is compiled **ahead-of-time into the image** (`docker/Dockerfile.fp8engine`
 → `vllm-v100:vllm021-cu126-fp8engine`, no runtime JIT). Vendored from
