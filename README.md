@@ -132,11 +132,25 @@ hybrid land on more ties):
 | gemma-4-26B-A4B-it-FP8-Dynamic | CT channel | MoE | **ours** · coherent |
 | GLM-4.5-Air-FP8 | CT channel | MoE | **ours** · validated separately |
 
-**Performance** (cudagraph decode, `gemma-4-31B-FP8-block`, TP4): TurboMind
-**39.1** vs ours **27.8** tok/s at C1 (**1.41×**, FP8-resident beats FP16-dequant
-on the bandwidth-bound single-user path), and TurboMind **fits at TP2** — half the
-GPUs — where ours OOMs. Full concurrency + MoE-cudagraph numbers:
-[`docs/FP8_ENGINE_STAGE_G_PERF.md`](docs/FP8_ENGINE_STAGE_G_PERF.md).
+**Both engines (0.19 + 0.21).** The engine and its loader wiring are identical on
+vLLM 0.19 and 0.21 — the compatibility table above is **engine-invariant** (verified
+by the engine engaging on both loaders). Only *performance* differs: 0.19 is the
+faster decode lane (~10–20%), for the engine too.
+
+**Performance** (cudagraph decode, TP2, per-user tok/s at C1 / C8):
+
+| Model | ours (0.19) | TurboMind (0.19) | ours (0.21) | TurboMind (0.21) |
+|---|---|---|---|---|
+| Qwen3.5-27B (dense) | 36.6 / 12.8 | **39.9 / 34.3** | 33.5 / 12.3 | 36.1 / 31.0 |
+| Qwen3.5-35B-A3B (MoE) | 95.0 / 46.6 | 95.2 / **69.5** | 78.9 / 42.0 | 78.1 / 63.1 |
+
+Reading it: **dense** — TurboMind is modest at C1 (~1.09×) but **decisive at C8
+(~2.7×)**, where ours' CUDA-core dense decode falls behind; **MoE** — a **tie at C1**
+(ours' grouped GEMV matches the engine at single-user), TurboMind ~1.5× at C8. Both
+backends cudagraph on both engines (ours' MoE cudagraph needs the launcher's default
+`VLLM_V100_FP8_MOE_FAST_ROUTE_PREP=1` — a capture-safe route-prep). And separately,
+on `gemma-4-31B-FP8-block` (TP4) TurboMind is 1.41× at C1 and **fits at TP2** — half
+the GPUs — where ours OOMs. More: [`docs/FP8_ENGINE_STAGE_G_PERF.md`](docs/FP8_ENGINE_STAGE_G_PERF.md).
 
 The engine is compiled **ahead-of-time into the image** (`docker/Dockerfile.fp8engine`
 → `vllm-v100:vllm021-cu126-fp8engine`, no runtime JIT). Vendored from
